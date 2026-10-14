@@ -1,0 +1,146 @@
+﻿
+===== EN =====
+OUT PATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE
+Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey. Your responses are anonymous and confidential
+Patient Information
+1. How was your experience at the reception/registration desk?
+ÔÿÉ Excellent        ÔÿÉ Good                 ÔÿÉ Fair                ÔÿÉ Poor
+2. How was your experience at the cashierÔÇÖs desk?
+ÔÿÉ Excellent        ÔÿÉ Good                 ÔÿÉ Fair                ÔÿÉ Poor
+3. How long did you wait before seeing the healthcare provider (Doctor)?
+ÔÿÉ Less than 15 minuteÔÇÖs                             ÔÿÉ 15ÔÇô30 minutes
+ÔÿÉ 30ÔÇô60 minutes                                         ÔÿÉ 1-2 hour                        ÔÿÉ More than 2 hour
+4. Where did you experience a delay? Please select all that apply.
+ÔÿÉ Reception desk                             ÔÿÉ cashierÔÇÖs desk                   ÔÿÉ triage
+ÔÿÉ Consultation                                 ÔÿÉ emergency                         ÔÿÉ Laboratory
+ÔÿÉ Radiology/imaging                       ÔÿÉ minor surgery                   ÔÿÉ physiotherapy service
+ÔÿÉ Vaccination                                  ÔÿÉ Restaurant                     ÔÿÉ I did not experience any delay
+5. Did the healthcare provider listen carefully and address your concerns during consultation time?
+ÔÿÉ Yes                               ÔÿÉ Partly                    ÔÿÉ No
+6.  Among the following OPD areas, where did you experienced a bad attitude and unprofessionalism?
+ÔÿÉ Reception desk                         ÔÿÉ cashierÔÇÖs desk                              ÔÿÉ triage
+ÔÿÉ Consultation                            ÔÿÉ emergency                                  ÔÿÉ laboratory
+ÔÿÉ Radiology/imaging                 ÔÿÉ minor surgery                               ÔÿÉ physiotherapy service
+ÔÿÉ Vaccination                          ÔÿÉ Restaurant              ÔÿÉ excellent professionalism in all services
+7. How do you rate the cleanliness of the OPD area?
+ÔÿÉ Excellent        ÔÿÉ Good                 ÔÿÉ Fair                ÔÿÉ Poor
+8. Overall, how satisfied are you with your visit today?
+ÔÿÉ Very satisfied                                 ÔÿÉ Satisfied                            ÔÿÉ Neutral
+ÔÿÉ Dissatisfied                                     ÔÿÉ Very dissatisfied
+9. What additional services would you like Dream Medical Center to offer?
+10. Please tell us where we can improve, any additional comments or suggestions.
+THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!
+--- TABLE ---
+Date: ÔÿÉÔÿÉ / ÔÿÉÔÿÉ / ÔÿÉÔÿÉÔÿÉÔÿÉ
+
+Patient Category
+ÔÿÉ New Patient                                 ÔÿÉ Returning Patient
+
+Visit Time
+ÔÿÉ 8:00 AM ÔÇô 5:00 PM                   ÔÿÉ 5:00 PM ÔÇô 9:00 PM                  ÔÿÉ 9:00 PM ÔÇô 8:00 AM
+
+Visited Services
+ÔÿÉ Gynecology & obs                    ÔÿÉ internal medicine      ÔÿÉ orthopedic
+ÔÿÉ Pediatrics                                   ÔÿÉ general surgery         ÔÿÉ Physiotherapy & rehabilitation
+ÔÿÉ General medicine                      ÔÿÉ ENT                           ÔÿÉ  Urology   
+ÔÿÉ Ophthalmology                          ÔÿÉ dental                        ÔÿÉ emergency & observation 
+ÔÿÉ Radiology /Imaging                    ÔÿÉ vaccination              ÔÿÉlaboratory 
+ÔÿÉ pharmacy                                    ÔÿÉ minor surgery
+--- TABLE ---
+--- TABLE ---
+
+===== FR =====
+QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)
+Votre avis compte pour nous et nous aidera ├á am├®liorer la qualit├® de nos services. Merci de prendre un instant pour r├®pondre ├á ce court questionnaire. Vos r├®ponses sont anonymes et confidentielles.
+Informations sur le Patient
+1. Comment ├®valuez-vous votre exp├®rience ├á la r├®ception/lÔÇÖenregistrement?
+ÔÿÉ Excellent         ÔÿÉ Bon           ÔÿÉ Moyen                 ÔÿÉ Mauvais
+2. Comment ├®valuez-vous votre exp├®rience ├á la caisse?
+ÔÿÉ Excellent         ÔÿÉ Bon           ÔÿÉ Moyen            ÔÿÉ Mauvais
+3. Combien de temps avez-vous attendu avant de voir le prestataire de soins (m├®decin)?
+ÔÿÉ Moins de 15 minutes                 ÔÿÉ 15ÔÇô30 minutes
+ÔÿÉ 30ÔÇô60 minutes                         ÔÿÉ 1ÔÇô2 heures                             ÔÿÉ Plus de 2 heures
+4. O├╣ avez-vous rencontr├® un retard? Cochez toutes les r├®ponses applicables.
+ÔÿÉ R├®ception                        ÔÿÉ Caisse                              ÔÿÉ Triage
+ÔÿÉ Consultation                    ÔÿÉ Urgences                         ÔÿÉ Laboratoire
+ÔÿÉ Radiologie/Imagerie        ÔÿÉ Petite chirurgie               ÔÿÉ Service de physioth├®rapie
+ÔÿÉ Vaccination                      ÔÿÉ Pharmacie                      ÔÿÉ Je n'ai rencontr├® aucun retard
+5. Le prestataire de soins vous a-t-il ├®cout├® attentivement et pris en compte vos pr├®occupations pendant la consultation?
+ÔÿÉ Oui                        ÔÿÉ Partiellement                         ÔÿÉ Non
+6. Parmi les zones suivantes de l'OPD, o├╣ avez-vous constat├® une mauvaise attitude ou un manque de professionnalisme?
+ÔÿÉ R├®ception                        ÔÿÉ Caisse                              ÔÿÉ Triage
+ÔÿÉ Consultation                    ÔÿÉ Urgences                         ÔÿÉ Laboratoire
+ÔÿÉ Radiologie/Imagerie        ÔÿÉ Petite chirurgie               ÔÿÉ Service de physioth├®rapie
+ÔÿÉ Vaccination               ÔÿÉ Pharmacie         ÔÿÉ Excellent professionnalisme dans tous les services
+7. Comment ├®valuez-vous la propret├® de la zone OPD?
+ÔÿÉ Excellent               ÔÿÉ Bon                  ÔÿÉ Moyen                ÔÿÉ Mauvais
+8. Dans l'ensemble, ├¬tes-vous satisfait(e) de votre visite d'aujourd'hui ?
+ÔÿÉ Tr├¿s satisfait(e)               ÔÿÉ Satisfait(e)                    ÔÿÉ Neutre
+ÔÿÉ Insatisfait(e)                   ÔÿÉ Tr├¿s insatisfait(e)
+9. Quels services suppl├®mentaires souhaiteriez-vous que Dream Medical Center propose?
+10. Merci de nous indiquer o├╣ nous pouvons nous am├®liorer, ainsi que tout autre commentaire ou suggestion.
+MERCI D'AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!
+--- TABLE ---
+Date:   ÔÿÉÔÿÉ / ÔÿÉÔÿÉ / ÔÿÉÔÿÉÔÿÉÔÿÉ
+Cat├®gorie de Patient:
+ÔÿÉ Nouveau patient                  ÔÿÉ Patient de retour
+Heure de la Visite:
+ÔÿÉ 8h00 ÔÇô 17h00                ÔÿÉ 17h00 ÔÇô 21h00              ÔÿÉ 21h00 ÔÇô 8h00
+Services Visit├®s:
+ÔÿÉ Gyn├®cologie & Obst├®trique            ÔÿÉ M├®decine interne              ÔÿÉ Orthop├®die
+ÔÿÉ P├®diatrie              ÔÿÉ Chirurgie g├®n├®rale                  ÔÿÉ Physioth├®rapie & R├®adaptation
+ÔÿÉ M├®decine g├®n├®rale                 ÔÿÉ ORL                                    ÔÿÉ Urologie
+ÔÿÉ Ophtalmologie                      ÔÿÉ Dentaire                          ÔÿÉ Urgences & Observation
+ÔÿÉ Radiologie/Imagerie                  ÔÿÉ Vaccination                         ÔÿÉ Laboratoire
+ÔÿÉ Pharmacie                                  ÔÿÉ Petite chirurgie
+--- TABLE ---
+--- TABLE ---
+
+===== RW =====
+IFISHI YO GUSUZUMA IBITEKEREZO BY'ABARWAYI BASURA ISHAMI RY'ABASUYE IVURIRO (OPD)
+Ibitekerezo byanyu ni ingirakamaro kuri twe kandi bizadufasha kunoza ubuziranenge bw'serivisi zacu. Mwitegereze mufate akanya muzuze iyi fishi ngufi. Ibisubizo byanyu ni ibanga rirengera kandi ntibigira uwo bibaza.
+Amakuru y;umurwayi
+1. Wakiriwe gute ku biro by'iyakira/kwiyandikisha?
+ÔÿÉ Byiza cyane   ÔÿÉ Byiza   ÔÿÉ Bisanzwe   ÔÿÉ Bibi
+2. Wakiriwe gute ku biro by'ubwishyu ?
+ÔÿÉ Byiza cyane   ÔÿÉ Byiza   ÔÿÉ Bisanzwe   ÔÿÉ Bibi
+3. Wategereje igihe kingana iki mbere yo kubonana n'umuganga?
+ÔÿÉ Munsi y'iminota 15   ÔÿÉ Iminota 15ÔÇô30
+ÔÿÉ Iminota 30ÔÇô60   ÔÿÉ Isaha 1ÔÇô2   ÔÿÉ Zirenze amasaha 2
+4. Ni he wagize ubukererwe? Hitamo ibihuye byose.
+ÔÿÉ Ku biro by'iyakira                   ÔÿÉ Ku biro by'ubwishyu        ÔÿÉ Ku ivuriro ryo gutoranya
+ÔÿÉ Kubonana n'umuganga            ÔÿÉ Ubutabazi                        ÔÿÉ Laboratwari
+ÔÿÉ Radiologiya/Ifoto z'Imbere      ÔÿÉ Kubagwa Bito                 ÔÿÉ Serivisi yo Kongera Imbaraga
+ÔÿÉ Inkingo                                    ÔÿÉ Farumasi                         ÔÿÉ Sinigeze ngira ubukererwe
+5. Umuganga yaguteze amatwi neza akita ku bibazo byawe mu gihe cyo kuganira?
+ÔÿÉ Yego                      ÔÿÉ Igice                      ÔÿÉ Oya
+6. Muri aya maserivisi ya OPD akurikira, ni ahe wagize imikorere mibi cyangwa itagize umwuga?
+ÔÿÉ Ku biro by'iyakira                   ÔÿÉ Ku biro by'ubwishyu        ÔÿÉ Ku ivuriro ryo gutoranya
+ÔÿÉ Kubonana n'umuganga            ÔÿÉ Ubutabazi                        ÔÿÉ Laboratwari
+ÔÿÉ Radiologiya/Ifoto z'Imbere      ÔÿÉ Kubagwa Bito                 ÔÿÉ Serivisi yo Kongera Imbaraga
+ÔÿÉ Inkingo                                    ÔÿÉ Farumasi                       ÔÿÉ Umwuga mwiza muri serivisi zose
+7. Wabonye gute isuku y'agace ka OPD?
+ÔÿÉ Byiza cyane               ÔÿÉ Byiza                  ÔÿÉ Bisanzwe               ÔÿÉ Bibi
+8. Muri rusange, unyuzwe gute n'urugendo rwawe rwÔÇÖuyu munsi?
+ÔÿÉ Ndanyuzwe cyane   ÔÿÉ Ndanyuzwe   ÔÿÉ Simbizi
+ÔÿÉ Sinanyuzwe   ÔÿÉ Sinanyuzwe na gato
+9. Ni izihe serivisi z'inyongera wifuza ko Dream Medical Center yatanga?
+10. Tubwire aho twanoza, cyangwa ibindi bitekerezo/inama ufite.
+MURAKOZE GUHITAMO DREAM MEDICAL CENTER HOSPITAL!
+--- TABLE ---
+Itariki:   ÔÿÉÔÿÉ / ÔÿÉÔÿÉ / ÔÿÉÔÿÉÔÿÉÔÿÉ
+Ubwoko bw'Umurwayi:
+ÔÿÉ Umurwayi mushya                         ÔÿÉ Umurwayi wagarutse
+
+Igihe cyo Gusura:
+ÔÿÉ 8h00 ÔÇô 17h00                  ÔÿÉ 17h00 ÔÇô 21h00                     ÔÿÉ 21h00 ÔÇô 8h00
+
+Serivisi Yasuwe:
+ÔÿÉ Ababyeyi n'Inda)             ÔÿÉ Indwara zo mu Mubiri          ÔÿÉ Amagufa 
+ÔÿÉ Ubuvuzi bw'Abana          ÔÿÉ Kubagwa Kunini                 ÔÿÉ Kongera Imbaraga z'Umubiri 
+ÔÿÉ Ubuvuzi Rusange           ÔÿÉ Amatwi, Izuru n'Umuhogo   ÔÿÉ Umuyoboro w'Inkari 
+ÔÿÉ Amaso                              ÔÿÉ Amenyo                                 ÔÿÉ Ubutabazi n'Igenzura 
+ÔÿÉ Radiologiya/Ifoto z'Imbere    ÔÿÉ Inkingo                           ÔÿÉ Laboratwari
+ÔÿÉ Farumasi                                    ÔÿÉ Kubagwa Bito
+--- TABLE ---
+--- TABLE ---
