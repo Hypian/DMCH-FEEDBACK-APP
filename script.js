@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const LG = [['rw', 'Kinyarwanda'], ['en', 'English'], ['fr', 'Français']];
 const IX = { en: 0, fr: 1, rw: 2 };
 let S = { lang: 'en', a: {} }, i = 0, A = 0, tab = 'stats';
-let answerTimer = null, submitting = false, checkingDevice = false, progressTimer = null;
+let answerTimer = null, submitting = false, progressTimer = null;
 const g = (a) => a[IX[S.lang]] || a[0];
 const U = {
   welcome: ['Welcome to DMC Hospital', 'Bienvenue à l\'hôpital DMC', 'Murakaza neza kuri DMC Hospital'],
@@ -28,21 +28,18 @@ const U = {
   introBody: ['Your feedback helps us improve the care and service we provide. It should take less than a minute to complete. Thank you for choosing Dream Medical Center Hospital.', 'Votre avis nous aide à améliorer les soins et les services que nous proposons. Il vous faudra moins d’une minute pour répondre. Merci d’avoir choisi Dream Medical Center Hospital.', 'Ibitekerezo byawe bidufasha kunoza ubuvuzi na serivisi dutanga. Kuzuza ibi bibazo ntibifata umunota umwe. Murakoze guhitamo Dream Medical Center Hospital.'],
   startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira ibibazo'],
   surveyProgress: ['Survey progress', 'Progression du questionnaire', 'Aho ugeze mu bibazo'],
-  submittingTitle: ['Submitting your survey', 'Envoi de votre questionnaire', 'Turimo kohereza ibisubizo byawe'],
+  submittingTitle: ['Saving your survey', 'Enregistrement de votre questionnaire', 'Turimo kubika ibisubizo byawe'],
   submittingStep: ['Preparing your answers', 'Préparation de vos réponses', 'Gutegura ibisubizo byawe'],
-  submitting: ['Sending your survey securely…', 'Envoi sécurisé de votre questionnaire…', 'Turimo kohereza ibisubizo byawe mu ibanga…'],
+  savingAnswers: ['Saving your answers on this device…', 'Enregistrement de vos réponses sur cet appareil…', 'Turimo kubika ibisubizo byawe muri iki gikoresho…'],
+  submitting: ['Saving your survey on this device…', 'Enregistrement de votre questionnaire sur cet appareil…', 'Turimo kubika ibisubizo byawe muri iki gikoresho…'],
   completionTitle: ['Thank you for submitting your survey', 'Merci d’avoir répondu au questionnaire', 'Murakoze gutanga ibisubizo byanyu'],
   completionBody: ['Your feedback has been received. Thank you for choosing Dream Medical Center Hospital.', 'Votre avis a bien été reçu. Merci d’avoir choisi Dream Medical Center Hospital.', 'Twakiriye ibitekerezo byanyu. Murakoze guhitamo Dream Medical Center Hospital.'],
   completedBadge: ['Submitted', 'Envoyé', 'Byoherejwe'],
-  checkingDevice: ['Checking this browser…', 'Vérification de ce navigateur…', 'Turimo kugenzura iyi browser…'],
-  deviceCheckError: ['We could not check this browser. Check your connection and try again.', 'Nous n’avons pas pu vérifier ce navigateur. Vérifiez votre connexion et réessayez.', 'Ntitwashoboye kugenzura iyi browser. Reba interineti wongere ugerageze.'],
-  deviceStorageError: ['This browser could not save its anonymous ID. Enable site storage and try again.', 'Ce navigateur n’a pas pu enregistrer son identifiant anonyme. Autorisez le stockage du site et réessayez.', 'Iyi browser ntiyabashije kubika ikiranga cyayo kitagaragaza umwirondoro. Emera ububiko bw’urubuga wongere ugerageze.'],
-  duplicate: ['This browser has already submitted feedback within the last 24 hours. Please try again later.', 'Ce navigateur a déjà envoyé un avis au cours des dernières 24 heures. Veuillez réessayer plus tard.', 'Iyi browser yamaze gutanga igitekerezo mu masaha 24 ashize. Ongera ugerageze nyuma.'],
-  submitError: ['We could not submit your feedback. Check your connection and try again.', 'Votre avis n’a pas pu être envoyé. Vérifiez votre connexion et réessayez.', 'Ntitwashoboye kohereza igitekerezo cyawe. Reba interineti wongere ugerageze.'],
-  retryHint: ['Your answers are still here. Check your connection and try again.', 'Vos réponses sont toujours là. Vérifiez votre connexion et réessayez.', 'Ibisubizo byawe biracyahari. Reba interineti wongere ugerageze.'],
-  retrySubmit: ['Try submitting again', 'Réessayer l’envoi', 'Ongera wohereze ibisubizo'],
+  deviceStorageError: ['This browser could not save survey data. Enable site storage and try again.', 'Ce navigateur n’a pas pu enregistrer les données du questionnaire. Autorisez le stockage du site et réessayez.', 'Iyi browser ntiyashoboye kubika ibisubizo. Emera ububiko bw’urubuga wongere ugerageze.'],
+  submitError: ['We could not save your feedback on this device. Please try again.', 'Nous n’avons pas pu enregistrer votre avis sur cet appareil. Veuillez réessayer.', 'Ntitwashoboye kubika igitekerezo cyawe kuri iki gikoresho. Ongera ugerageze.'],
+  retryHint: ['Your answers are still here. Check that browser storage is available, then try again.', 'Vos réponses sont toujours là. Vérifiez que le stockage du navigateur est disponible, puis réessayez.', 'Ibisubizo byawe biracyahari. Reba niba ububiko bwa browser bukora, wongere ugerageze.'],
+  retrySubmit: ['Try saving again', 'Réessayer l’enregistrement', 'Ongera ugerageze kubika'],
   type: ['Are you an inpatient or outpatient?', 'Êtes-vous hospitalisé(e) ou en consultation externe ?', 'Uri umurwayi uryamye cyangwa utaryamye?'],
-  priv: ['Feedback is confidential. An anonymous ID saved in this browser helps prevent repeat submissions within 24 hours. It is not a hardware ID; clearing browser storage or switching browsers may allow another submission.', 'Votre avis est confidentiel. Un identifiant anonyme enregistré dans ce navigateur aide à éviter les réponses répétées pendant 24 heures. Ce n’est pas un identifiant matériel ; effacer les données du navigateur ou changer de navigateur peut permettre une nouvelle réponse.', 'Igitekerezo cyawe ni ibanga. Ikiranga kitagaragaza umwirondoro kibikwa muri iyi browser gifasha gukumira ibitekerezo bisubiwemo mu masaha 24. Si nimero y’igikoresho; gusiba amakuru ya browser cyangwa gukoresha indi browser bishobora gutuma wongera gutanga igitekerezo.'],
   in: ['Inpatient', 'Hospitalisé(e)', 'Umurwayi uryamye'],
   out: ['Outpatient (OPD)', 'Consultation externe (OPD)', 'Umurwayi utaryamye (OPD)'],
   dept: ['Select your department', 'Choisissez votre service', 'Hitamo serivisi'],
@@ -97,7 +94,7 @@ function render(animate = true) {
   if (st === 'lang') {
     b = `<h2>${U.pick.join(' / ')}</h2><div style="height:10px"></div>` + LG.map(([c, n]) => `<button class="opt lang" onclick="setLang('${c}')">${n}</button>`).join('');
   } else if (st === 'type') {
-    b = `<h2>${t('type')}</h2><p class=hint>${t('priv')}</p>` + ['in', 'out'].map((k) => `<button class="opt ${S.type === k ? 'on' : ''}" onclick="pick('type','${k}')"><b></b>${t(k)}</button>`).join('');
+    b = `<h2>${t('type')}</h2>` + ['in', 'out'].map((k) => `<button class="opt ${S.type === k ? 'on' : ''}" onclick="pick('type','${k}')"><b></b>${t(k)}</button>`).join('');
   } else if (st === 'dept') {
     b = `<h2>${t('dept')}</h2>` + cfg.depts.filter((d) => (S.type === 'in' ? d.i : d.o)).map((d) => `<button class="opt ${S.dept === d.id ? 'on' : ''}" onclick="pick('dept','${d.id}')"><b></b>${esc(g(d.n))}</button>`).join('');
   } else if (st === 'doc') {
@@ -128,22 +125,6 @@ const up_ = () => {
   scrollTo(0, 0);
 };
 
-function getDeviceId() {
-  const key = 'dmc_device_id';
-  let id;
-  try {
-    id = localStorage.getItem(key);
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id || '')) {
-      id = crypto.randomUUID();
-      localStorage.setItem(key, id);
-      if (localStorage.getItem(key) !== id) throw new Error('Storage did not retain the browser ID.');
-    }
-  } catch (error) {
-    throw new Error('Browser ID storage is unavailable.', { cause: error });
-  }
-  return id;
-}
-
 function chooseLanguage(language) {
   if (!IX.hasOwnProperty(language)) return;
   S.lang = language;
@@ -164,27 +145,21 @@ function renderIntro(animate = true) {
   const languages = LG.map(([code, name]) =>
     `<button class="intro-language${S.lang === code ? ' on' : ''}" data-language="${code}" aria-pressed="${S.lang === code}" onclick="chooseLanguage('${code}')">${name}</button>`
   ).join('');
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><div class="intro-mark" aria-hidden="true"><span>✦</span></div><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span></button></main>`;
-}
-
-function validDeviceId(id) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id || '');
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo.jpg" alt="Dream Medical Center Hospital"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
-  try {
-    const deviceId = getDeviceId();
-    localStorage.setItem('dmc_completed', JSON.stringify({ deviceId, submittedAt, lang: S.lang }));
-  } catch (error) {
-    console.error('Could not persist survey completion in this browser:', error);
+  const completion = JSON.stringify({ submittedAt, lang: S.lang });
+  localStorage.setItem('dmc_completed', completion);
+  if (localStorage.getItem('dmc_completed') !== completion) {
+    throw new Error('Browser storage did not retain the survey completion status.');
   }
 }
 
 function loadCompletion() {
   try {
-    const deviceId = localStorage.getItem('dmc_device_id');
     const completed = JSON.parse(localStorage.getItem('dmc_completed') || 'null');
-    if (!validDeviceId(deviceId) || completed?.deviceId !== deviceId || !Number.isFinite(completed.submittedAt)) return false;
+    if (!Number.isFinite(completed?.submittedAt)) return false;
     if (Date.now() - completed.submittedAt >= COOLDOWN_MS) {
       localStorage.removeItem('dmc_completed');
       return false;
@@ -216,40 +191,6 @@ function hideSplash(callback) {
   }, 600);
 }
 
-function handlePreviouslySubmitted(result) {
-  const remaining = Math.min(COOLDOWN_MS, Math.max(0, Number(result.retryAfterSeconds) * 1000));
-  storeCompletion(Date.now() - (COOLDOWN_MS - remaining));
-  clearTimeout(welcomeTimer);
-  welcomeTimer = null;
-  hideSplash(renderComplete);
-}
-
-async function checkSavedBrowser() {
-  let deviceId;
-  try {
-    deviceId = localStorage.getItem('dmc_device_id');
-  } catch (error) {
-    console.error('Could not read the saved browser ID:', error);
-    return;
-  }
-  if (!validDeviceId(deviceId)) return;
-  try {
-    const response = await fetch('/api/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId })
-    });
-    const result = await response.json();
-    if (response.status === 409 && result.error === 'duplicate_submission') {
-      handlePreviouslySubmitted(result);
-      return;
-    }
-    if (!response.ok) throw new Error(`Could not restore browser status (HTTP ${response.status})`);
-  } catch (error) {
-    console.error('Could not restore the browser submission status:', error);
-  }
-}
-
 function renderSubmitting(progress, message) {
   const value = Math.min(100, Math.max(0, Math.round(progress)));
   const bar = $('submit-progress');
@@ -265,40 +206,29 @@ function renderSubmitting(progress, message) {
   percent.textContent = `${value}%`;
 }
 
-async function startSurvey() {
-  if (checkingDevice) return;
-  checkingDevice = true;
+function startSurvey() {
   const button = $('start-survey');
   button.disabled = true;
-  button.textContent = g(U.checkingDevice);
   try {
-    const response = await fetch('/api/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId: getDeviceId() })
-    });
-    const result = await response.json();
-    if (response.status === 409 && result.error === 'duplicate_submission') {
-      const submittedAt = Date.now() - (24 * 60 * 60 * 1000 - result.retryAfterSeconds * 1000);
-      storeCompletion(submittedAt);
+    if (loadCompletion()) {
       renderComplete();
       return;
     }
-    if (!response.ok) throw new Error(`Browser eligibility check failed with HTTP ${response.status}`);
+    const storageCheck = 'dmc_storage_check';
+    localStorage.setItem(storageCheck, 'available');
+    if (localStorage.getItem(storageCheck) !== 'available') {
+      throw new Error('Browser storage did not retain a test value.');
+    }
+    localStorage.removeItem(storageCheck);
     i = 0;
     render();
     scrollTo(0, 0);
   } catch (error) {
-    console.error('Browser eligibility check failed:', error);
-    const message = error.message.includes('Browser ID storage')
-      ? g(U.deviceStorageError)
-      : g(U.deviceCheckError);
+    console.error('Could not start the local survey:', error);
     const notice = $('intro-error');
-    notice.textContent = message;
+    notice.textContent = g(U.deviceStorageError);
     button.disabled = false;
     button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
-  } finally {
-    checkingDevice = false;
   }
 }
 
@@ -366,26 +296,20 @@ async function submit() {
   renderSubmitting(progress, g(U.submittingStep));
   progressTimer = setInterval(() => {
     progress = Math.min(92, progress + Math.max(1, (92 - progress) * 0.045));
-    const step = progress < 38 ? g(U.submittingStep) : progress < 72 ? g(U.checkingDevice) : g(U.submittingTitle);
+    const step = progress < 38 ? g(U.submittingStep) : progress < 72 ? g(U.savingAnswers) : g(U.submittingTitle);
     renderSubmitting(progress, step);
   }, 120);
   try {
-    const response = await fetch('/api/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId: getDeviceId() })
-    });
-    const result = await response.json();
-    if (response.status === 409 && result.error === 'duplicate_submission') {
-      const submittedAt = Date.now() - (24 * 60 * 60 * 1000 - result.retryAfterSeconds * 1000);
-      storeCompletion(submittedAt);
-      renderComplete();
-      return;
-    }
-    if (!response.ok) throw new Error(`Submission failed with HTTP ${response.status}`);
-    const R = ld('dmc_r', []), d = cfg.depts.find((x) => x.id === S.dept) || { n: ['?'] };
+    const storedResponses = localStorage.getItem('dmc_r');
+    const R = storedResponses ? JSON.parse(storedResponses) : [];
+    if (!Array.isArray(R)) throw new Error('Saved feedback data is invalid.');
+    const d = cfg.depts.find((x) => x.id === S.dept) || { n: ['?'] };
     R.push({ t: Date.now(), l: S.lang, y: S.type, d: S.dept, dn: d.n[0], dr: S.doc || '', a: S.a });
-    sv('dmc_r', R);
+    const serializedResponses = JSON.stringify(R);
+    localStorage.setItem('dmc_r', serializedResponses);
+    if (localStorage.getItem('dmc_r') !== serializedResponses) {
+      throw new Error('Browser storage did not retain the feedback data.');
+    }
     storeCompletion();
     renderSubmitting(100, g(U.completionTitle));
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, 900 - (Date.now() - startedAt))));
@@ -516,7 +440,6 @@ function boot() {
   }
   if (s) {
     welcomeTimer = setTimeout(() => hideSplash(() => renderIntro()), 3800);
-    checkSavedBrowser();
     return;
   }
   renderIntro();

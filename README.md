@@ -1,24 +1,16 @@
 # DMC Patient Feedback
 
-## Run locally
+## Local testing and demo
 
-Use Node.js 22.5 or newer:
+Serve the project as a static site using VS Code Live Server or another local static file server, then open its URL on the testing device. The survey, submission progress, responses, and 24-hour repeat-submission lock run entirely in the browser and use `localStorage`; no API server or internet connection is required.
 
-```sh
-npm start
-```
+Responses are stored under `dmc_r` in the browser's site storage and are available to the local admin view in that same browser. The completion screen is restored after refresh, and that browser cannot submit again for 24 hours.
 
-Open `http://localhost:5173`. The first launch creates `data/feedback.sqlite` and a private device-ID hash key in `data/`. Keep this directory on persistent storage and out of source control; losing the key resets the cooldown records.
+This is a browser-local demo only: responses do not reach a central database or appear on another device. Clearing site storage or using another browser can reset the local data and repeat-submission lock. Keep the current testing URL and browser storage stable while testing.
 
-## Browser cooldown and QR codes
+## Future server integration
 
-The app creates a random ID in the browser's local storage and checks it before showing the questionnaire. The server allows one submission per browser ID every 24 hours and checks again when feedback is submitted to handle simultaneous attempts. It stores only a keyed HMAC hash and submission time, not the ID itself or feedback, in the cooldown database. Feedback responses continue to be stored locally in the browser, as before.
-
-After a successful submission, the app keeps the thank-you screen visible without a timeout and restores it after a refresh while the 24-hour cooldown is active.
-
-A QR code should point to the publicly hosted app URL. The app and `/api/check` and `/api/submit` must be served from the same origin, over HTTPS, with persistent storage for the `data/` directory. Do not use `localhost` in the QR code. Every app instance must share the same database and device-ID hash key for the cooldown to apply across devices and servers.
-
-This anonymous ID identifies a browser profile, not a person or a physical device. Clearing that browser's site storage, switching browsers, or using another device creates a new ID and can allow another submission. Browser code cannot reliably read a hardware ID; use account sign-in or phone verification if stronger identity checks are needed.
+Server-side storage and cross-device repeat-submission protection are deferred until the local demo is tested and approved. `server.js` is not required by the current browser flow.
 
 ## Verify
 

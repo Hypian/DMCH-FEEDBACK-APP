@@ -41,8 +41,8 @@ textarea{min-height:150px}
 .chk{display:flex;gap:16px;margin:8px 0;font-size:14px}.cm{border-left:3px solid var(--r);padding:4px 10px;margin:6px 0;font-size:14px}
 .tools{display:flex;flex-wrap:wrap;gap:8px}.tools button{padding:10px 12px;border:2px solid var(--l);border-radius:12px;background:#fff;cursor:pointer}
 .intro-card,.submit-card,.completion-card{width:min(100% - 36px,520px);margin:clamp(28px,8vh,76px) auto 32px;padding:clamp(24px,7vw,38px);border:1px solid var(--l);border-radius:28px;background:linear-gradient(155deg,#fff 35%,var(--s));box-shadow:0 20px 60px #6f625912;text-align:center}
-.intro-mark{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 20px;border:1px solid #e54b2b33;border-radius:24px;background:#fff;color:var(--r);font-size:36px;animation:mark-float 3s ease-in-out infinite}
-@keyframes mark-float{50%{transform:translateY(-5px) rotate(3deg)}}
+.intro-logo{display:block;width:min(100%,340px);height:auto;margin:0 auto 20px;animation:logo-float 3s ease-in-out infinite}
+@keyframes logo-float{50%{transform:translateY(-5px)}}
 .eyebrow{margin-bottom:8px;color:var(--r);font-size:12px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
 .intro-card h1,.submit-card h1,.completion-card h1{font-size:clamp(25px,7vw,34px);line-height:1.15;margin-bottom:14px;color:#3d342f}
 .intro-copy{max-width:390px;margin:0 auto 22px;font-size:16px;line-height:1.65}
