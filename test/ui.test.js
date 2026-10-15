@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'script.js'), 'utf8');
+const styles = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
 
 class FakeClassList {
   constructor(classes = []) {
@@ -192,6 +193,17 @@ test('single-choice selection updates in place and advances only once', () => {
   assert.equal(app.renderCount, rendersBeforeSelection + 1);
 });
 
+test('survey screen entrance animation leaves the top logo outside the animation', () => {
+  assert.match(styles, /\.wrap\.screen-enter\{animation:none\}/);
+  assert.match(styles, /\.wrap\.screen-enter>:not\(\.top\)\{animation:screen-enter/);
+  assert.doesNotMatch(styles, /\.screen-enter\{animation:screen-enter/);
+  assert.match(styles, /\.top img\{width:131px;height:38px;flex:none;object-fit:contain\}/);
+});
+
+test('welcome splash logo preserves its aspect ratio within the viewport', () => {
+  assert.match(styles, /#splash img\{[^}]*width:min\(78vw,380px\);height:auto;aspect-ratio:760\/221;object-fit:contain/);
+});
+
 test('type screen omits browser-ID privacy disclaimer', () => {
   const { app, context } = makeContext();
   vm.runInContext("S={lang:'en',type:null,dept:null,doc:null,a:{}}; i=0; render(false)", context);
@@ -209,7 +221,7 @@ test('intro language changes in place and starts without making network requests
     throw new Error('The local demo must not make network requests.');
   });
   vm.runInContext('renderIntro(false)', context);
-  assert.match(app.innerHTML, /<img class="intro-logo" src="logo\.jpg" alt="Dream Medical Center Hospital">/);
+  assert.match(app.innerHTML, /<img class="intro-logo" src="logo-optimized\.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async">/);
   assert.doesNotMatch(app.innerHTML, /✦/);
   const rendersBeforeLanguageChange = app.renderCount;
 

@@ -116,7 +116,7 @@ function render(animate = true) {
     }
   }
 
-  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class=top><img src=logo.jpg alt=DMC>${i > 0 ? `<button class=ghost onclick="go(-1)">‹ ${t('back')}</button>` : ''}</div><div class=bar><i style="width:${(i / f.length) * 100}%"></i></div>${b}</div>`;
+  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class=top><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class=ghost onclick="go(-1)">‹ ${t('back')}</button>` : ''}</div><div class=bar><i style="width:${(i / f.length) * 100}%"></i></div>${b}</div>`;
 }
 
 const up_ = () => {
@@ -145,7 +145,7 @@ function renderIntro(animate = true) {
   const languages = LG.map(([code, name]) =>
     `<button class="intro-language${S.lang === code ? ' on' : ''}" data-language="${code}" aria-pressed="${S.lang === code}" onclick="chooseLanguage('${code}')">${name}</button>`
   ).join('');
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo.jpg" alt="Dream Medical Center Hospital"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span></button></main>`;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
@@ -330,7 +330,7 @@ async function submit() {
 
 /* ---------- Admin (#admin) ---------- */
 function admin() {
-  const h = `<div class="wrap adm s"><div class=top><img src=logo.jpg alt=DMC><button class=ghost onclick="location.hash=''">← Patient app</button></div>`;
+  const h = `<div class="wrap adm s"><div class=top><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async"><button class=ghost onclick="location.hash=''">← Patient app</button></div>`;
   if (!A) return $('app').innerHTML = h + `<h2>Admin sign-in</h2><p class=hint>Demo PIN: 1234</p><input type=password id=pin placeholder=PIN><button class=btn onclick="login()">Sign in</button></div>`;
   $('app').innerHTML = h + `<h2>Admin</h2><div class=tabs>${[['stats', 'Statistics'], ['depts', 'Departments']].map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${tab === 'stats' ? stats() : deptUI()}</div>`;
 }

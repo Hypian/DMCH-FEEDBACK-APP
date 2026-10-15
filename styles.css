@@ -4,7 +4,7 @@ body{font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:va
 button,input,textarea{font:inherit;color:inherit}
 #splash{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;z-index:9;transition:opacity .6s;padding:24px;text-align:center}
 #splash.off{opacity:0;pointer-events:none}
-#splash img{width:min(78vw,380px);opacity:0;transform:scale(.9);animation:pop 1s .3s forwards}
+#splash img{width:min(78vw,380px);height:auto;aspect-ratio:760/221;object-fit:contain;opacity:0;transform:scale(.9);animation:pop 1s .3s forwards}
 #splash h1{font-size:clamp(20px,6vw,30px);color:var(--r)}
 #splash h1 span{opacity:0;display:inline-block;animation:rise .5s forwards}
 @keyframes pop{to{opacity:1;transform:none}}
@@ -12,10 +12,11 @@ button,input,textarea{font:inherit;color:inherit}
 .wrap{max-width:520px;margin:0 auto;padding:max(16px,env(safe-area-inset-top)) 18px 32px}
 .wrap.adm{max-width:900px}
 .s{animation:rise .35s}
-.screen-enter{animation:screen-enter .32s cubic-bezier(.2,.75,.3,1) both}
+.wrap.screen-enter{animation:none}
+.wrap.screen-enter>:not(.top){animation:screen-enter .32s cubic-bezier(.2,.75,.3,1) both}
 @keyframes screen-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.top img{height:38px}
+.top img{width:131px;height:38px;flex:none;object-fit:contain}
 .bar{height:6px;background:var(--s);border-radius:9px;overflow:hidden;margin-bottom:22px}
 .bar i{display:block;height:100%;background:var(--r);transition:width .3s}
 h2{font-size:21px;margin-bottom:6px}h3{font-size:16px;margin-bottom:8px;color:var(--r)}

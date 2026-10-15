@@ -4,6 +4,8 @@
 
 Serve the project as a static site using VS Code Live Server or another local static file server, then open its URL on the testing device. The survey, submission progress, responses, and 24-hour repeat-submission lock run entirely in the browser and use `localStorage`; no API server or internet connection is required.
 
+The splash logo is preloaded for the first screen; the later intro logo is lazy-loaded. Both use a resized 760-pixel image with fixed dimensions to reduce transfer size and prevent layout shifts.
+
 Responses are stored under `dmc_r` in the browser's site storage and are available to the local admin view in that same browser. The completion screen is restored after refresh, and that browser cannot submit again for 24 hours.
 
 This is a browser-local demo only: responses do not reach a central database or appear on another device. Clearing site storage or using another browser can reset the local data and repeat-submission lock. Keep the current testing URL and browser storage stable while testing.
