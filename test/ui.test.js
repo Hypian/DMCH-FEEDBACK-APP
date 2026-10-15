@@ -253,6 +253,7 @@ test('a local submission within 24 hours restores the completion screen without 
   vm.runInContext('startSurvey()', context);
 
   assert.match(app.innerHTML, /Merci d’avoir répondu au questionnaire/);
+  assert.doesNotMatch(app.innerHTML, /Bienvenue à l’hôpital DMC/);
   assert.match(app.innerHTML, /Envoyé/);
   assert.equal(fetchCalls, 0);
 });
@@ -273,6 +274,7 @@ test('successful local submission saves the response and restores the completion
   await submission;
   assert.equal(fetchCalls, 0);
   assert.match(app.innerHTML, /Thank you for submitting your survey/);
+  assert.doesNotMatch(app.innerHTML, /Welcome to DMC Hospital/);
   assert.match(app.innerHTML, /Submitted/);
   assert.equal(JSON.parse(storage.get('dmc_r')).length, 1);
   assert.equal(JSON.parse(storage.get('dmc_r'))[0].a.q1, 1);

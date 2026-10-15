@@ -175,7 +175,7 @@ function loadCompletion() {
 function renderComplete() {
   clearInterval(progressTimer);
   progressTimer = null;
-  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><span class="completion-check">✓</span></div><p class="eyebrow">${esc(g(U.welcome))}</p><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy">${esc(g(U.completionBody))}</p><div class="completion-stamp"><span aria-hidden="true">✓</span> ${esc(g(U.completedBadge))}</div></main>`;
+  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><span class="completion-check">✓</span></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy">${esc(g(U.completionBody))}</p><div class="completion-stamp"><span aria-hidden="true">✓</span> ${esc(g(U.completedBadge))}</div></main>`;
 }
 
 function hideSplash(callback) {
