@@ -161,18 +161,20 @@ const flow = () => ['dept', 'cat', 'time', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', '
 
 function render(animate = true) {
   const f = flow(), st = f[i], t = (k) => g(U[k]);
-  let b = '';
+  let title = '', hint = '', b = '';
   if (st === 'lang') {
-    b = `<h2>${U.pick.join(' / ')}</h2><div style="height:10px"></div>` + LG.map(([c, n]) => `<button class="opt lang" onclick="setLang('${c}')">${n}</button>`).join('');
+    title = U.pick.join(' / ');
+    b = `<div style="height:10px"></div>` + LG.map(([c, n]) => `<button class="opt lang" onclick="setLang('${c}')">${n}</button>`).join('');
   } else if (st === 'dept') {
-    b = `<h2>${t('dept')}</h2>` + cfg.depts.map((d) => `<button class="opt ${S.dept === d.id ? 'on' : ''}" onclick="pick('dept','${d.id}')"><b></b>${esc(g(d.n))}</button>`).join('');
+    title = t('dept');
+    b = cfg.depts.map((d) => `<button class="opt ${S.dept === d.id ? 'on' : ''}" onclick="pick('dept','${d.id}')"><b></b>${esc(g(d.n))}</button>`).join('');
   } else {
     const q = Q[st], m = q.t === 'm';
-    b = `<h2>${g(q.q)}</h2>`;
+    title = g(q.q);
+    if (m) hint = t('all');
     if (q.t === 'x') {
       b += `<textarea placeholder="${t('ph')}" oninput="S.a['${st}']=this.value">${esc(S.a[st] || '')}</textarea>`;
     } else {
-      if (m) b += `<p class=hint>${t('all')}</p>`;
       b += q.o.map((o, k) => {
         const on = m ? (S.a[st] || []).includes(k) : S.a[st] === k;
         return `<button class="opt ${m ? 'm' : ''} ${on ? 'on' : ''}" data-question="${st}" data-option="${k}" aria-pressed="${on}" onclick="${m ? `tog('${st}',${k})` : `ans('${st}',${k})`}"><b></b>${g(o)}</button>`;
@@ -183,7 +185,7 @@ function render(animate = true) {
     }
   }
 
-  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class=top><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class=ghost onclick="go(-1)">‹ ${t('back')}</button>` : ''}</div><div class=bar><i style="width:${(i / f.length) * 100}%"></i></div>${b}</div>`;
+  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class=top><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class=ghost onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class=bar><i style="width:${(i / f.length) * 100}%"></i></div><div class=top-title><h2>${title}</h2>${hint ? `<p class=hint>${hint}</p>` : ''}</div></div>${b}</div>`;
 }
 
 const up_ = () => {
@@ -205,14 +207,14 @@ function chooseLanguage(language) {
   const start = $('start-survey');
   if (title) title.textContent = g(U.introTitle);
   if (body) body.textContent = g(U.introBody);
-  if (start) start.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
+  if (start) start.innerHTML = `${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i>`;
 }
 
 function renderIntro(animate = true) {
   const languages = LG.map(([code, name]) =>
     `<button class="intro-language${S.lang === code ? ' on' : ''}" data-language="${code}" aria-pressed="${S.lang === code}" onclick="chooseLanguage('${code}')">${name}</button>`
   ).join('');
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span></button></main>`;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
@@ -242,7 +244,7 @@ function loadCompletion() {
 function renderComplete() {
   clearInterval(progressTimer);
   progressTimer = null;
-  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><span class="completion-check">✓</span></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy">${esc(g(U.completionBody))}</p><div class="completion-stamp"><span aria-hidden="true">✓</span> ${esc(g(U.completedBadge))}</div></main>`;
+  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div></main>`;
 }
 
 function hideSplash(callback) {
@@ -378,7 +380,7 @@ async function submit() {
     clearInterval(progressTimer);
     progressTimer = null;
     submitting = false;
-    $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true">!</div><h1>${esc(g(U.submitError))}</h1><p class="intro-copy">${esc(g(U.retryHint))}</p><button class="btn intro-start" onclick="submit()">${esc(g(U.retrySubmit))}</button></main>`;
+    $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true"><i class='bx bx-error-circle'></i></div><h1>${esc(g(U.submitError))}</h1><p class="intro-copy">${esc(g(U.retryHint))}</p><button class="btn intro-start" onclick="submit()"><i class='bx bx-refresh'></i> ${esc(g(U.retrySubmit))}</button></main>`;
     return;
   } finally {
     submitting = false;
@@ -389,9 +391,9 @@ async function submit() {
 
 /* ---------- Admin (#admin) ---------- */
 function admin() {
-  const h = `<div class="wrap adm s"><div class=top><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async"><button class=ghost onclick="location.hash=''">← Patient app</button></div>`;
-  if (!A) return $('app').innerHTML = h + `<h2>Admin sign-in</h2><p class=hint>Demo PIN: 1234</p><input type=password id=pin placeholder=PIN><button class=btn onclick="login()">Sign in</button></div>`;
-  $('app').innerHTML = h + `<h2>Admin</h2><div class=tabs>${[['stats', 'Statistics'], ['depts', 'Services']].map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${tab === 'stats' ? stats() : deptUI()}</div>`;
+  const h = `<div class="wrap adm s"><div class=top><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async"><button class=ghost onclick="location.hash=''"><i class='bx bx-left-arrow-alt'></i> Patient app</button></div></div>`;
+  if (!A) return $('app').innerHTML = h + `<h2>Admin sign-in</h2><p class=hint>PIN: 1234</p><input type=password id=pin placeholder=PIN><button class=btn onclick="login()"><i class='bx bx-log-in'></i> Sign in</button></div>`;
+  $('app').innerHTML = h + `<h2>Admin Portal</h2><div class=tabs>${[['stats', `<i class='bx bx-bar-chart-alt-2'></i> Statistics`], ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback List`], ['depts', `<i class='bx bx-plus-medical'></i> Services`]].map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${tab === 'stats' ? stats() : tab === 'feedbacks' ? feedbacksUI() : deptUI()}</div>`;
 }
 
 function login() {
@@ -401,9 +403,37 @@ function login() {
   } else alert('Wrong PIN');
 }
 
+function feedbacksUI() {
+  const R = ld('dmc_r', []);
+  if (!R.length) return `<div class="card"><p class="hint">No feedbacks submitted yet.</p></div>`;
+  return `<div class="card"><h3>Feedbacks Received (${R.length})</h3><p class="hint">Showing all submissions in reverse chronological order (newest first).</p>` +
+    R.slice().reverse().map((r, idx) => {
+      const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
+      const sScore = r.a?.q8 != null ? 5 - r.a.q8 : null;
+      const scoreBadge = sScore != null
+        ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
+        : '';
+      const catStr = r.a?.cat != null ? Q.cat.o[r.a.cat]?.[0] : '';
+      const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
+      const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
+      const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
+      return `<div class="fb-item">
+        <div class="fb-meta">
+          <span><b>#${R.length - idx} • ${esc(r.dn || 'OPD Service')}</b> ${catStr ? `• ${esc(catStr)}` : ''} ${timeSlot ? `• ${esc(timeSlot)}` : ''}</span>
+          <span><i class='bx bx-calendar'></i> ${esc(timeStr)}</span>
+        </div>
+        <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
+        ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
+        ${issues ? `<div class="hint" style="margin:4px 0"><b>Staff attitude / issues:</b> ${esc(issues)}</div>` : ''}
+        ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
+        ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
+      </div>`;
+    }).join('') + `</div>`;
+}
+
 function deptUI() {
-  return `<div class=card><h3>Add visited service</h3><input type=text id=nd placeholder="Service name"><button class=btn onclick="add()">Add</button></div>` +
-    cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="del('${d.id}')">Delete</button></div>`).join('');
+  return `<div class=card><h3>Add visited service</h3><input type=text id=nd placeholder="Service name"><button class=btn onclick="add()"><i class='bx bx-plus'></i> Add</button></div>` +
+    cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="del('${d.id}')"><i class='bx bx-trash'></i> Delete</button></div>`).join('');
 }
 
 function del(id) {
@@ -423,9 +453,10 @@ function add() {
 }
 
 function stats() {
-  const R = ld('dmc_r', []), n = R.length, tools = `<div class=card><h3>Tools</h3><div class=tools><button onclick="seed()">Load demo data</button><button onclick="unseed()">Remove demo data</button><button onclick="csv()">Export CSV</button><button onclick="if(confirm('Delete ALL responses?')){sv('dmc_r',[]);admin()}">Clear all</button></div></div>`;
+  const R = ld('dmc_r', []), n = R.length, tools = `<div class=card><h3>Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="csv()"><i class='bx bx-download'></i> Export CSV</button><button onclick="if(confirm('Delete ALL responses?')){sv('dmc_r',[]);admin()}"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
   if (!n) return `<p class=hint>No responses yet.</p>` + tools;
   const s8 = R.filter((r) => r.a.q8 != null).map((r) => 5 - r.a.q8), avg = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–', pos = s8.length ? Math.round(s8.filter((x) => x >= 4).length / s8.length * 100) : 0;
+  const neg = s8.length ? Math.round(s8.filter((x) => x <= 2).length / s8.length * 100) : 0;
   const tl = (f, lb) => {
     const m = {};
     R.forEach((r) => [].concat(f(r)).forEach((x) => {
@@ -440,8 +471,37 @@ function stats() {
     return v.length ? Math.round(v.filter((r) => r.a[k] <= 1).length / v.length * 100) : 0;
   };
   const cd = (t, b) => `<div class=card><h3>${t}</h3>${b}</div>`, cm = R.flatMap((r) => [r.a.q10, r.a.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
-  return `<div class=kpis><div class=kpi><b>${n}</b>Responses</div><div class=kpi><b>${avg}/5</b>Avg satisfaction</div><div class=kpi><b>${pos}%</b>Satisfied (4–5)</div></div>` +
-    cd('Responses by visited service', bars(tl((r) => r.dn))) + cd('Overall satisfaction', bars(q('q8'))) + cd('Wait before seeing doctor', bars(q('q3'))) +
+
+  // Department rankings (lowest / worst satisfaction score first)
+  const dStats = {};
+  R.forEach((r) => {
+    const name = r.dn || 'Unknown';
+    if (!dStats[name]) dStats[name] = { total: 0, scores: [] };
+    dStats[name].total += 1;
+    if (r.a?.q8 != null) dStats[name].scores.push(5 - r.a.q8);
+  });
+  const rankings = Object.entries(dStats).map(([name, data]) => {
+    const score = data.scores.length ? (data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1) : '–';
+    const num = data.scores.length ? (data.scores.reduce((a, b) => a + b, 0) / data.scores.length) : 5;
+    const diss = data.scores.length ? Math.round(data.scores.filter((s) => s <= 2).length / data.scores.length * 100) : 0;
+    return { name, total: data.total, score, num, diss };
+  }).sort((a, b) => a.num - b.num); // Ascending: worst first
+
+  const rankHtml = rankings.map((d, idx) => {
+    const isWorst = idx === 0 && d.num < 3.8;
+    const cls = d.num < 3 ? 'badge-low' : d.num >= 4 ? 'badge-high' : 'badge-mid';
+    return `<div class="rank-row">
+      <span><b>#${idx + 1}</b> ${esc(d.name)} <small style="opacity:.7">(${d.total} reviews)</small></span>
+      <span>
+        ${d.diss > 0 ? `<small style="color:#c81e1e;margin-right:8px">${d.diss}% dissatisfied</small>` : ''}
+        <span class="badge-score ${cls}">${d.score} / 5</span>
+      </span>
+    </div>`;
+  }).join('');
+
+  return `<div class=kpis><div class=kpi><b>${n}</b>Total Responses</div><div class=kpi><b>${avg}/5</b>Avg Satisfaction</div><div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div><div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div></div>` +
+    cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Ranking by Satisfaction (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest.</p>` + (rankHtml || '–')) +
+    cd('Responses by visited service', bars(tl((r) => r.dn))) + cd('Overall satisfaction', bars(q('q8'))) + cd('Wait before seeing healthcare provider (Doctor)', bars(q('q3'))) +
     cd('Where delays occurred', bars(q('q4', 1))) + cd('Where bad attitude was reported', bars(q('q6', 1))) +
     cd('Rated Excellent or Good', bars([['Reception', good('q1')], ['Cashier', good('q2')], ['Cleanliness', good('q7')]], 100, '%')) +
     cd('Provider listened carefully', bars(q('q5'))) + cd('Languages used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
