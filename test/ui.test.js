@@ -172,7 +172,7 @@ function makeContext(fetchImplementation, storage = new Map()) {
 
 test('single-choice selection updates in place and advances only once', () => {
   const { app, context, options, timers } = makeContext();
-  vm.runInContext("S={lang:'en',type:'out',dept:'o0',a:{}}; i=5;", context);
+  vm.runInContext("S={lang:'en',dept:'o0',a:{}}; i=3;", context);
   options.push(...[0, 1, 2, 3].map((option) => {
     const element = new FakeElement({ 'data-question': 'q1', 'data-option': String(option) });
     return element;
@@ -189,7 +189,7 @@ test('single-choice selection updates in place and advances only once', () => {
 
   const timerId = vm.runInContext('answerTimer', context);
   timers.get(timerId).callback();
-  assert.equal(vm.runInContext('i', context), 6);
+  assert.equal(vm.runInContext('i', context), 4);
   assert.equal(app.renderCount, rendersBeforeSelection + 1);
 });
 
@@ -204,13 +204,12 @@ test('welcome splash logo preserves its aspect ratio within the viewport', () =>
   assert.match(styles, /#splash img\{[^}]*width:min\(78vw,380px\);height:auto;aspect-ratio:760\/221;object-fit:contain/);
 });
 
-test('type screen omits browser-ID privacy disclaimer', () => {
+test('survey starts with Visited Services and omits browser-ID privacy disclaimer', () => {
   const { app, context } = makeContext();
-  vm.runInContext("S={lang:'en',type:null,dept:null,doc:null,a:{}}; i=0; render(false)", context);
+  vm.runInContext("S={lang:'en',dept:null,a:{}}; i=0; render(false)", context);
 
-  assert.match(app.innerHTML, /Are you an inpatient or outpatient\?/);
-  assert.match(app.innerHTML, /Inpatient/);
-  assert.match(app.innerHTML, /Outpatient \(OPD\)/);
+  assert.match(app.innerHTML, /Visited Services/);
+  assert.doesNotMatch(app.innerHTML, /Are you an inpatient or outpatient/);
   assert.doesNotMatch(app.innerHTML, /Feedback is confidential|anonymous ID saved in this browser/);
 });
 
@@ -227,7 +226,7 @@ test('intro language changes in place and starts without making network requests
 
   vm.runInContext("chooseLanguage('fr')", context);
   assert.equal(app.renderCount, rendersBeforeLanguageChange);
-  assert.match(vm.runInContext('g(U.introTitle)', context), /Un court questionnaire, moins d’une minute/);
+  assert.match(vm.runInContext('g(U.introTitle)', context), /QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES/);
 
   vm.runInContext('startSurvey()', context);
 
@@ -237,7 +236,7 @@ test('intro language changes in place and starts without making network requests
   assert.equal(fetchCalls, 0);
   assert.equal(vm.runInContext("'phone' in S", context), false);
   assert.equal(vm.runInContext("flow().includes('phone')", context), false);
-  assert.match(app.innerHTML, /hospitalisé|externe/i);
+  assert.match(app.innerHTML, /Services Visités/i);
 });
 
 test('a local submission within 24 hours restores the completion screen without network access', () => {
@@ -252,8 +251,8 @@ test('a local submission within 24 hours restores the completion screen without 
 
   vm.runInContext('startSurvey()', context);
 
-  assert.match(app.innerHTML, /Merci d’avoir répondu au questionnaire/);
-  assert.doesNotMatch(app.innerHTML, /Bienvenue à l’hôpital DMC/);
+  assert.match(app.innerHTML, /MERCI D(&#39;|')AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!/);
+  assert.doesNotMatch(app.innerHTML, /Bienvenue à DMC Hospital/);
   assert.match(app.innerHTML, /Envoyé/);
   assert.equal(fetchCalls, 0);
 });
@@ -266,14 +265,14 @@ test('successful local submission saves the response and restores the completion
   };
   const { app, context, storage } = makeContext(fetchImplementation);
   const submission = vm.runInContext(
-    "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',type:'out',dept:'o0',a:{q1:1}}; submit()",
+    "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',dept:'o0',a:{q1:1}}; submit()",
     context
   );
   await Promise.resolve();
   assert.match(app.innerHTML, /submit-progress/);
   await submission;
   assert.equal(fetchCalls, 0);
-  assert.match(app.innerHTML, /Thank you for submitting your survey/);
+  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
   assert.doesNotMatch(app.innerHTML, /Welcome to DMC Hospital/);
   assert.match(app.innerHTML, /Submitted/);
   assert.equal(JSON.parse(storage.get('dmc_r')).length, 1);
@@ -281,7 +280,7 @@ test('successful local submission saves the response and restores the completion
   assert.equal(JSON.parse(storage.get('dmc_completed')).lang, 'en');
 
   const refreshed = makeContext(fetchImplementation, storage);
-  assert.match(refreshed.app.innerHTML, /Thank you for submitting your survey/);
+  assert.match(refreshed.app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
   assert.equal(refreshed.timers.size, 0);
 });
 
@@ -290,7 +289,7 @@ test('failed local save keeps answers and offers a successful retry', async () =
   storage.failWritesFor = new Set(['dmc_r']);
   const { app, context } = makeContext(null, storage);
   vm.runInContext(
-    "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',type:'out',dept:'o0',a:{q1:1}}",
+    "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',dept:'o0',a:{q1:1}}",
     context
   );
 
@@ -301,5 +300,5 @@ test('failed local save keeps answers and offers a successful retry', async () =
   await vm.runInContext('submit()', context);
 
   assert.equal(JSON.parse(storage.get('dmc_r')).length, 1);
-  assert.match(app.innerHTML, /Thank you for submitting your survey/);
+  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
 });
