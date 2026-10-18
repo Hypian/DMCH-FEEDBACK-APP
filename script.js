@@ -375,10 +375,39 @@ async function submit() {
 }
 
 /* ---------- Admin (#admin) ---------- */
+/* ---------- Admin (#admin) ---------- */
+let cohortFilter = 'all';
+
 function admin() {
-  const h = `<div class="wrap adm s"><div class=top><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async"><button class=ghost onclick="location.hash=''"><i class='bx bx-left-arrow-alt'></i> Patient app</button></div></div>`;
-  if (!A) return $('app').innerHTML = h + `<h2>Admin sign-in</h2><p class=hint>PIN: 1234</p><input type=password id=pin placeholder=PIN><button class=btn onclick="login()"><i class='bx bx-log-in'></i> Sign in</button></div>`;
-  $('app').innerHTML = h + `<h2>Admin Portal</h2><div class=tabs>${[['stats', `<i class='bx bx-bar-chart-alt-2'></i> Statistics`], ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback List`], ['depts', `<i class='bx bx-plus-medical'></i> Services`]].map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${tab === 'stats' ? stats() : tab === 'feedbacks' ? feedbacksUI() : deptUI()}</div>`;
+  const h = `<div class="wrap adm s"><div class="adm-header">
+    <div class="adm-brand">
+      <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
+      <div class="adm-title">
+        <span>Executive Quality Dashboard</span>
+        <h2>Patient Experience & OPD Performance</h2>
+      </div>
+    </div>
+    <div class="adm-actions">
+      <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
+      <button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>
+    </div>
+  </div>`;
+  if (!A) return $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Admin Sign-in</h3><p class="hint">Enter administration PIN to access portal.</p><input type="password" id="pin" placeholder="Enter PIN (1234)" style="text-align:center"><button class="btn" onclick="login()"><i class='bx bx-log-in'></i> Sign in</button></div></div>`;
+
+  const tabs = [
+    ['stats', `<i class='bx bx-bar-chart-alt-2'></i> Analytics & Cohorts`],
+    ['depts_perf', `<i class='bx bx-buildings'></i> Department Matrix`],
+    ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback Records`],
+    ['export', `<i class='bx bx-cloud-download'></i> Export Center`],
+    ['depts', `<i class='bx bx-cog'></i> Manage Services`]
+  ];
+  $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${
+    tab === 'stats' ? stats() :
+    tab === 'depts_perf' ? deptsPerfUI() :
+    tab === 'feedbacks' ? feedbacksUI() :
+    tab === 'export' ? exportUI() :
+    deptUI()
+  }</div>`;
 }
 
 function login() {
@@ -389,22 +418,35 @@ function login() {
 }
 
 function feedbacksUI() {
-  const R = ld('dmc_r', []);
-  if (!R.length) return `<div class="card"><p class="hint">No feedbacks submitted yet.</p></div>`;
-  return `<div class="card"><h3>Feedbacks Received (${R.length})</h3><p class="hint">Showing all submissions in reverse chronological order (newest first).</p>` +
+  const allR = ld('dmc_r', []);
+  if (!allR.length) return `<div class="card"><p class="hint">No feedbacks submitted yet.</p></div>`;
+  const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
+  return `<div class="card">
+    <div class="filter-bar">
+      <div>
+        <h3 style="margin:0">Feedback Submissions (${R.length} of ${allR.length})</h3>
+        <p class="hint" style="margin:2px 0 0">Showing submissions in reverse chronological order.</p>
+      </div>
+      <div class="filter-pills">
+        <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All (${allR.length})</button>
+        <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">New (${allR.filter((r) => r.a?.cat === 0).length})</button>
+        <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning (${allR.filter((r) => r.a?.cat === 1).length})</button>
+      </div>
+    </div>` +
     R.slice().reverse().map((r, idx) => {
       const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
       const sScore = r.a?.q8 != null ? 5 - r.a.q8 : null;
       const scoreBadge = sScore != null
         ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
         : '';
-      const catStr = r.a?.cat != null ? Q.cat.o[r.a.cat]?.[0] : '';
+      const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
+      const catBadge = cat ? `<span class="cohort-badge ${r.a?.cat === 0 ? 'new' : 'ret'}" style="margin-left:6px">${cat}</span>` : '';
       const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
       const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
       const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
       return `<div class="fb-item">
         <div class="fb-meta">
-          <span><b>#${R.length - idx} • ${esc(r.dn || 'OPD Service')}</b> ${catStr ? `• ${esc(catStr)}` : ''} ${timeSlot ? `• ${esc(timeSlot)}` : ''}</span>
+          <span><b>#${R.length - idx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
           <span><i class='bx bx-calendar'></i> ${esc(timeStr)}</span>
         </div>
         <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
@@ -437,11 +479,147 @@ function add() {
   admin();
 }
 
+function deptsPerfUI() {
+  const allR = ld('dmc_r', []);
+  if (!allR.length) return `<div class="card"><p class="hint">No responses yet to calculate department performance.</p></div>`;
+
+  const dMap = {};
+  allR.forEach((r) => {
+    const name = r.dn || 'Unknown';
+    if (!dMap[name]) dMap[name] = { total: 0, newP: 0, retP: 0, scores: [], delays: 0, issues: 0 };
+    const d = dMap[name];
+    d.total += 1;
+    if (r.a?.cat === 0) d.newP += 1;
+    else if (r.a?.cat === 1) d.retP += 1;
+    if (r.a?.q8 != null) d.scores.push(5 - r.a.q8);
+    if (r.a?.q4?.length && !r.a.q4.includes(Q.q4.o.length - 1)) d.delays += 1;
+    if (r.a?.q6?.length && !r.a.q6.includes(Q.q6.o.length - 1)) d.issues += 1;
+  });
+
+  const list = Object.entries(dMap).map(([name, d]) => {
+    const avg = d.scores.length ? (d.scores.reduce((a, b) => a + b, 0) / d.scores.length).toFixed(1) : '–';
+    const num = d.scores.length ? (d.scores.reduce((a, b) => a + b, 0) / d.scores.length) : 5;
+    const satPct = d.scores.length ? Math.round(d.scores.filter((s) => s >= 4).length / d.scores.length * 100) : 0;
+    const dissPct = d.scores.length ? Math.round(d.scores.filter((s) => s <= 2).length / d.scores.length * 100) : 0;
+    const delayPct = Math.round(d.delays / d.total * 100);
+    const issuePct = Math.round(d.issues / d.total * 100);
+    return { name, ...d, avg, num, satPct, dissPct, delayPct, issuePct };
+  }).sort((a, b) => b.total - a.total);
+
+  const rows = list.map((d, i) => {
+    const scoreCls = d.num < 3 ? 'badge-low' : d.num >= 4 ? 'badge-high' : 'badge-mid';
+    return `<tr>
+      <td><b>#${i + 1}</b></td>
+      <td><b>${esc(d.name)}</b></td>
+      <td><b>${d.total}</b></td>
+      <td><span class="cohort-badge new">${d.newP}</span></td>
+      <td><span class="cohort-badge ret">${d.retP}</span></td>
+      <td><span class="badge-score ${scoreCls}">${d.avg} / 5</span></td>
+      <td><span style="color:#03543f;font-weight:600">${d.satPct}%</span></td>
+      <td><span style="color:${d.dissPct > 15 ? '#c81e1e' : 'inherit'};font-weight:600">${d.dissPct}%</span></td>
+      <td>${d.delayPct > 25 ? `<span style="color:#c81e1e;font-weight:600">${d.delayPct}%</span>` : `${d.delayPct}%`}</td>
+      <td>${d.issuePct > 15 ? `<span style="color:#c81e1e;font-weight:600">${d.issuePct}%</span>` : `${d.issuePct}%`}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div>
+        <h3 style="margin:0"><i class='bx bx-buildings'></i> Department Performance Matrix (${list.length} Services)</h3>
+        <p class="hint" style="margin:2px 0 0">Comparative volume, patient cohort splits, satisfaction ratings, and delay incidence.</p>
+      </div>
+      <button class="adm-btn" onclick="exportCSV('departments')"><i class='bx bx-download'></i> Export Matrix CSV</button>
+    </div>
+    <div class="dept-table-wrap">
+      <table class="dept-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Department / Service</th>
+            <th>Reviews</th>
+            <th>New</th>
+            <th>Returning</th>
+            <th>Avg Score</th>
+            <th>Satisfied (4-5★)</th>
+            <th>Dissatisfied (≤2★)</th>
+            <th>Delay Rate</th>
+            <th>Issue Rate</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function exportUI() {
+  const allR = ld('dmc_r', []);
+  return `<div class="card">
+    <div class="export-banner">
+      <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
+      <div>
+        <h3>DMC Hospital — Data Export Center</h3>
+        <p>Export hospital feedback data into formatted, UTF-8 encoded CSV files fully compatible with Microsoft Excel, Apple Numbers, and Google Sheets.</p>
+      </div>
+    </div>
+    <div class="export-grid">
+      <div class="export-card">
+        <div>
+          <i class='bx bx-file-blank export-icon'></i>
+          <h4>Complete Survey Dataset</h4>
+          <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments.</p>
+        </div>
+        <button class="btn" onclick="exportCSV('full')"><i class='bx bx-download'></i> Download Full Dataset (${allR.length} Records)</button>
+      </div>
+      <div class="export-card">
+        <div>
+          <i class='bx bx-buildings export-icon'></i>
+          <h4>Department Performance Report</h4>
+          <p>Aggregated department statistics: review counts, patient split (new vs returning), average satisfaction rating, satisfaction rate, and delay frequency.</p>
+        </div>
+        <button class="btn" onclick="exportCSV('departments')"><i class='bx bx-download'></i> Download Department Matrix</button>
+      </div>
+      <div class="export-card">
+        <div>
+          <i class='bx bx-user-check export-icon'></i>
+          <h4>Patient Cohort Summary</h4>
+          <p>Comparative analytics and loyalty breakdown comparing First-Time / New Patients versus Returning Patients across satisfaction, delays, and care quality.</p>
+        </div>
+        <button class="btn" onclick="exportCSV('patients')"><i class='bx bx-download'></i> Download Cohort Summary</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function stats() {
-  const R = ld('dmc_r', []), n = R.length, tools = `<div class=card><h3>Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="csv()"><i class='bx bx-download'></i> Export CSV</button><button onclick="if(confirm('Delete ALL responses?')){sv('dmc_r',[]);admin()}"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
-  if (!n) return `<p class=hint>No responses yet.</p>` + tools;
-  const s8 = R.filter((r) => r.a.q8 != null).map((r) => 5 - r.a.q8), avg = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–', pos = s8.length ? Math.round(s8.filter((x) => x >= 4).length / s8.length * 100) : 0;
+  const allR = ld('dmc_r', []);
+  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="exportCSV('full')"><i class='bx bx-download'></i> Export Full CSV</button><button onclick="if(confirm('Delete ALL responses?')){sv('dmc_r',[]);admin()}"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
+  if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
+
+  const newCount = allR.filter((r) => r.a?.cat === 0).length;
+  const retCount = allR.filter((r) => r.a?.cat === 1).length;
+  const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
+  const n = R.length;
+
+  // Cohort deep-dive stats
+  const cohortCalc = (sub) => {
+    const scores = sub.filter((r) => r.a?.q8 != null).map((r) => 5 - r.a.q8);
+    const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '–';
+    const sat = scores.length ? Math.round(scores.filter((s) => s >= 4).length / scores.length * 100) : 0;
+    const diss = scores.length ? Math.round(scores.filter((s) => s <= 2).length / scores.length * 100) : 0;
+    const delays = sub.length ? Math.round(sub.filter((r) => r.a?.q4?.length && !r.a.q4.includes(Q.q4.o.length - 1)).length / sub.length * 100) : 0;
+    const docGood = sub.length ? Math.round(sub.filter((r) => r.a?.q5 === 0).length / sub.length * 100) : 0;
+    return { count: sub.length, avg, sat, diss, delays, docGood };
+  };
+  const newStats = cohortCalc(allR.filter((r) => r.a?.cat === 0));
+  const retStats = cohortCalc(allR.filter((r) => r.a?.cat === 1));
+
+  // Current view stats
+  const s8 = R.filter((r) => r.a.q8 != null).map((r) => 5 - r.a.q8);
+  const avg = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–';
+  const pos = s8.length ? Math.round(s8.filter((x) => x >= 4).length / s8.length * 100) : 0;
   const neg = s8.length ? Math.round(s8.filter((x) => x <= 2).length / s8.length * 100) : 0;
+
   const tl = (f, lb) => {
     const m = {};
     R.forEach((r) => [].concat(f(r)).forEach((x) => {
@@ -455,9 +633,9 @@ function stats() {
     const v = R.filter((r) => r.a[k] != null);
     return v.length ? Math.round(v.filter((r) => r.a[k] <= 1).length / v.length * 100) : 0;
   };
-  const cd = (t, b) => `<div class=card><h3>${t}</h3>${b}</div>`, cm = R.flatMap((r) => [r.a.q10, r.a.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
+  const cd = (t, b) => `<div class=card><h3>${t}</h3>${b}</div>`;
 
-  // Department rankings (lowest / worst satisfaction score first)
+  // Department rankings in current cohort view
   const dStats = {};
   R.forEach((r) => {
     const name = r.dn || 'Unknown';
@@ -470,10 +648,9 @@ function stats() {
     const num = data.scores.length ? (data.scores.reduce((a, b) => a + b, 0) / data.scores.length) : 5;
     const diss = data.scores.length ? Math.round(data.scores.filter((s) => s <= 2).length / data.scores.length * 100) : 0;
     return { name, total: data.total, score, num, diss };
-  }).sort((a, b) => a.num - b.num); // Ascending: worst first
+  }).sort((a, b) => a.num - b.num);
 
   const rankHtml = rankings.map((d, idx) => {
-    const isWorst = idx === 0 && d.num < 3.8;
     const cls = d.num < 3 ? 'badge-low' : d.num >= 4 ? 'badge-high' : 'badge-mid';
     return `<div class="rank-row">
       <span><b>#${idx + 1}</b> ${esc(d.name)} <small style="opacity:.7">(${d.total} reviews)</small></span>
@@ -484,21 +661,81 @@ function stats() {
     </div>`;
   }).join('');
 
-  return `<div class=kpis><div class=kpi><b>${n}</b>Total Responses</div><div class=kpi><b>${avg}/5</b>Avg Satisfaction</div><div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div><div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div></div>` +
-    cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Ranking by Satisfaction (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest.</p>` + (rankHtml || '–')) +
-    cd('Responses by visited service', bars(tl((r) => r.dn))) + cd('Overall satisfaction', bars(q('q8'))) + cd('Wait before seeing Doctor', bars(q('q3'))) +
-    cd('Where delays occurred', bars(q('q4', 1))) + cd('Where unpleasant experience was reported', bars(q('q6', 1))) +
-    cd('Rated Excellent or Good', bars([['Reception', good('q1')], ['Cashier', good('q2')], ['Cleanliness', good('q7')]], 100, '%')) +
-    cd('Doctor listened carefully', bars(q('q5'))) + cd('Languages used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
-    cd('Latest comments', cm.map((x) => `<div class=cm>${esc(x)}</div>`).join('') || '–') + tools;
+  const filterBarHtml = `<div class="filter-bar">
+    <div>
+      <h3 style="margin:0"><i class='bx bx-filter-alt'></i> Patient Cohort View</h3>
+      <p class="hint" style="margin:2px 0 0">Filter analytics by patient visit category.</p>
+    </div>
+    <div class="filter-pills">
+      <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All Patients (${allR.length})</button>
+      <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">New Patients (${newCount})</button>
+      <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning (${retCount})</button>
+    </div>
+  </div>`;
+
+  const cohortCardHtml = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0"><i class='bx bx-user-pin'></i> Cohort Performance: New vs. Returning Patients</h3>
+      <span class="hint" style="margin:0">Total Submissions: ${allR.length}</span>
+    </div>
+    <div class="cohort-grid">
+      <div class="cohort-card">
+        <div class="cohort-header">
+          <h4><i class='bx bx-user-plus' style="color:#0369a1"></i> New Patients</h4>
+          <span class="cohort-badge new">${newStats.count} visits (${allR.length ? Math.round(newStats.count / allR.length * 100) : 0}%)</span>
+        </div>
+        <div class="cohort-metrics">
+          <div class="cohort-metric"><span>Avg Score</span><b>${newStats.avg}/5</b></div>
+          <div class="cohort-metric"><span>Satisfied</span><b>${newStats.sat}%</b></div>
+          <div class="cohort-metric"><span>Delay Rate</span><b>${newStats.delays}%</b></div>
+          <div class="cohort-metric"><span>Doctor Care</span><b>${newStats.docGood}%</b></div>
+        </div>
+      </div>
+      <div class="cohort-card">
+        <div class="cohort-header">
+          <h4><i class='bx bx-user-check' style="color:#92400e"></i> Returning Patients</h4>
+          <span class="cohort-badge ret">${retStats.count} visits (${allR.length ? Math.round(retStats.count / allR.length * 100) : 0}%)</span>
+        </div>
+        <div class="cohort-metrics">
+          <div class="cohort-metric"><span>Avg Score</span><b>${retStats.avg}/5</b></div>
+          <div class="cohort-metric"><span>Satisfied</span><b>${retStats.sat}%</b></div>
+          <div class="cohort-metric"><span>Delay Rate</span><b>${retStats.delays}%</b></div>
+          <div class="cohort-metric"><span>Doctor Care</span><b>${retStats.docGood}%</b></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const cm = R.flatMap((r) => [r.a?.q10, r.a?.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
+
+  return filterBarHtml +
+    `<div class=kpis>
+      <div class=kpi><b>${n}</b>${cohortFilter === 'new' ? 'New Patient' : cohortFilter === 'returning' ? 'Returning' : 'Total'} Responses</div>
+      <div class=kpi><b>${avg}/5</b>Avg Satisfaction</div>
+      <div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div>
+      <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
+    </div>` +
+    cohortCardHtml +
+    cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Satisfaction Ranking (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest in active view.</p>` + (rankHtml || '–')) +
+    cd('Responses by Visited Service', bars(tl((r) => r.dn))) +
+    cd('Overall Satisfaction Rating', bars(q('q8'))) +
+    cd('Wait Time Before Seeing Doctor', bars(q('q3'))) +
+    cd('Where Delays Occurred', bars(q('q4', 1))) +
+    cd('Where Unpleasant Experience Was Reported', bars(q('q6', 1))) +
+    cd('Cleanliness & Reception Quality (Rated Excellent/Good)', bars([['Reception', good('q1')], ['Cashier', good('q2')], ['Cleanliness', good('q7')]], 100, '%')) +
+    cd('Doctor Listened Carefully', bars(q('q5'))) +
+    cd('Visit Time of Day', bars(tl((r) => r.a?.time != null ? Q.time.o[r.a.time]?.[0] : null))) +
+    cd('Languages Used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
+    cd('Recent Comments & Improvement Suggestions', cm.map((x) => `<div class=cm>${esc(x)}</div>`).join('') || '–') +
+    tools;
 }
 
 function seed() {
-  const R = ld('dmc_r', []), D = cfg.depts, C = ['Great service', 'Waiting time was too long', 'Clean and calm environment', 'Please add more parking', ''];
+  const R = ld('dmc_r', []), D = cfg.depts, C = ['Great service', 'Waiting time was too long', 'Clean and calm environment', 'Please add more parking', 'Doctor was very patient and professional', ''];
   for (let k = 0; k < 60; k++) {
     if (!D.length) continue;
     const d = D[Math.random() * D.length | 0], p = (n) => Math.random() ** 1.8 * n | 0;
-    const a = { cat: p(2), time: p(3), q1: p(5), q2: p(5), q3: p(5), q4: [p(12)], q5: p(3), q6: [p(12)], q7: p(5), q8: p(5), q10: C[p(5)] };
+    const a = { cat: Math.random() > 0.45 ? 0 : 1, time: p(3), q1: p(5), q2: p(5), q3: p(5), q4: [p(12)], q5: p(3), q6: [p(12)], q7: p(5), q8: p(5), q10: C[p(6)] };
     R.push({ t: Date.now() - Math.random() * 2592e6, l: ['rw', 'en', 'fr'][Math.random() * 3 | 0], d: d.id, dn: d.n[0], a, demo: 1 });
   }
   sv('dmc_r', R);
@@ -510,13 +747,182 @@ function unseed() {
   admin();
 }
 
-function csv() {
-  const R = ld('dmc_r', []), K = Object.keys(Q), c = (k, v) => v == null ? '' : Array.isArray(v) ? v.map((x) => Q[k].o[x][0]).join('; ') : Q[k].o ? Q[k].o[v][0] : v;
-  const rows = [['date', 'language', 'service', ...K]].concat(R.map((r) => [new Date(r.t).toISOString(), r.l, r.dn, ...K.map((k) => c(k, r.a[k]))]));
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([rows.map((r) => r.map((x) => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' }));
-  a.download = 'dmc-feedback.csv';
-  a.click();
+function exportCSV(type = 'full') {
+  const R = ld('dmc_r', []);
+  if (!R.length) {
+    alert('No feedback records available to export.');
+    return;
+  }
+  const dateStr = new Date().toISOString().slice(0, 10);
+  let csvContent = '\uFEFF'; // UTF-8 BOM for Microsoft Excel / Sheets compatibility
+  let filename = `DMC-Patient-Feedback-${type}-${dateStr}.csv`;
+
+  if (type === 'full') {
+    const headers = [
+      'Submission ID',
+      'Timestamp (ISO)',
+      'Date & Time',
+      'Language',
+      'Department / Visited Service',
+      'Patient Category',
+      'Visit Time',
+      '1. Reception Experience',
+      '2. Cashier Experience',
+      '3. Doctor Wait Time',
+      '4. Delay Locations',
+      '5. Doctor Listened Carefully',
+      '6. Unpleasant Experience Locations',
+      '7. Cleanliness Rating',
+      '8. Overall Satisfaction',
+      '8. Score (1-5)',
+      '9. Additional Services Requested',
+      '10. Suggestions & Comments'
+    ];
+    const rows = R.map((r, idx) => {
+      const sScore = r.a?.q8 != null ? 5 - r.a.q8 : '';
+      const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
+      const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] || '' : '';
+      const q1 = r.a?.q1 != null ? Q.q1.o[r.a.q1]?.[0] || '' : '';
+      const q2 = r.a?.q2 != null ? Q.q2.o[r.a.q2]?.[0] || '' : '';
+      const q3 = r.a?.q3 != null ? Q.q3.o[r.a.q3]?.[0] || '' : '';
+      const q4 = (r.a?.q4 || []).map((x) => Q.q4.o[x]?.[0]).filter(Boolean).join('; ');
+      const q5 = r.a?.q5 != null ? Q.q5.o[r.a.q5]?.[0] || '' : '';
+      const q6 = (r.a?.q6 || []).map((x) => Q.q6.o[x]?.[0]).filter(Boolean).join('; ');
+      const q7 = r.a?.q7 != null ? Q.q7.o[r.a.q7]?.[0] || '' : '';
+      const q8 = r.a?.q8 != null ? Q.q8.o[r.a.q8]?.[0] || '' : '';
+      const q9 = (r.a?.q9 || '').replace(/\r?\n/g, ' ');
+      const q10 = (r.a?.q10 || '').replace(/\r?\n/g, ' ');
+      return [
+        `#${idx + 1}`,
+        new Date(r.t).toISOString(),
+        new Date(r.t).toLocaleString(),
+        r.l || 'en',
+        r.dn || '',
+        cat,
+        timeSlot,
+        q1,
+        q2,
+        q3,
+        q4,
+        q5,
+        q6,
+        q7,
+        q8,
+        sScore,
+        q9,
+        q10
+      ];
+    });
+    csvContent += [headers, ...rows].map((row) => row.map((cell) => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  } else if (type === 'departments') {
+    filename = `DMC-Department-Performance-${dateStr}.csv`;
+    const headers = [
+      'Department / Service',
+      'Total Reviews',
+      'New Patients',
+      'Returning Patients',
+      'Average Score (1-5)',
+      'Satisfied Reviews (4-5 Star)',
+      'Satisfaction Rate (%)',
+      'Dissatisfied Reviews (1-2 Star)',
+      'Dissatisfaction Rate (%)',
+      'Delays Reported Count',
+      'Delay Incidence (%)',
+      'Unpleasant Experience Count',
+      'Issue Incidence (%)'
+    ];
+    const dMap = {};
+    R.forEach((r) => {
+      const name = r.dn || 'Unknown';
+      if (!dMap[name]) dMap[name] = { total: 0, newP: 0, retP: 0, scores: [], delays: 0, issues: 0 };
+      const d = dMap[name];
+      d.total += 1;
+      if (r.a?.cat === 0) d.newP += 1;
+      else if (r.a?.cat === 1) d.retP += 1;
+      if (r.a?.q8 != null) d.scores.push(5 - r.a.q8);
+      if (r.a?.q4?.length && !r.a.q4.includes(Q.q4.o.length - 1)) d.delays += 1;
+      if (r.a?.q6?.length && !r.a.q6.includes(Q.q6.o.length - 1)) d.issues += 1;
+    });
+    const rows = Object.entries(dMap).map(([name, d]) => {
+      const avg = d.scores.length ? (d.scores.reduce((a, b) => a + b, 0) / d.scores.length).toFixed(2) : 'N/A';
+      const satCount = d.scores.filter((s) => s >= 4).length;
+      const satPct = d.scores.length ? Math.round((satCount / d.scores.length) * 100) + '%' : 'N/A';
+      const disCount = d.scores.filter((s) => s <= 2).length;
+      const disPct = d.scores.length ? Math.round((disCount / d.scores.length) * 100) + '%' : 'N/A';
+      const delayPct = Math.round((d.delays / d.total) * 100) + '%';
+      const issuePct = Math.round((d.issues / d.total) * 100) + '%';
+      return [
+        name,
+        d.total,
+        d.newP,
+        d.retP,
+        avg,
+        satCount,
+        satPct,
+        disCount,
+        disPct,
+        d.delays,
+        delayPct,
+        d.issues,
+        issuePct
+      ];
+    }).sort((a, b) => b[1] - a[1]);
+    csvContent += [headers, ...rows].map((row) => row.map((cell) => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  } else if (type === 'patients') {
+    filename = `DMC-Patient-Cohort-Analytics-${dateStr}.csv`;
+    const headers = [
+      'Patient Cohort',
+      'Total Reviews',
+      'Share of Patient Population (%)',
+      'Average Score (1-5)',
+      'Satisfied Count (4-5 Star)',
+      'Satisfaction Rate (%)',
+      'Dissatisfied Count (1-2 Star)',
+      'Dissatisfaction Rate (%)',
+      'Patients Experiencing Delay (%)',
+      'Patients Reporting Attitude Issue (%)'
+    ];
+    const cohorts = [
+      { name: 'New Patients (First-Time)', filter: (r) => r.a?.cat === 0 },
+      { name: 'Returning Patients', filter: (r) => r.a?.cat === 1 }
+    ];
+    const rows = cohorts.map(({ name, filter }) => {
+      const sub = R.filter(filter);
+      const scores = sub.filter((r) => r.a?.q8 != null).map((r) => 5 - r.a.q8);
+      const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : 'N/A';
+      const sat = scores.filter((s) => s >= 4).length;
+      const satRate = scores.length ? Math.round((sat / scores.length) * 100) + '%' : 'N/A';
+      const dis = scores.filter((s) => s <= 2).length;
+      const disRate = scores.length ? Math.round((dis / scores.length) * 100) + '%' : 'N/A';
+      const delayCount = sub.filter((r) => r.a?.q4?.length && !r.a.q4.includes(Q.q4.o.length - 1)).length;
+      const delayRate = sub.length ? Math.round((delayCount / sub.length) * 100) + '%' : 'N/A';
+      const issueCount = sub.filter((r) => r.a?.q6?.length && !r.a.q6.includes(Q.q6.o.length - 1)).length;
+      const issueRate = sub.length ? Math.round((issueCount / sub.length) * 100) + '%' : 'N/A';
+      return [
+        name,
+        sub.length,
+        Math.round((sub.length / R.length) * 100) + '%',
+        avg,
+        sat,
+        satRate,
+        dis,
+        disRate,
+        delayRate,
+        issueRate
+      ];
+    });
+    csvContent += [headers, ...rows].map((row) => row.map((cell) => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  }
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 /* ---------- Splash & Welcome Animation ---------- */
@@ -574,11 +980,6 @@ function startSplashSequence() {
   splashAnimTimers.push(setTimeout(() => {
     if (langsBox) langsBox.classList.add('visible');
   }, 5200));
-
-  // Auto-proceed if no language is tapped after comfortable idle time (12s)
-  welcomeTimer = setTimeout(() => {
-    hideSplash(() => renderIntro());
-  }, 12500);
 }
 
 /* ---------- Boot ---------- */
