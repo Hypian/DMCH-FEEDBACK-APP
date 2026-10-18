@@ -26,13 +26,13 @@ const U = {
   pick: ['Choose your language', 'Choisissez votre langue', 'Hitamo ururimi'],
   introTitle: [
     'OUT PATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
-    'QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
-    'IFISHI YO GUSUZUMA IBITEKEREZO BY\'ABARWAYI BASURA ISHAMI RY\'ABASUYE IVURIRO (OPD)'
+    'QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
+    'GUKUSANYA IBITEKEREZO BY\'ABARWAYI BAJE KWIVUZA BATAHA (OPD)'
   ],
   introBody: [
     'Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey. Your responses are anonymous and confidential',
     'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services. Merci de prendre un instant pour répondre à ce court questionnaire. Vos réponses sont anonymes et confidentielles.',
-    'Ibitekerezo byanyu ni ingirakamaro kuri twe kandi bizadufasha kunoza ubuziranenge bw\'serivisi zacu. Mwitegereze mufate akanya muzuze iyi fishi ngufi. Ibisubizo byanyu ni ibanga rirengera kandi ntibigira uwo bibaza.'
+    'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu. Turabasaba ngo muduhe akanya gato mu kuzuza uru rupapuro rwikusanyabitekerezo kuri serivise dutanga. Icyitonderwa: Ibitekerezo byanyu n’ibanga kandi ntankurikizi cyangwa ingaruka bibagiraho.'
   ],
   startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira ibibazo'],
   surveyProgress: ['Survey progress', 'Progression du questionnaire', 'Aho ugeze mu bibazo'],
@@ -86,92 +86,94 @@ const U = {
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 let welcomeTimer = null;
 
-const RATE = P('Excellent~Excellent~Byiza cyane|Good~Bon~Byiza|Fair~Moyen~Bisanzwe|Poor~Mauvais~Bibi');
-const AREA = P("Reception desk~Réception~Ku biro by'iyakira|Cashier’s desk~Caisse~Ku biro by'ubwishyu|Triage~Triage~Ku ivuriro ryo gutoranya|Consultation~Consultation~Kubonana n'umuganga|Emergency~Urgences~Ubutabazi|Laboratory~Laboratoire~Laboratwari|Radiology/imaging~Radiologie/Imagerie~Radiologiya/Ifoto z'Imbere|Minor surgery~Petite chirurgie~Kubagwa Bito|Physiotherapy service~Service de physiothérapie~Serivisi yo Kongera Imbaraga|Vaccination~Vaccination~Inkingo|Pharmacy~Pharmacie~Farumasi");
+const RATE = P('Excellent~Excellente~Byiza cyane|Good~Bonne~Byiza|Fair~Moyenne~Mu rugero|Poor~Mauvaise~Bibi|Very poor~Très mauvaise~Bibi cyane');
+const AREA = P("Reception desk~Réception~Aho bakirira abagana ivuriro|Cashier’s desk~Caisse~Aho abagana ivuriro bishyurira|Triage~Triage~Isuzuniro ry’ibanze|Consultation~Consultation~Kubonana n'umuganga|Emergency~Urgences~Aho bakirira indembe n’inkomere|Laboratory~Laboratoire~Aho batangira ibizamini|Radiology/imaging~Radiologie/Imagerie~Guca mucyuma|Minor surgery~Petite chirurgie~Kubagwa byoroheje|Physiotherapy service~Service de physiothérapie~Aho bagorora ingingo|Vaccination~Vaccination~Aho batangira inkingo|Restaurant~Restaurant~Aho batangira amafunguro");
 const Q = {
   dept: { t: 'd', q: T3('Visited Services~Services Visités~Serivisi Yasuwe') },
   cat: {
     t: 's',
-    q: T3('Patient Category~Catégorie de Patient~Ubwoko bw\'Umurwayi'),
-    o: P('New Patient~Nouveau patient~Umurwayi mushya|Returning Patient~Patient de retour~Umurwayi wagarutse')
+    q: T3('Patient Category~Catégorie de Patient~Umurwayi'),
+    o: P('New Patient~Nouveau patient(e)~Uje bwa mbere.|Returning Patient~Patient déjà venu~Usanzwe y’ivuriza hano.')
   },
   time: {
     t: 's',
-    q: T3('Visit Time~Heure de la Visite~Igihe cyo Gusura'),
+    q: T3('Visit Time~Heure de la Visite~Igihe waziye'),
     o: P('8:00 AM – 5:00 PM~8h00 – 17h00~8h00 – 17h00|5:00 PM – 9:00 PM~17h00 – 21h00~17h00 – 21h00|9:00 PM – 8:00 AM~21h00 – 8h00~21h00 – 8h00')
   },
   q1: {
     t: 's',
-    q: T3("1. How was your experience at the reception/registration desk?~1. Comment évaluez-vous votre expérience à la réception/l’enregistrement?~1. Wakiriwe gute ku biro by'iyakira/kwiyandikisha?"),
+    q: T3("1. How was your experience at the reception/registration desk?~1. Comment évaluez-vous votre expérience à la réception/l’enregistrement?~1. Wakiriwe ute n’abashinzwe kwakira abatugana (reception desk)?"),
     o: RATE
   },
   q2: {
     t: 's',
-    q: T3("2. How was your experience at the cashier’s desk?~2. Comment évaluez-vous votre expérience à la caisse?~2. Wakiriwe gute ku biro by'ubwishyu?"),
+    q: T3("2. How was your experience at the cashier’s desk?~2. Comment évaluez-vous votre expérience à la caisse?~2. Wakiriwe ute n’abashinzwe kwishyuza abatugana (cash desk)?"),
     o: RATE
   },
   q3: {
     t: 's',
-    q: T3('3. How long did you wait before seeing the healthcare provider (Doctor)?~3. Combien de temps avez-vous attendu avant de voir le prestataire de soins (médecin)?~3. Wategereje igihe kingana iki mbere yo kubonana n\'umuganga?'),
-    o: P('Less than 15 minutes~Moins de 15 minutes~Munsi y\'iminota 15|15–30 minutes~15–30 minutes~Iminota 15–30|30–60 minutes~30–60 minutes~Iminota 30–60|1–2 hours~1–2 heures~Isaha 1–2|More than 2 hours~Plus de 2 heures~Zirenze amasaha 2')
+    q: T3('3. How long did you wait before seeing the Doctor?~3. Combien de temps avez-vous attendu avant de voir le prestataire de soins (médecin)?~3. Wategereje b’ingana iki mbere yo kubonana n\'umuganga?'),
+    o: P('Less than 15 minute’s~Moins de 15 minutes~Munsi y\'iminota 15|15–30 minutes~15–30 minutes~Iminota 15–30|30–60 minutes~30–60 minutes~Iminota 30–60|1-2 hour~1–2 heures~Isaha 1–2|More than 2 hour~Plus de 2 heures~Birenze amasaha 2')
   },
   q4: {
     t: 'm',
-    q: T3("4. Where did you experience a delay? Please select all that apply.~4. Où avez-vous rencontré un retard? Cochez toutes les réponses applicables.~4. Ni he wagize ubukererwe? Hitamo ibihuye byose."),
+    q: T3("4. Where did you experience a delay? Please select all that apply.~4. Où avez-vous rencontré un retard? Cochez toutes les réponses applicables.~4. Ni hehe wagize ubukererwe? Hitamo ibihuye byose."),
     o: AREA.concat(P("I did not experience any delay~Je n'ai rencontré aucun retard~Sinigeze ngira ubukererwe"))
   },
   q5: {
     t: 's',
-    q: T3('5. Did the healthcare provider listen carefully and address your concerns during consultation time?~5. Le prestataire de soins vous a-t-il écouté attentivement et pris en compte vos préoccupations pendant la consultation?~5. Umuganga yaguteze amatwi neza akita ku bibazo byawe mu gihe cyo kuganira?'),
-    o: P('Yes~Oui~Yego|Partly~Partiellement~Igice|No~Non~Oya')
+    q: T3('5. Did the doctor listen carefully and address your concerns during consultation time?~5. Le prestataire de soins vous a-t-il écouté attentivement et pris en compte vos préoccupations pendant la consultation?~5. Umuganga wakwakiriye yaguteze amatwi bikunyuze mu gihe mwaganiraga ku burwayi bwawe?'),
+    o: P('Yes~Oui~Yego|Partly~Partiellement~Mu rugero|No~Non~Oya')
   },
   q6: {
     t: 'm',
-    q: T3('6. Among the following OPD areas, where did you experienced a bad attitude and unprofessionalism?~6. Parmi les zones suivantes de l\'OPD, où avez-vous constaté une mauvaise attitude ou un manque de professionnalisme?~6. Muri aya maserivisi ya OPD akurikira, ni ahe wagize imikorere mibi cyangwa itagize umwuga?'),
-    o: AREA.concat(P('Excellent professionalism in all services~Excellent professionnalisme dans tous les services~Umwuga mwiza muri serivisi zose'))
+    q: T3('6. Among the following OPD areas, where did you have an unpleasant experience?~6. Parmi les zones suivantes de l’OPD, dans lesquelles avez-vous constaté une expérience désagréable?~6. Ni hehe mwahuye n’ikibazo cyangwa serivisi idashimishije muri izi serivisi z’abivuza bataha ?'),
+    o: AREA.concat(P('None~Je n\'ai rencontré aucun retard~Sinigeze ngira ubukererwe'))
   },
   q7: {
     t: 's',
-    q: T3('7. How do you rate the cleanliness of the OPD area?~7. Comment évaluez-vous la propreté de la zone OPD?~7. Wabonye gute isuku y\'agace ka OPD?'),
+    q: T3('7. How do you rate the cleanliness of the OPD area?~7. Comment évaluez-vous la propreté de la zone OPD?~7. Mwabonye mute isuku y’aho abivuza bakirirwa?'),
     o: RATE
   },
   q8: {
     t: 's',
-    q: T3('8. Overall, how satisfied are you with your visit today?~8. Dans l\'ensemble, êtes-vous satisfait(e) de votre visite d’aujourd’hui ?~8. Muri rusange, unyuzwe gute n\'urugendo rwawe rw’uyu munsi?'),
-    o: P('Very satisfied~Très satisfait(e)~Ndanyuzwe cyane|Satisfied~Satisfait(e)~Ndanyuzwe|Neutral~Neutre~Simbizi|Dissatisfied~Insatisfait(e)~Sinanyuzwe|Very dissatisfied~Très insatisfait(e)~Sinanyuzwe na gato')
+    q: T3('8. Overall, how satisfied are you with your visit today?~8. Dans l\'ensemble, êtes-vous satisfait(e) de votre visite d’aujourd’hui ?~8. Muri rusange, wanyuzwe ute n\'uburyo wakiriwe mu bitaro bya Dream Medical center (DMC)?'),
+    o: P('Very satisfied~Très satisfait(e)~Ndanyuzwe cyane|Satisfied~Satisfait(e)~Ndanyuzwe|Neutral~Neutre~Mu rugero|Dissatisfied~Insatisfait(e)~Sinanyuzwe|Very dissatisfied~Très insatisfait(e)~Sinanyuzwe na gato')
   },
   q9: {
     t: 'x',
-    q: T3("9. What additional services would you like Dream Medical Center to offer?~9. Quels services supplémentaires souhaiteriez-vous que Dream Medical Center propose?~9. Ni izihe serivisi z'inyongera wifuza ko Dream Medical Center yatanga?")
+    q: T3("9. What additional services would you like Dream Medical Center to offer?~9. Quels services supplémentaires souhaiteriez-vous que Dream Medical Center propose?~9. Ni izihe serivisi z'inyongera wifuza ko ibitaro bya Dream Medical Center (DMC) byatanga?")
   },
   q10: {
     t: 'x',
-    q: T3('10. Please tell us where we can improve, any additional comments or suggestions.~10. Merci de nous indiquer où nous pouvons nous améliorer, ainsi que tout autre commentaire ou suggestion.~10. Tubwire aho twanoza, cyangwa ibindi bitekerezo/inama ufite.')
+    q: T3('10. Please tell us where we can improve, any additional comments or suggestions.~10. Merci de nous indiquer où nous pouvons nous améliorer, ainsi que tout autre commentaire ou suggestion.~10. Turabasaba ibitekerezo by’ibyo twanoza, n’Ikindi cyose mwifuza kutubwira muhawe ikaze.')
   }
 };
 
-const OPD = P("Gynecology & Obstetrics~Gynécologie & Obstétrique~Ababyeyi n'Inda|Internal medicine~Médecine interne~Indwara zo mu Mubiri|Orthopedics~Orthopédie~Amagufa|Pediatrics~Pédiatrie~Ubuvuzi bw'Abana|General surgery~Chirurgie générale~Kubagwa Kunini|Physiotherapy & Rehabilitation~Physiothérapie & Réadaptation~Kongera Imbaraga z'Umubiri|General medicine~Médecine générale~Ubuvuzi Rusange|ENT~ORL~Amatwi, Izuru n'Umuhogo|Urology~Urologie~Umuyoboro w'Inkari|Ophthalmology~Ophtalmologie~Amaso|Dental~Dentaire~Amenyo|Emergency & Observation~Urgences & Observation~Ubutabazi n'Igenzura|Radiology/Imaging~Radiologie/Imagerie~Radiologiya/Ifoto z'Imbere|Vaccination~Vaccination~Inkingo|Laboratory~Laboratoire~Laboratwari|Pharmacy~Pharmacie~Farumasi|Minor surgery~Petite chirurgie~Kubagwa Bito");
+const OPD = P("Gynecology & Obs~Gynécologie - Obstétrique~Ubuvuzi bw’ababyeyi|Internal medicine~Médecine interne~Ubuvuzi bw’imbere mu Mubiri|Orthopedic~Orthopédie~Ubuvuzi bw’indwara z’amagufa|Pediatrics~Pédiatrie~Ubuvuzi bw'Abana|General surgery~Chirurgie générale~Imbagwa|Physiotherapy & rehabilitation~Physiothérapie & Réeducation~kugorora ingingo|General medicine~Médecine générale~Ubuvuzi Rusange|ENT~ORL~Ubuvuzi bw’indwara z’amatwi, Izuru n'Umuhogo|Urology~Urologie~Ubuvuzi bw’umuyoboro w'Inkari|Ophthalmology~Ophtalmologie~Ubuvuzi bw’amaso|Dental~Dentaire~Ubuvuzi bw’amenyo|Emergency & observation~Urgences & Observation~Aho bakirira indembe n’inkomere|Radiology /Imaging~Radiologie/Imagerie~Guca mu cyuma|Vaccination~Vaccination~Aho batangira Inkingo|Laboratory~Laboratoire~Aho batangira ibizamini|Minor surgery~Petite chirurgie~Kubagwa Byoroheje");
 
-let cfg = ld('dmc_c', null) || {
-  pin: '1234',
-  depts: OPD.map((n, k) => ({ id: 'o' + k, n }))
-};
+let cfg = ld('dmc_c', null);
+if (!cfg || !cfg.v || cfg.v < 2) {
+  cfg = {
+    v: 2,
+    pin: cfg?.pin || '1234',
+    depts: OPD.map((n, k) => ({ id: 'o' + k, n }))
+  };
+  sv('dmc_c', cfg);
+}
 
 const flow = () => ['dept', 'cat', 'time', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'];
 
 function render(animate = true) {
   const f = flow(), st = f[i], t = (k) => g(U[k]);
   let title = '', hint = '', b = '';
-  if (st === 'lang') {
-    title = U.pick.join(' / ');
-    b = `<div style="height:10px"></div>` + LG.map(([c, n]) => `<button class="opt lang" onclick="setLang('${c}')">${n}</button>`).join('');
-  } else if (st === 'dept') {
+  if (st === 'dept') {
     title = t('dept');
     b = cfg.depts.map((d) => `<button class="opt ${S.dept === d.id ? 'on' : ''}" onclick="pick('dept','${d.id}')"><b></b>${esc(g(d.n))}</button>`).join('');
   } else {
     const q = Q[st], m = q.t === 'm';
     title = g(q.q);
-    if (m) hint = t('all');
+    if (m && !title.toLowerCase().includes(t('all').toLowerCase())) hint = t('all');
     if (q.t === 'x') {
       b += `<textarea placeholder="${t('ph')}" oninput="S.a['${st}']=this.value">${esc(S.a[st] || '')}</textarea>`;
     } else {
@@ -181,11 +183,11 @@ function render(animate = true) {
       }).join('');
     }
     if (q.t !== 's') {
-      b += `<button class=btn ${m && !(S.a[st] || []).length ? 'disabled' : ''} onclick="nxt()">${i === f.length - 1 ? t('send') : t('next')}</button>`;
+      b += `<button class="btn ${m && !(S.a[st] || []).length ? 'disabled' : ''}" onclick="nxt()">${i === f.length - 1 ? t('send') : t('next')}</button>`;
     }
   }
 
-  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class=top><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class=ghost onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class=bar><i style="width:${(i / f.length) * 100}%"></i></div><div class=top-title><h2>${title}</h2>${hint ? `<p class=hint>${hint}</p>` : ''}</div></div>${b}</div>`;
+  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class="top"><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class="ghost" onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class="bar"><i style="width:${(i / f.length) * 100}%"></i></div><div class="top-title"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}</div></div>${b}</div>`;
 }
 
 const up_ = () => {
@@ -194,27 +196,8 @@ const up_ = () => {
   scrollTo(0, 0);
 };
 
-function chooseLanguage(language) {
-  if (!IX.hasOwnProperty(language)) return;
-  S.lang = language;
-  document.querySelectorAll('.intro-language').forEach((button) => {
-    const selected = button.dataset.language === language;
-    button.classList.toggle('on', selected);
-    button.setAttribute('aria-pressed', String(selected));
-  });
-  const title = $('intro-title');
-  const body = $('intro-body');
-  const start = $('start-survey');
-  if (title) title.textContent = g(U.introTitle);
-  if (body) body.textContent = g(U.introBody);
-  if (start) start.innerHTML = `${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i>`;
-}
-
 function renderIntro(animate = true) {
-  const languages = LG.map(([code, name]) =>
-    `<button class="intro-language${S.lang === code ? ' on' : ''}" data-language="${code}" aria-pressed="${S.lang === code}" onclick="chooseLanguage('${code}')">${name}</button>`
-  ).join('');
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-languages" aria-label="${esc(g(U.pick))}">${languages}</div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
@@ -253,10 +236,10 @@ function hideSplash(callback) {
     callback();
     return;
   }
+  callback();
   splash.classList.add('off');
   setTimeout(() => {
     splash.remove();
-    callback();
   }, 600);
 }
 
@@ -277,7 +260,7 @@ function renderSubmitting(progress, message) {
 
 function startSurvey() {
   const button = $('start-survey');
-  button.disabled = true;
+  if (button) button.disabled = true;
   try {
     if (loadCompletion()) {
       renderComplete();
@@ -295,9 +278,11 @@ function startSurvey() {
   } catch (error) {
     console.error('Could not start the local survey:', error);
     const notice = $('intro-error');
-    notice.textContent = g(U.deviceStorageError);
-    button.disabled = false;
-    button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
+    if (notice) notice.textContent = g(U.deviceStorageError);
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
+    }
   }
 }
 
@@ -327,7 +312,7 @@ function ans(s, k) {
   answerTimer = setTimeout(() => {
     answerTimer = null;
     nxt();
-  }, 350);
+  }, 240);
 }
 
 function tog(s, k) {
@@ -424,7 +409,7 @@ function feedbacksUI() {
         </div>
         <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
         ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
-        ${issues ? `<div class="hint" style="margin:4px 0"><b>Staff attitude / issues:</b> ${esc(issues)}</div>` : ''}
+        ${issues ? `<div class="hint" style="margin:4px 0"><b>Unpleasant experience / issues:</b> ${esc(issues)}</div>` : ''}
         ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
         ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
       </div>`;
@@ -501,10 +486,10 @@ function stats() {
 
   return `<div class=kpis><div class=kpi><b>${n}</b>Total Responses</div><div class=kpi><b>${avg}/5</b>Avg Satisfaction</div><div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div><div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div></div>` +
     cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Ranking by Satisfaction (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest.</p>` + (rankHtml || '–')) +
-    cd('Responses by visited service', bars(tl((r) => r.dn))) + cd('Overall satisfaction', bars(q('q8'))) + cd('Wait before seeing healthcare provider (Doctor)', bars(q('q3'))) +
-    cd('Where delays occurred', bars(q('q4', 1))) + cd('Where bad attitude was reported', bars(q('q6', 1))) +
+    cd('Responses by visited service', bars(tl((r) => r.dn))) + cd('Overall satisfaction', bars(q('q8'))) + cd('Wait before seeing Doctor', bars(q('q3'))) +
+    cd('Where delays occurred', bars(q('q4', 1))) + cd('Where unpleasant experience was reported', bars(q('q6', 1))) +
     cd('Rated Excellent or Good', bars([['Reception', good('q1')], ['Cashier', good('q2')], ['Cleanliness', good('q7')]], 100, '%')) +
-    cd('Provider listened carefully', bars(q('q5'))) + cd('Languages used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
+    cd('Doctor listened carefully', bars(q('q5'))) + cd('Languages used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
     cd('Latest comments', cm.map((x) => `<div class=cm>${esc(x)}</div>`).join('') || '–') + tools;
 }
 
@@ -513,7 +498,7 @@ function seed() {
   for (let k = 0; k < 60; k++) {
     if (!D.length) continue;
     const d = D[Math.random() * D.length | 0], p = (n) => Math.random() ** 1.8 * n | 0;
-    const a = { cat: p(2), time: p(3), q1: p(4), q2: p(4), q3: p(5), q4: [p(11)], q5: p(3), q6: [p(11)], q7: p(4), q8: p(5), q10: C[p(5)] };
+    const a = { cat: p(2), time: p(3), q1: p(5), q2: p(5), q3: p(5), q4: [p(12)], q5: p(3), q6: [p(12)], q7: p(5), q8: p(5), q10: C[p(5)] };
     R.push({ t: Date.now() - Math.random() * 2592e6, l: ['rw', 'en', 'fr'][Math.random() * 3 | 0], d: d.id, dn: d.n[0], a, demo: 1 });
   }
   sv('dmc_r', R);
@@ -534,13 +519,78 @@ function csv() {
   a.click();
 }
 
-/* ---------- Boot ---------- */
-$('wl').innerHTML = [...U.welcome[0]].map((c, n) => `<span style="animation-delay:${1.3 + n * 0.045}s">${c === ' ' ? '&nbsp;' : c}</span>`).join('');
+/* ---------- Splash & Welcome Animation ---------- */
+let splashAnimTimers = [];
 
+function animateWelcomeText(text) {
+  const wl = $('wl');
+  if (!wl) return;
+  wl.innerHTML = [...text].map((c, n) =>
+    `<span style="animation-delay:${n * 0.032}s">${c === ' ' ? '&nbsp;' : esc(c)}</span>`
+  ).join('');
+}
+
+function selectSplashLang(code) {
+  if (welcomeTimer) {
+    clearTimeout(welcomeTimer);
+    welcomeTimer = null;
+  }
+  splashAnimTimers.forEach(clearTimeout);
+  splashAnimTimers = [];
+  if (IX.hasOwnProperty(code)) S.lang = code;
+  hideSplash(() => startSurvey());
+}
+
+function startSplashSequence() {
+  const wl = $('wl');
+  const langsBox = $('splash-langs');
+  if (!wl) return;
+
+  const welcomeMessages = [
+    'Bienvenue à DMC Hospital',          // French
+    'Murakaza neza kuri DMC Hospital',   // Kinyarwanda
+    'Welcome to DMC Hospital'            // English
+  ];
+
+  splashAnimTimers.forEach(clearTimeout);
+  splashAnimTimers = [];
+
+  // 1. French animation at 350ms
+  splashAnimTimers.push(setTimeout(() => {
+    animateWelcomeText(welcomeMessages[0]);
+  }, 350));
+
+  // 2. Kinyarwanda animation at 2000ms
+  splashAnimTimers.push(setTimeout(() => {
+    animateWelcomeText(welcomeMessages[1]);
+  }, 2000));
+
+  // 3. English animation at 3700ms
+  splashAnimTimers.push(setTimeout(() => {
+    animateWelcomeText(welcomeMessages[2]);
+  }, 3700));
+
+  // Reveal language button options right after the 3 animations at 5200ms
+  splashAnimTimers.push(setTimeout(() => {
+    if (langsBox) langsBox.classList.add('visible');
+  }, 5200));
+
+  // Auto-proceed if no language is tapped after comfortable idle time (12s)
+  welcomeTimer = setTimeout(() => {
+    hideSplash(() => renderIntro());
+  }, 12500);
+}
+
+/* ---------- Boot ---------- */
 function boot() {
   const adm = location.hash === '#admin', s = $('splash');
-  clearTimeout(welcomeTimer);
-  welcomeTimer = null;
+  if (welcomeTimer) {
+    clearTimeout(welcomeTimer);
+    welcomeTimer = null;
+  }
+  splashAnimTimers.forEach(clearTimeout);
+  splashAnimTimers = [];
+
   if (adm) {
     if (s) s.remove();
     admin();
@@ -552,7 +602,7 @@ function boot() {
     return;
   }
   if (s) {
-    welcomeTimer = setTimeout(() => hideSplash(() => renderIntro()), 3800);
+    startSplashSequence();
     return;
   }
   renderIntro();
