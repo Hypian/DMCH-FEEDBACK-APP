@@ -94,15 +94,24 @@ function makeApiFetch(state) {
         status = 403;
         data = { error: 'admin_access_required' };
       } else {
-        data = { user: state.session.user };
+        data = { user: state.session.user, isSupremeAdmin: state.isSupremeAdmin === true };
+      }
+    } else if (pathname === '/api/admin/directory' && method === 'GET') {
+      data = { admins: state.adminDirectory || [] };
+    } else if (pathname === '/api/admin/users' && method === 'GET') {
+      if (state.isSupremeAdmin !== true) {
+        status = 403;
+        data = { error: 'supreme_admin_access_required' };
+      } else {
+        data = { users: state.managedUsers || [] };
       }
     } else if (pathname === '/api/admin/users/pending' && method === 'GET') {
       if (!state.session) {
         status = 401;
         data = { error: 'authentication_required' };
-      } else if (state.isAdmin === false) {
+      } else if (state.isSupremeAdmin !== true) {
         status = 403;
-        data = { error: 'admin_access_required' };
+        data = { error: 'supreme_admin_access_required' };
       } else {
         data = { users: state.pendingUsers || [] };
       }
@@ -117,10 +126,21 @@ function makeApiFetch(state) {
         const userId = decodeURIComponent(pathname.split('/')[4]);
         const body = JSON.parse(options.body);
         state.pendingUsers = (state.pendingUsers || []).filter((user) => user.user_id !== userId);
+        const user = (state.managedUsers || []).find((item) => item.user_id === userId);
+        if (user) user.status = body.status;
         state.reviewedUsers ||= [];
         state.reviewedUsers.push({ user_id: userId, status: body.status });
         data = { user: { user_id: userId, status: body.status } };
       }
+    } else if (/^\/api\/admin\/users\/[^/]+\/(admin|supreme)$/.test(pathname) && method === 'PATCH') {
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const role = pathname.split('/')[5] === 'admin' ? 'is_admin' : 'is_supreme_admin';
+      const user = (state.managedUsers || []).find((item) => item.user_id === userId);
+      if (user) {
+        user[role] = JSON.parse(options.body).enabled;
+        if (role === 'is_admin' && user.is_admin) user.status = 'approved';
+      }
+      data = { user: { user_id: userId, [role]: JSON.parse(options.body).enabled } };
     } else if (pathname === '/api/responses' && method === 'GET') {
       data = state.responses;
     } else if (pathname === '/api/responses' && method === 'DELETE') {
@@ -372,7 +392,7 @@ test('signup page collects full name, username, and passwords without collecting
   assert.doesNotMatch(backend, /service_role|supabase/i);
 });
 
-test('signup offers a themed approval dialog and admin user management loads and approves requests', async () => {
+test('signup offers a themed approval dialog and supreme admins manage accounts and roles', async () => {
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
   const authPages = fs.readFileSync(frontendPath('auth-pages.js'), 'utf8');
   assert.match(styles, /\.account-approval-dialog\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*margin:\s*auto;/);
@@ -381,27 +401,46 @@ test('signup offers a themed approval dialog and admin user management loads and
 
   const backendState = {
     session: { user: { id: 'sandra-user', name: 'Sandra', username: 'sandra' } },
+    isSupremeAdmin: true,
+    adminDirectory: [{ name: 'Sandra', username: 'sandra', is_supreme_admin: true }],
     pendingUsers: [{
       user_id: 'new-user',
       name: 'New Applicant',
       username: 'new_applicant',
       created_at: '2026-10-21T10:00:00Z'
+    }],
+    managedUsers: [{
+      user_id: 'new-user',
+      name: 'New Applicant',
+      username: 'new_applicant',
+      status: 'pending',
+      is_admin: false,
+      is_supreme_admin: false
     }]
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'}};adminDataLoaded=true;admin()",
+    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isSupremeAdmin:true};adminDataLoaded=true;admin()",
     context
   );
   assert.equal(vm.runInContext('tab', context), 'users');
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(app.innerHTML, /New Applicant/);
   assert.match(app.innerHTML, /@new_applicant/);
-  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users/pending'), true);
+  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users'), true);
 
   await vm.runInContext("reviewUser('new-user','approved')", context);
   assert.deepEqual(backendState.reviewedUsers, [{ user_id: 'new-user', status: 'approved' }]);
-  assert.doesNotMatch(app.innerHTML, /New Applicant/);
+  assert.match(app.innerHTML, /New Applicant/);
+  assert.doesNotMatch(app.innerHTML, />Approve</);
+
+  await vm.runInContext("setUserRole('new-user','admin',true)", context);
+  assert.equal(backendState.managedUsers[0].is_admin, true);
+  assert.match(app.innerHTML, /Make supreme/);
+
+  await vm.runInContext("setUserRole('new-user','supreme',true)", context);
+  assert.equal(backendState.managedUsers[0].is_supreme_admin, true);
+  assert.match(app.innerHTML, /Supreme admin/);
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {

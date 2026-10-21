@@ -201,12 +201,17 @@ export async function handleNeonApi(request, response, url) {
   if (pathname === '/api/admin/session' && request.method === 'GET') {
     const session = await getAdminSession(request, response);
     if (session) {
+      const role = await pool.query(
+        'select exists (select 1 from public.feedback_supreme_admins where user_id = $1) as is_supreme_admin',
+        [session.user.id]
+      );
       sendJson(response, 200, {
         user: {
           id: session.user.id,
           name: session.user.name,
           username: session.user.username
-        }
+        },
+        isSupremeAdmin: role.rows[0].is_supreme_admin
       });
     }
     return true;

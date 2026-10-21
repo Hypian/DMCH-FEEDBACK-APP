@@ -643,6 +643,13 @@ textarea { min-height: 150px; resize: vertical; }
 .pending-user-details h4 { color: var(--ink); }
 .pending-user-details p,.pending-user-details small { color: var(--ink-3); overflow-wrap: anywhere; }
 .pending-user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.user-role { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 999px; background: var(--red-tint); color: var(--red); font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.admin-user-table-wrap { overflow-x: auto; margin-top: 16px; }
+.admin-user-table { width: 100%; border-collapse: collapse; text-align: left; }
+.admin-user-table th,.admin-user-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.admin-user-table th { color: var(--ink-3); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.user-role-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.user-role-actions .adm-btn { padding: 7px 10px; font-size: 12px; }
 .account-approval-dialog { position: fixed; inset: 0; width: min(92vw, 440px); max-height: min(90vh, 600px); margin: auto; overflow-y: auto; box-sizing: border-box; padding: 32px; border: 1px solid var(--border); border-radius: 22px; color: var(--ink); text-align: center; box-shadow: 0 24px 80px rgba(35,27,23,.25); }
 .account-approval-dialog::backdrop { background: rgba(27,22,20,.58); backdrop-filter: blur(4px); }
 .account-approval-dialog h2 { margin: 8px 0 12px; color: var(--ink); }

@@ -53,6 +53,20 @@ async function requireAdmin(request, response, pool, getAuthSession) {
   return session;
 }
 
+async function requireSupremeAdmin(request, response, pool, getAuthSession) {
+  const session = await requireAdmin(request, response, pool, getAuthSession);
+  if (!session) return null;
+  const result = await pool.query(
+    'select 1 from public.feedback_supreme_admins where user_id = $1',
+    [session.user.id]
+  );
+  if (result.rowCount === 0) {
+    sendJson(response, 403, { error: 'supreme_admin_access_required' });
+    return null;
+  }
+  return session;
+}
+
 export async function createPendingApproval(pool, userId) {
   await pool.query(
     `insert into public.feedback_account_approvals (user_id, status)
@@ -94,13 +108,54 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     return true;
   }
 
+  if (pathname === '/api/admin/directory') {
+    if (request.method !== 'GET') {
+      response.setHeader('Allow', 'GET');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
+    const result = await pool.query(
+      `select auth_user.name, auth_user.username, supreme.user_id is not null as is_supreme_admin
+       from public.feedback_admins as admin
+       join public."user" as auth_user on auth_user.id = admin.user_id
+       left join public.feedback_supreme_admins as supreme on supreme.user_id = admin.user_id
+       order by auth_user.name asc, auth_user.username asc`
+    );
+    sendJson(response, 200, { admins: result.rows });
+    return true;
+  }
+
+  if (pathname === '/api/admin/users') {
+    if (request.method !== 'GET') {
+      response.setHeader('Allow', 'GET');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
+    const result = await pool.query(
+      `select auth_user.id as user_id, auth_user.name, auth_user.username,
+              coalesce(approval.status, 'approved') as status,
+              approval.created_at,
+              admin.user_id is not null as is_admin,
+              supreme.user_id is not null as is_supreme_admin
+       from public."user" as auth_user
+       left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
+       left join public.feedback_admins as admin on admin.user_id = auth_user.id
+       left join public.feedback_supreme_admins as supreme on supreme.user_id = auth_user.id
+       order by auth_user.name asc, auth_user.username asc`
+    );
+    sendJson(response, 200, { users: result.rows });
+    return true;
+  }
+
   if (pathname === '/api/admin/users/pending') {
     if (request.method !== 'GET') {
       response.setHeader('Allow', 'GET');
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    const adminSession = await requireAdmin(request, response, pool, getAuthSession);
+    const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
     if (!adminSession) return true;
     const result = await pool.query(
       `select approval.user_id, auth_user.name, auth_user.username, approval.created_at
@@ -113,14 +168,15 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     return true;
   }
 
+  const roleMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/(admin|supreme)$/);
   const approvalMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/approval$/);
-  if (!approvalMatch) return false;
+  if (!approvalMatch && !roleMatch) return false;
   if (request.method !== 'PATCH') {
     response.setHeader('Allow', 'PATCH');
     sendJson(response, 405, { error: 'method_not_allowed' });
     return true;
   }
-  const adminSession = await requireAdmin(request, response, pool, getAuthSession);
+  const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
   if (!adminSession) return true;
   if (!requireTrustedOrigin(request, response)) return true;
   if (!request.headers['content-type']?.startsWith('application/json')) {
@@ -135,6 +191,120 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     sendJson(response, 413, { error: 'request_body_too_large' });
     return true;
   }
+  if (roleMatch) {
+    if (typeof body?.enabled !== 'boolean') {
+      sendJson(response, 400, { error: `invalid_${roleMatch[2]}_status` });
+      return true;
+    }
+    const client = await pool.connect();
+    let transactionStarted = false;
+    try {
+      await client.query('begin');
+      transactionStarted = true;
+      await client.query('select pg_advisory_xact_lock($1)', [74192831]);
+      const targetUser = await client.query(
+        'select 1 from public."user" where id = $1',
+        [roleMatch[1]]
+      );
+      if (targetUser.rowCount === 0) {
+        await client.query('rollback');
+        sendJson(response, 404, { error: 'user_not_found' });
+        return true;
+      }
+      if (roleMatch[2] === 'admin') {
+        if (body.enabled) {
+          await client.query(
+            `insert into public.feedback_admins (user_id)
+             values ($1) on conflict (user_id) do nothing`,
+            [roleMatch[1]]
+          );
+          await client.query(
+            `insert into public.feedback_account_approvals
+               (user_id, status, reviewed_at, reviewed_by)
+             values ($1, 'approved', now(), $2)
+             on conflict (user_id) do update
+               set status = 'approved', reviewed_at = now(), reviewed_by = $2`,
+            [roleMatch[1], adminSession.user.id]
+          );
+        } else {
+          const targetSupreme = await client.query(
+            'select 1 from public.feedback_supreme_admins where user_id = $1',
+            [roleMatch[1]]
+          );
+          if (targetSupreme.rowCount > 0) {
+            await client.query('rollback');
+            sendJson(response, 409, { error: 'supreme_admin_must_be_demoted_first' });
+            return true;
+          }
+          const count = await client.query(
+            'select count(*)::int as total from public.feedback_admins'
+          );
+          const targetAdmin = await client.query(
+            'select 1 from public.feedback_admins where user_id = $1',
+            [roleMatch[1]]
+          );
+          if (targetAdmin.rowCount > 0 && count.rows[0].total <= 1) {
+            await client.query('rollback');
+            sendJson(response, 409, { error: 'last_admin_cannot_be_removed' });
+            return true;
+          }
+          await client.query(
+            'delete from public.feedback_admins where user_id = $1',
+            [roleMatch[1]]
+          );
+        }
+      } else {
+        const targetAdmin = await client.query(
+          'select 1 from public.feedback_admins where user_id = $1',
+          [roleMatch[1]]
+        );
+        if (body.enabled && targetAdmin.rowCount === 0) {
+          await client.query('rollback');
+          sendJson(response, 409, { error: 'supreme_admin_must_be_an_admin' });
+          return true;
+        }
+        if (body.enabled) {
+          await client.query(
+            `insert into public.feedback_supreme_admins (user_id)
+             values ($1) on conflict (user_id) do nothing`,
+            [roleMatch[1]]
+          );
+        } else {
+          const count = await client.query(
+            'select count(*)::int as total from public.feedback_supreme_admins'
+          );
+          const targetSupreme = await client.query(
+            'select 1 from public.feedback_supreme_admins where user_id = $1',
+            [roleMatch[1]]
+          );
+          if (targetSupreme.rowCount > 0 && count.rows[0].total <= 1) {
+            await client.query('rollback');
+            sendJson(response, 409, { error: 'last_supreme_admin_cannot_be_removed' });
+            return true;
+          }
+          await client.query(
+            'delete from public.feedback_supreme_admins where user_id = $1',
+            [roleMatch[1]]
+          );
+        }
+      }
+      await client.query('commit');
+      transactionStarted = false;
+    } catch (error) {
+      if (transactionStarted) await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+    sendJson(response, 200, {
+      user: {
+        user_id: roleMatch[1],
+        [roleMatch[2] === 'admin' ? 'is_admin' : 'is_supreme_admin']: body.enabled
+      }
+    });
+    return true;
+  }
+
   if (!body || !['approved', 'rejected'].includes(body.status)) {
     sendJson(response, 400, { error: 'invalid_approval_status' });
     return true;

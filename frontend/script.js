@@ -26,7 +26,8 @@ let adminSession = null;
 let adminLoading = false;
 let adminDataLoaded = false;
 let adminError = '';
-let pendingUsers = [];
+let adminDirectory = [];
+let managedUsers = [];
 let userManagementLoading = false;
 let userManagementLoaded = false;
 let userManagementError = '';
@@ -536,7 +537,7 @@ function admin() {
     ['users', `<i class='bx bx-user-check'></i> User Management`]
   ];
   if (tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
-    loadPendingUsers();
+    loadUserManagement();
   }
   $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
     tab === 'stats' ? stats() :
@@ -550,28 +551,57 @@ function admin() {
 
 function userManagementUI() {
   if (userManagementLoading) {
-    return `<section class="card" role="status"><p>Loading pending account requests…</p></section>`;
+    return `<section class="card" role="status"><p>Loading account management…</p></section>`;
   }
   if (userManagementError) {
-    return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadPendingUsers()">Try again</button></section>`;
+    return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
   }
-  if (!pendingUsers.length) {
-    return `<section class="card user-management"><h3>Pending account approvals</h3><p class="hint">There are no accounts waiting for approval.</p><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></section>`;
-  }
-  return `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Account requests</p><h3>Pending approvals</h3></div><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></div><div class="pending-user-list">${pendingUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p><small>Requested ${esc(new Date(user.created_at).toLocaleString())}</small></div><div class="pending-user-actions"><button class="adm-btn primary" onclick="reviewUser('${esc(user.user_id)}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${esc(user.user_id)}','rejected')">Decline</button></div></article>`).join('')}</div></section>`;
+  const refresh = `<button class="adm-btn" onclick="loadUserManagement()">Refresh</button>`;
+  const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
+    adminDirectory.length
+      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
+      : '<p class="hint">There are no administrators to display.</p>'
+  }</section>`;
+  if (!adminSession.isSupremeAdmin) return directory;
+  const rows = managedUsers.map((user) => {
+    const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+    const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
+    const supremeAction = user.is_admin
+      ? `<button class="adm-btn" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`
+      : '';
+    const actions = safeId && user.user_id !== adminSession.user.id
+      ? `<div class="user-role-actions">${
+          user.status === 'pending'
+            ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')">Decline</button>`
+            : ''
+        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}</div>`
+      : '<span class="hint">Current account</span>';
+    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role">${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
+  }).join('');
+  const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
+    managedUsers.length
+      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="hint">There are no accounts to display.</p>'
+  }</section>`;
+  return directory + accounts;
 }
 
-async function loadPendingUsers() {
+async function loadUserManagement() {
   userManagementLoading = true;
   userManagementError = '';
   admin();
   try {
-    const data = await apiRequest('/api/admin/users/pending');
-    pendingUsers = data.users;
+    const requests = [apiRequest('/api/admin/directory')];
+    if (adminSession.isSupremeAdmin) {
+      requests.push(apiRequest('/api/admin/users'));
+    }
+    const [directory, users] = await Promise.all(requests);
+    adminDirectory = directory.admins;
+    managedUsers = users?.users || [];
     userManagementLoaded = true;
   } catch (error) {
-    console.error('Could not load pending accounts:', error);
-    userManagementError = 'Pending accounts could not be loaded. Check admin access and database setup.';
+    console.error('Could not load account management data:', error);
+    userManagementError = 'Account management data could not be loaded. Check admin access and database setup.';
   } finally {
     userManagementLoading = false;
     admin();
@@ -585,11 +615,36 @@ async function reviewUser(userId, status) {
   admin();
   try {
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/approval`, 'PATCH', { status });
-    pendingUsers = pendingUsers.filter((user) => user.user_id !== userId);
-    userManagementLoaded = true;
+    userManagementLoaded = false;
+    await loadUserManagement();
   } catch (error) {
     console.error('Could not review account request:', error);
     userManagementError = 'The account request could not be updated. Refresh and try again.';
+  } finally {
+    userManagementLoading = false;
+    admin();
+  }
+}
+
+async function setUserRole(userId, role, enabled) {
+  const action = enabled ? 'grant' : 'remove';
+  if (!enabled && !confirm(`Are you sure you want to ${action} this ${role === 'supreme' ? 'supreme-admin' : 'administrator'} role?`)) return;
+  userManagementLoading = true;
+  userManagementError = '';
+  admin();
+  try {
+    await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/${role}`, 'PATCH', { enabled });
+    userManagementLoaded = false;
+    await loadUserManagement();
+  } catch (error) {
+    console.error(`Could not ${action} the ${role} role:`, error);
+    userManagementError = error.details?.error === 'last_supreme_admin_cannot_be_removed'
+      ? 'The last supreme admin cannot be removed.'
+      : error.details?.error === 'last_admin_cannot_be_removed'
+        ? 'The last admin cannot be removed.'
+        : error.details?.error === 'supreme_admin_must_be_demoted_first'
+          ? 'Remove the supreme-admin role before removing this admin.'
+          : 'The account role could not be updated. Refresh and try again.';
   } finally {
     userManagementLoading = false;
     admin();

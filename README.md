@@ -8,7 +8,8 @@
 4. Create/update Better Auth's tables with `npm run auth:migrate`. The username plugin adds the username field.
 5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, and device-lock tables.
 6. If you already have Better Auth accounts, run [`backend/neon/username-auth-migration.sql`](./backend/neon/username-auth-migration.sql). It safely ensures the username column and unique index exist, then assigns stable usernames without changing account IDs or password hashes. Query `select id, name, username from public."user";` and securely tell each existing user their assigned username. Review the migration before running it.
-7. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
+7. Run [`backend/neon/supreme-admin-migration.sql`](./backend/neon/supreme-admin-migration.sql) to create the separate supreme-admin role table before using user management.
+8. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
 
 ## Project layout
 
@@ -48,7 +49,14 @@ where user_id = 'SANDRA_BETTER_AUTH_USER_ID';
 commit;
 ```
 
-Sandra signs in with her username and the strong password she chooses. The provided passcode was shared in chat and is weak; it is deliberately not embedded or seeded. The dashboard's **User Management** tab lists pending requests and lets Sandra approve or decline them. Applying [`backend/neon/schema.sql`](./backend/neon/schema.sql) is required before enabling signup approval.
+Sandra signs in with her username and the strong password she chooses. The provided passcode was shared in chat and is weak; it is deliberately not embedded or seeded. After confirming Sandra is the intended owner, grant the supreme-admin role using her exact Better Auth user ID:
+
+```sql
+insert into public.feedback_supreme_admins (user_id)
+values ('SANDRA_BETTER_AUTH_USER_ID');
+```
+
+The dashboard's **User Management** tab lets a supreme admin approve or decline pending accounts, grant or remove admin access, and grant or remove supreme-admin access. Regular admins can see the admin directory but cannot manage roles or approve accounts. The app prevents removing the last admin or last supreme admin. Applying the schema and supreme-admin migration is required before using these features.
 
 Better Auth's underlying user model requires an email-shaped identifier. The app generates it server-side from the username using the reserved `accounts.dmc.invalid` domain; users do not provide or use email addresses, and no verification or recovery email is sent. Existing email values remain in their existing account rows but are not used for login or shown in the UI. Password recovery is not available; users must keep their password safe.
 
@@ -64,7 +72,7 @@ Only Neon is used by the running application. Supabase client files and SQL migr
 
 Sign up at `signup.html` with full name, username, and password. Usernames are 3–30 letters, numbers, periods, or underscores, and are normalized to lowercase. A new account is not an administrator by default.
 
-To grant dashboard access, look up the Better Auth user ID by username, then add that exact ID to the allowlist and mark the account approved:
+Supreme admins can grant dashboard access from **User Management** after signup. Alternatively, look up the Better Auth user ID by username, then add that exact ID to the allowlist and mark the account approved:
 
 ```sql
 select id, name, username from public."user" where username = 'admin_username';
@@ -76,7 +84,7 @@ where user_id = 'BETTER_AUTH_USER_ID';
 commit;
 ```
 
-Only allowlisted users can use admin endpoints. The database connection remains on the Node server; browser requests do not contain Neon credentials.
+Only allowlisted users can use admin endpoints. Supreme-admin membership is separate from dashboard access and only an existing supreme admin can change roles in the app. The database connection remains on the Node server; browser requests do not contain Neon credentials.
 
 ## Behavior and data notes
 
