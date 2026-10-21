@@ -33,11 +33,23 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: Configure API origin
+        env:
+          API_ORIGIN: ${{ vars.DMC_API_ORIGIN }}
+        run: |
+          if [ -z "$API_ORIGIN" ]; then
+            echo "::warning::DMC_API_ORIGIN is unset. The static pages will deploy, but API/auth features need a deployed Node API."
+            printf 'window.DMC_API_ORIGIN = "";\n' > frontend/api-config.js
+          elif [[ ! "$API_ORIGIN" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+            echo "::error::DMC_API_ORIGIN must be an HTTPS origin without a path."
+            exit 1
+          else
+            printf 'window.DMC_API_ORIGIN = "%s";\n' "$API_ORIGIN" > frontend/api-config.js
+          fi
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          path: './frontend'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

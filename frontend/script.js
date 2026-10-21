@@ -18,7 +18,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 /* Languages: add ['sw','Kiswahili'] here, IX.sw=3, and a 4th entry in every translation below */
 const LG = [['rw', 'Kinyarwanda'], ['en', 'English'], ['fr', 'Français']];
 const IX = { en: 0, fr: 1, rw: 2 };
-let S = { lang: 'en', a: {} }, i = 0, tab = 'stats';
+let S = { lang: 'en', a: {} }, i = 0, tab = 'users';
 let answerTimer = null, submitting = false, progressTimer = null;
 let feedbackResponses = [];
 let departmentsLoaded = false;
@@ -26,12 +26,19 @@ let adminSession = null;
 let adminLoading = false;
 let adminDataLoaded = false;
 let adminError = '';
+let pendingUsers = [];
+let userManagementLoading = false;
+let userManagementLoaded = false;
+let userManagementError = '';
 const g = (a) => a[IX[S.lang]] || a[0];
+const API_ORIGIN = typeof window === 'undefined'
+  ? ''
+  : String(window.DMC_API_ORIGIN || '').replace(/\/+$/, '');
 
 async function apiRequest(path, method = 'GET', body) {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_ORIGIN}${path}`, {
     method,
-    credentials: 'same-origin',
+    credentials: 'include',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined
   });
@@ -525,15 +532,68 @@ function admin() {
     ['depts_perf', `<i class='bx bx-buildings'></i> Department Matrix`],
     ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback Records`],
     ['export', `<i class='bx bx-cloud-download'></i> Export Center`],
-    ['depts', `<i class='bx bx-cog'></i> Manage Services`]
+    ['depts', `<i class='bx bx-cog'></i> Manage Services`],
+    ['users', `<i class='bx bx-user-check'></i> User Management`]
   ];
+  if (tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
+    loadPendingUsers();
+  }
   $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
     tab === 'stats' ? stats() :
     tab === 'depts_perf' ? deptsPerfUI() :
     tab === 'feedbacks' ? feedbacksUI() :
     tab === 'export' ? exportUI() :
+    tab === 'users' ? userManagementUI() :
     deptUI()
   }</div>`;
+}
+
+function userManagementUI() {
+  if (userManagementLoading) {
+    return `<section class="card" role="status"><p>Loading pending account requests…</p></section>`;
+  }
+  if (userManagementError) {
+    return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadPendingUsers()">Try again</button></section>`;
+  }
+  if (!pendingUsers.length) {
+    return `<section class="card user-management"><h3>Pending account approvals</h3><p class="hint">There are no accounts waiting for approval.</p><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></section>`;
+  }
+  return `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Account requests</p><h3>Pending approvals</h3></div><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></div><div class="pending-user-list">${pendingUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>${esc(user.email)}</p><p>${esc(user.phone || 'No phone number')}</p><small>Requested ${esc(new Date(user.created_at).toLocaleString())}</small></div><div class="pending-user-actions"><button class="adm-btn primary" onclick="reviewUser('${esc(user.user_id)}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${esc(user.user_id)}','rejected')">Decline</button></div></article>`).join('')}</div></section>`;
+}
+
+async function loadPendingUsers() {
+  userManagementLoading = true;
+  userManagementError = '';
+  admin();
+  try {
+    const data = await apiRequest('/api/admin/users/pending');
+    pendingUsers = data.users;
+    userManagementLoaded = true;
+  } catch (error) {
+    console.error('Could not load pending accounts:', error);
+    userManagementError = 'Pending accounts could not be loaded. Check admin access and database setup.';
+  } finally {
+    userManagementLoading = false;
+    admin();
+  }
+}
+
+async function reviewUser(userId, status) {
+  if (status === 'rejected' && !confirm('Decline this account request?')) return;
+  userManagementLoading = true;
+  userManagementError = '';
+  admin();
+  try {
+    await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/approval`, 'PATCH', { status });
+    pendingUsers = pendingUsers.filter((user) => user.user_id !== userId);
+    userManagementLoaded = true;
+  } catch (error) {
+    console.error('Could not review account request:', error);
+    userManagementError = 'The account request could not be updated. Refresh and try again.';
+  } finally {
+    userManagementLoading = false;
+    admin();
+  }
 }
 
 async function signOutAdmin() {

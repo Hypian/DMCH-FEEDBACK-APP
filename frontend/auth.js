@@ -1,7 +1,8 @@
 async function request(path, body) {
-  const response = await fetch(`/api/auth/${path}`, {
+  const apiOrigin = String(window.DMC_API_ORIGIN || '').replace(/\/+$/, '');
+  const response = await fetch(`${apiOrigin}/api/auth/${path}`, {
     method: body ? 'POST' : 'GET',
-    credentials: 'same-origin',
+    credentials: 'include',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined
   });
@@ -9,6 +10,20 @@ async function request(path, body) {
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || 'Authentication request failed.');
     error.code = data?.code || '';
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+export async function getAccountStatus() {
+  const apiOrigin = String(window.DMC_API_ORIGIN || '').replace(/\/+$/, '');
+  const response = await fetch(`${apiOrigin}/api/account/status`, {
+    credentials: 'include'
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(data?.error || 'Could not check account approval status.');
     error.status = response.status;
     throw error;
   }
@@ -71,8 +86,13 @@ export async function redirectIfLoggedIn(redirectTo = 'index.html') {
   const { data, error } = await getSession();
   if (error) throw error;
   if (data.session) {
-    window.location.replace(redirectTo);
-    return true;
+    const account = await getAccountStatus();
+    if (account.status === 'approved') {
+      window.location.replace(redirectTo);
+      return true;
+    }
+    await signOut();
+    window.DMC_ACCOUNT_APPROVAL_STATUS = account.status;
   }
   return false;
 }
@@ -99,6 +119,7 @@ if (typeof window !== 'undefined') {
     signIn,
     signOut,
     getSession,
+    getAccountStatus,
     requireAuth,
     redirectIfLoggedIn,
     resetPassword,

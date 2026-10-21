@@ -12,6 +12,11 @@ require('dotenv').config({ path: path.join(ROOT, '.env') });
 const DATA_DIR = process.env.DMC_DATA_DIR || path.join(ROOT, 'data');
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || '0.0.0.0';
+const TRUSTED_ORIGINS = new Set(
+  [process.env.FRONTEND_ORIGIN, process.env.BETTER_AUTH_URL]
+    .filter(Boolean)
+    .map((origin) => new URL(origin).origin)
+);
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const TEST_MODE = process.env.DMC_TEST_MODE === '1';
 const MIME_TYPES = {
@@ -210,6 +215,23 @@ async function serveStatic(request, response, pathname) {
 
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+  const requestOrigin = request.headers.origin;
+  if (requestOrigin && TRUSTED_ORIGINS.has(requestOrigin)) {
+    response.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    response.setHeader('Access-Control-Allow-Credentials', 'true');
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    response.setHeader('Vary', 'Origin');
+  }
+  if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+    if (!requestOrigin || !TRUSTED_ORIGINS.has(requestOrigin)) {
+      sendJson(response, 403, { error: 'invalid_origin' });
+      return;
+    }
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   if (url.pathname.startsWith('/api/')) {
     if (TEST_MODE) {
       if (url.pathname === '/api/check') return sendDeviceCheck(request, response);

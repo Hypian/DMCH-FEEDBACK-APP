@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
+import { getAccountApproval, handleApprovalApi } from './approval-api.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -49,7 +50,11 @@ function requireJson(request, response) {
 
 function requireSameOrigin(request, response) {
   const origin = request.headers.origin;
-  if (!origin || new URL(origin).origin !== new URL(process.env.BETTER_AUTH_URL).origin) {
+  const trustedOrigins = [
+    process.env.FRONTEND_ORIGIN,
+    process.env.BETTER_AUTH_URL
+  ].filter(Boolean).map((trustedOrigin) => new URL(trustedOrigin).origin);
+  if (!origin || !trustedOrigins.includes(new URL(origin).origin)) {
     sendJson(response, 403, { error: 'invalid_origin' });
     return false;
   }
@@ -106,6 +111,10 @@ async function saveFeedback(body) {
     || !body.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) {
     return { status: 400, body: { error: 'invalid_feedback' } };
   }
+  const session = await getAuthSession(body.headers);
+  if (session?.user && await getAccountApproval(pool, session.user.id) !== 'approved') {
+    return { status: 403, body: { error: 'account_approval_pending' } };
+  }
 
   const client = await pool.connect();
   try {
@@ -134,7 +143,6 @@ async function saveFeedback(body) {
       return { status: 400, body: { error: 'invalid_department' } };
     }
     const labels = department.rows[0].labels;
-    const session = await getAuthSession(body.headers);
     await client.query(
       `insert into public.feedback_responses
         (language, department_id, department_name, answers, user_id)
@@ -162,6 +170,8 @@ function validateAdminMethod(request, response) {
 
 export async function handleNeonApi(request, response, url) {
   const pathname = url.pathname;
+  if (await handleApprovalApi(request, response, url, { pool, getAuthSession })) return true;
+
   if (pathname === '/api/check') {
     if (request.method !== 'POST') {
       response.setHeader('Allow', 'POST');
@@ -237,6 +247,11 @@ export async function handleNeonApi(request, response, url) {
     const session = await getAuthSession(request.headers);
     if (!session?.user) {
       sendJson(response, 401, { error: 'authentication_required' });
+      return true;
+    }
+    const approvalStatus = await getAccountApproval(pool, session.user.id);
+    if (approvalStatus !== 'approved') {
+      sendJson(response, 403, { error: 'account_approval_pending', status: approvalStatus });
       return true;
     }
     const result = await pool.query(

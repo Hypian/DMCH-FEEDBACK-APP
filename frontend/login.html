@@ -41,6 +41,14 @@
       <a href="index.html">Patient feedback survey</a>
     </nav>
   </main>
+  <dialog class="account-approval-dialog" data-account-dialog aria-labelledby="account-dialog-title">
+    <div class="approval-dialog-mark" aria-hidden="true"><i class="bx bx-time-five"></i></div>
+    <p class="eyebrow">DMC account</p>
+    <h2 data-dialog-title id="account-dialog-title">Approval pending</h2>
+    <p class="intro-copy" data-dialog-body></p>
+    <form method="dialog"><button class="btn" type="submit">Understood</button></form>
+  </dialog>
+  <script src="api-config.js"></script>
   <script type="module" src="auth-pages.js"></script>
 </body>
 

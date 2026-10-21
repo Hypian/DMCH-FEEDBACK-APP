@@ -3,10 +3,12 @@ import { betterAuth } from 'better-auth';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import nodemailer from 'nodemailer';
 import 'dotenv/config';
+import { createPendingApproval } from './approval-api.mjs';
 
 const databaseUrl = process.env.NEON_DATABASE_URL;
 const authSecret = process.env.BETTER_AUTH_SECRET;
 const baseURL = process.env.BETTER_AUTH_URL;
+const frontendOrigin = process.env.FRONTEND_ORIGIN;
 
 if (!databaseUrl) throw new Error('NEON_DATABASE_URL is required.');
 if (!authSecret || authSecret.length < 32) {
@@ -54,7 +56,23 @@ export const auth = betterAuth({
   baseURL,
   secret: authSecret,
   database: pool,
-  trustedOrigins: [baseURL],
+  trustedOrigins: [baseURL, frontendOrigin].filter(Boolean),
+  advanced: {
+    defaultCookieAttributes: {
+      sameSite: baseURL.startsWith('https://') && frontendOrigin ? 'none' : 'lax',
+      secure: baseURL.startsWith('https://'),
+      partitioned: baseURL.startsWith('https://') && Boolean(frontendOrigin)
+    }
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await createPendingApproval(pool, user.id);
+        }
+      }
+    }
+  },
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,

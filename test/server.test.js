@@ -18,6 +18,8 @@ test('browser submissions are deduplicated for 24 hours, then accepted again', a
       DMC_DATA_DIR: dataDir,
       DMC_DEVICE_HASH_SECRET: 'test-only-secret-that-is-at-least-32-bytes',
       DMC_TEST_MODE: '1',
+      FRONTEND_ORIGIN: 'https://hypian.github.io',
+      BETTER_AUTH_URL: 'http://localhost:5173',
       HOST: '127.0.0.1',
       PORT: '0'
     },
@@ -67,6 +69,18 @@ test('browser submissions are deduplicated for 24 hours, then accepted again', a
     const stylesheet = await fetch(`${address}/styles.css`);
     assert.equal(stylesheet.status, 200);
     assert.match(stylesheet.headers.get('content-type'), /text\/css/);
+    const preflight = await fetch(`${address}/api/check`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://hypian.github.io' }
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://hypian.github.io');
+    assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true');
+    const untrustedPreflight = await fetch(`${address}/api/check`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://untrusted.example' }
+    });
+    assert.equal(untrustedPreflight.status, 403);
 
     const deviceA = '7ac62bf0-f9e4-4c87-9eb9-6bc5c840fd31';
     const deviceB = 'd02a4869-a244-48b0-8e19-d59cab82943c';

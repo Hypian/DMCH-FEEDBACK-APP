@@ -96,6 +96,31 @@ function makeApiFetch(state) {
       } else {
         data = { user: state.session.user };
       }
+    } else if (pathname === '/api/admin/users/pending' && method === 'GET') {
+      if (!state.session) {
+        status = 401;
+        data = { error: 'authentication_required' };
+      } else if (state.isAdmin === false) {
+        status = 403;
+        data = { error: 'admin_access_required' };
+      } else {
+        data = { users: state.pendingUsers || [] };
+      }
+    } else if (/^\/api\/admin\/users\/[^/]+\/approval$/.test(pathname) && method === 'PATCH') {
+      if (!state.session) {
+        status = 401;
+        data = { error: 'authentication_required' };
+      } else if (state.isAdmin === false) {
+        status = 403;
+        data = { error: 'admin_access_required' };
+      } else {
+        const userId = decodeURIComponent(pathname.split('/')[4]);
+        const body = JSON.parse(options.body);
+        state.pendingUsers = (state.pendingUsers || []).filter((user) => user.user_id !== userId);
+        state.reviewedUsers ||= [];
+        state.reviewedUsers.push({ user_id: userId, status: body.status });
+        data = { user: { user_id: userId, status: body.status } };
+      }
     } else if (pathname === '/api/responses' && method === 'GET') {
       data = state.responses;
     } else if (pathname === '/api/responses' && method === 'DELETE') {
@@ -266,14 +291,14 @@ test('single-choice selection updates in place and advances only once', () => {
 });
 
 test('survey screen entrance animation leaves the top logo outside the animation', () => {
-  assert.match(styles, /\.wrap\.screen-enter\{animation:none\}/);
-  assert.match(styles, /\.wrap\.screen-enter>:not\(\.top\)\{animation:screen-enter/);
+  assert.match(styles, /\.wrap\.screen-enter\s*\{\s*animation:\s*none\s*;/);
+  assert.match(styles, /\.wrap\.screen-enter\s*>\s*:not\(\.top\)\s*\{\s*animation:\s*screen-enter/);
   assert.doesNotMatch(styles, /\.screen-enter\{animation:screen-enter/);
-  assert.match(styles, /\.top img\{width:131px;height:38px;flex:none;object-fit:contain\}/);
+  assert.match(styles, /\.top img\s*\{[^}]*width:\s*124px;\s*height:\s*36px;[^}]*flex:\s*none;\s*object-fit:\s*contain/);
 });
 
 test('welcome splash logo preserves its aspect ratio within the viewport', () => {
-  assert.match(styles, /#splash img\{[^}]*width:min\(78vw,380px\);height:auto;aspect-ratio:760\/221;object-fit:contain/);
+  assert.match(styles, /#splash img\s*\{[^}]*width:\s*min\(76vw,\s*360px\);[^}]*height:\s*auto;[^}]*aspect-ratio:\s*760\/221;[^}]*object-fit:\s*contain/);
 });
 
 test('survey asks for visit time before Visited Services', () => {
@@ -315,6 +340,38 @@ test('signup page collects onboarding details without granting admin privileges'
   assert.match(schema, /create table if not exists public\.feedback_admins/);
   assert.match(backend, /where user_id = \$1/);
   assert.doesNotMatch(backend, /service_role|supabase/i);
+});
+
+test('signup offers a themed approval dialog and admin user management loads and approves requests', async () => {
+  const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
+  const authPages = fs.readFileSync(frontendPath('auth-pages.js'), 'utf8');
+  assert.match(signup, /data-account-dialog/);
+  assert.match(authPages, /Please check your email to verify your address, then wait for an administrator to approve/);
+
+  const backendState = {
+    session: { user: { id: 'sandra-user', email: 'sandra@example.com' } },
+    pendingUsers: [{
+      user_id: 'new-user',
+      name: 'New Applicant',
+      email: 'new@example.com',
+      phone: '+10000000000',
+      created_at: '2026-10-21T10:00:00Z'
+    }]
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'sandra-user',email:'sandra@example.com'}};adminDataLoaded=true;admin()",
+    context
+  );
+  assert.equal(vm.runInContext('tab', context), 'users');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(app.innerHTML, /New Applicant/);
+  assert.match(app.innerHTML, /new@example\.com/);
+  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users/pending'), true);
+
+  await vm.runInContext("reviewUser('new-user','approved')", context);
+  assert.deepEqual(backendState.reviewedUsers, [{ user_id: 'new-user', status: 'approved' }]);
+  assert.doesNotMatch(app.innerHTML, /New Applicant/);
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {

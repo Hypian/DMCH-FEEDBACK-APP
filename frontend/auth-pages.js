@@ -1,8 +1,10 @@
 import {
   getSession,
+  getAccountStatus,
   redirectIfLoggedIn,
   resetPassword,
   signIn,
+  signOut,
   signUp,
   updatePassword
 } from './auth.js';
@@ -17,6 +19,31 @@ function showMessage(text, type = 'error') {
   message.textContent = text;
   message.dataset.type = type;
   message.hidden = !text;
+}
+
+function showApprovalDialog(status = 'pending', registration = false) {
+  const dialog = document.querySelector('[data-account-dialog]');
+  if (!dialog) {
+    showMessage(registration
+      ? 'Account created. Please wait for admin approval.'
+      : status === 'rejected'
+        ? 'This account request was declined. Contact the hospital administrator.'
+        : 'Account created. Please wait for admin approval.', 'success');
+    return;
+  }
+  const title = dialog.querySelector('[data-dialog-title]');
+  const body = dialog.querySelector('[data-dialog-body]');
+  if (status === 'rejected') {
+    title.textContent = 'Account request declined';
+    body.textContent = 'This account request was declined. Please contact the hospital administrator if you think this is a mistake.';
+  } else {
+    title.textContent = registration ? 'Account created' : 'Approval pending';
+    body.textContent = registration
+      ? 'Your account has been created. Please check your email to verify your address, then wait for an administrator to approve your account before signing in.'
+      : 'Your email is verified, but an administrator must approve your account before you can use it.';
+  }
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else showMessage(body.textContent, 'success');
 }
 
 function authErrorMessage(error, action) {
@@ -82,6 +109,10 @@ async function initialize() {
   if (page === 'login' || page === 'signup' || page === 'forgot-password') {
     try {
       if (await redirectIfLoggedIn('index.html')) return;
+      if (window.DMC_ACCOUNT_APPROVAL_STATUS) {
+        showApprovalDialog(window.DMC_ACCOUNT_APPROVAL_STATUS);
+        delete window.DMC_ACCOUNT_APPROVAL_STATUS;
+      }
     } catch (error) {
       showMessage(authErrorMessage(error, 'session'));
       return;
@@ -121,11 +152,7 @@ async function initialize() {
       return runRequest('Creating account…', 'signup', async () => {
         const { data, error } = await signUp(email, password, { fullName, phone });
         if (error) throw error;
-        if (data.session) {
-          window.location.replace('index.html');
-          return;
-        }
-        showMessage('Account created. Check your email to confirm your address before signing in.', 'success');
+        showApprovalDialog('pending', true);
       });
     }
 
@@ -137,6 +164,12 @@ async function initialize() {
           String(values.get('password'))
         );
         if (error) throw error;
+        const account = await getAccountStatus();
+        if (account.status !== 'approved') {
+          await signOut();
+          showApprovalDialog(account.status);
+          return;
+        }
         window.location.replace(nextPage());
       });
     }

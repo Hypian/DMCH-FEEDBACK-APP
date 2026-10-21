@@ -21,6 +21,15 @@ create table if not exists public.feedback_admins (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.feedback_account_approvals (
+  user_id text primary key references public."user"(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by text references public."user"(id) on delete set null
+);
+
 create table if not exists public.device_submissions (
   device_hash text primary key,
   submitted_at timestamptz not null
@@ -32,6 +41,9 @@ create index if not exists feedback_responses_department_id_idx
   on public.feedback_responses (department_id);
 create index if not exists feedback_responses_user_id_idx
   on public.feedback_responses (user_id);
+create index if not exists feedback_account_approvals_pending_idx
+  on public.feedback_account_approvals (created_at)
+  where status = 'pending';
 
 insert into public.feedback_departments (id, labels, sort_order) values
   ('o0', '["Gynecology & Obs", "Gynécologie - Obstétrique", "Ubuvuzi bw’ababyeyi"]'::jsonb, 0),
@@ -56,7 +68,8 @@ on conflict (id) do nothing;
 alter table public."user"
   add column if not exists phone text not null default '';
 
--- After signup, promote selected accounts only by inserting their Better Auth user id:
+-- After Sandra signs up with her own email and confirms it, promote the account
+-- once using the real ID (never the email or a shared default password):
 -- insert into public.feedback_admins (user_id) values ('BETTER_AUTH_USER_ID');
 
 -- Keep Neon Data API access disabled for these tables. The Node backend uses

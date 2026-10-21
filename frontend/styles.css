@@ -632,6 +632,23 @@ textarea { min-height: 150px; resize: vertical; }
   box-shadow: var(--shadow-red);
 }
 .adm-btn.primary:hover { box-shadow: 0 12px 36px rgba(229,75,43,.38); transform: translateY(-2px); }
+.adm-btn.danger { color: #a32617; border-color: rgba(163,38,23,.2); }
+.adm-btn.danger:hover { color: #8a1c10; border-color: #a32617; background: #fff0ed; }
+.user-management { max-width: 940px; margin: 16px auto; }
+.user-management-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.user-management-heading h3 { margin: 0; color: var(--ink); }
+.pending-user-list { display: grid; gap: 12px; margin-top: 18px; }
+.pending-user { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.pending-user-details h4,.pending-user-details p { margin: 0 0 5px; }
+.pending-user-details h4 { color: var(--ink); }
+.pending-user-details p,.pending-user-details small { color: var(--ink-3); overflow-wrap: anywhere; }
+.pending-user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.account-approval-dialog { width: min(92vw, 440px); padding: 32px; border: 1px solid var(--border); border-radius: 22px; color: var(--ink); text-align: center; box-shadow: 0 24px 80px rgba(35,27,23,.25); }
+.account-approval-dialog::backdrop { background: rgba(27,22,20,.58); backdrop-filter: blur(4px); }
+.account-approval-dialog h2 { margin: 8px 0 12px; color: var(--ink); }
+.account-approval-dialog .intro-copy { margin-bottom: 20px; }
+.approval-dialog-mark { display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 50%; background: var(--red-tint); color: var(--red); font-size: 30px; }
+.account-approval-dialog form { margin: 0; }
 
 /* ─── Filter Bar ────────────────────────────────────────────────────── */
 .filter-bar {
@@ -886,6 +903,11 @@ textarea { min-height: 150px; resize: vertical; }
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+  }
+
+  @media (max-width: 640px) {
+    .pending-user { align-items: stretch; flex-direction: column; }
+    .pending-user-actions .adm-btn { flex: 1; }
   }
 }
 
