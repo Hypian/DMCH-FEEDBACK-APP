@@ -11,6 +11,7 @@ const form = document.querySelector('[data-auth-form]');
 const message = document.querySelector('[data-auth-message]');
 const submitButton = form?.querySelector('button[type="submit"]');
 const page = document.body.dataset.authPage;
+let authPageReady = false;
 
 function showMessage(text, type = 'error') {
   if (!message) return;
@@ -39,6 +40,11 @@ function showApprovalDialog(status = 'pending', registration = false) {
     body.textContent = registration
       ? 'Your account has been created. Please wait for an administrator to approve it before signing in.'
       : 'An administrator must approve your account before you can use it.';
+  }
+  if (registration) {
+    dialog.addEventListener('close', () => {
+      window.location.replace('login.html?approval=pending');
+    }, { once: true });
   }
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else showMessage(body.textContent, 'success');
@@ -92,18 +98,68 @@ async function runRequest(label, action, request) {
 function nextPage() {
   const requested = new URLSearchParams(window.location.search).get('next');
   if (requested === 'index.html#admin') return requested;
-  return 'index.html';
+  return 'index.html#admin';
 }
+
+if (submitButton) submitButton.dataset.label = submitButton.textContent;
+form?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!authPageReady) {
+    showMessage('Please wait for account security checks to finish, then try again.');
+    return;
+  }
+  const values = new FormData(form);
+  const username = String(values.get('username') || '').trim();
+
+  if (page === 'signup') {
+    const fullName = String(values.get('full_name') || '').trim();
+    const password = String(values.get('password') || '');
+    const confirmPassword = String(values.get('confirm_password') || '');
+    if (fullName.length < 2) return showMessage('Enter your full name.');
+    if (!/^[a-zA-Z0-9_.]{3,30}$/.test(username)) {
+      return showMessage('Use a username with 3–30 letters, numbers, periods, or underscores.');
+    }
+    if (password.length < 8) return showMessage('Password must be at least 8 characters.');
+    if (password !== confirmPassword) return showMessage('Passwords do not match.');
+    return runRequest('Creating account…', 'signup', async () => {
+      const { error } = await signUp(username, password, { fullName });
+      if (error) throw error;
+      showApprovalDialog('pending', true);
+    });
+  }
+
+  if (page === 'login') {
+    if (!username) return showMessage('Enter your username.');
+    if (!String(values.get('password') || '')) return showMessage('Enter your password.');
+    return runRequest('Signing in…', 'login', async () => {
+      const { error } = await signIn(
+        username,
+        String(values.get('password'))
+      );
+      if (error) throw error;
+      const account = await getAccountStatus();
+      if (account.status !== 'approved') {
+        await signOut();
+        showApprovalDialog(account.status);
+        return;
+      }
+      window.location.replace(nextPage());
+    });
+  }
+});
 
 async function initialize() {
   if (!form) return;
 
   if (page === 'login' || page === 'signup') {
     try {
-      if (await redirectIfLoggedIn('index.html')) return;
+      const redirectTo = page === 'login' ? 'index.html#admin' : 'index.html';
+      if (await redirectIfLoggedIn(redirectTo)) return;
       if (window.DMC_ACCOUNT_APPROVAL_STATUS) {
         showApprovalDialog(window.DMC_ACCOUNT_APPROVAL_STATUS);
         delete window.DMC_ACCOUNT_APPROVAL_STATUS;
+      } else if (page === 'login' && new URLSearchParams(window.location.search).get('approval') === 'pending') {
+        showApprovalDialog('pending');
       }
     } catch (error) {
       showMessage(authErrorMessage(error, 'session'));
@@ -111,48 +167,7 @@ async function initialize() {
     }
   }
 
-  if (submitButton) submitButton.dataset.label = submitButton.textContent;
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const values = new FormData(form);
-    const username = String(values.get('username') || '').trim();
-
-    if (page === 'signup') {
-      const fullName = String(values.get('full_name') || '').trim();
-      const password = String(values.get('password') || '');
-      const confirmPassword = String(values.get('confirm_password') || '');
-      if (fullName.length < 2) return showMessage('Enter your full name.');
-      if (!/^[a-zA-Z0-9_.]{3,30}$/.test(username)) {
-        return showMessage('Use a username with 3–30 letters, numbers, periods, or underscores.');
-      }
-      if (password.length < 8) return showMessage('Password must be at least 8 characters.');
-      if (password !== confirmPassword) return showMessage('Passwords do not match.');
-      return runRequest('Creating account…', 'signup', async () => {
-        const { error } = await signUp(username, password, { fullName });
-        if (error) throw error;
-        showApprovalDialog('pending', true);
-      });
-    }
-
-    if (page === 'login') {
-      if (!username) return showMessage('Enter your username.');
-      if (!String(values.get('password') || '')) return showMessage('Enter your password.');
-      return runRequest('Signing in…', 'login', async () => {
-        const { error } = await signIn(
-          username,
-          String(values.get('password'))
-        );
-        if (error) throw error;
-        const account = await getAccountStatus();
-        if (account.status !== 'approved') {
-          await signOut();
-          showApprovalDialog(account.status);
-          return;
-        }
-        window.location.replace(nextPage());
-      });
-    }
-  });
+  authPageReady = true;
 }
 
 initialize().catch((error) => {

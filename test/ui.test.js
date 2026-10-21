@@ -331,6 +331,7 @@ test('signup page collects full name, username, and passwords without collecting
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
   const login = fs.readFileSync(frontendPath('login.html'), 'utf8');
   const auth = fs.readFileSync(frontendPath('auth.js'), 'utf8');
+  const authPages = fs.readFileSync(frontendPath('auth-pages.js'), 'utf8');
   const authBackend = fs.readFileSync(backendPath('neon-auth.mjs'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8');
   const schema = fs.readFileSync(backendPath('neon', 'schema.sql'), 'utf8');
@@ -341,9 +342,17 @@ test('signup page collects full name, username, and passwords without collecting
   assert.match(signup, /name="username"/);
   assert.match(signup, /name="password"/);
   assert.match(signup, /name="confirm_password"/);
+  assert.match(signup, /<form data-auth-form method="post" novalidate>/);
   assert.doesNotMatch(signup, /name="email"|name="phone"/);
   assert.match(login, /name="username"/);
+  assert.match(login, /<form data-auth-form method="post" novalidate>/);
   assert.doesNotMatch(login, /name="email"|forgot-password\.html/);
+  assert.match(authPages, /if \(requested === 'index\.html#admin'\) return requested;\s*return 'index\.html#admin';/);
+  assert.match(authPages, /page === 'login' \? 'index\.html#admin' : 'index\.html'/);
+  assert.ok(authPages.indexOf("if (account.status !== 'approved')") < authPages.indexOf('window.location.replace(nextPage())'));
+  assert.match(authPages, /if \(account\.status !== 'approved'\) \{\s*await signOut\(\);/);
+  assert.ok(authPages.indexOf("form?.addEventListener('submit'") < authPages.indexOf('async function initialize()'));
+  assert.match(authPages, /event\.preventDefault\(\);\s*if \(!authPageReady\)/);
   assert.match(auth, /sign-up\/email/);
   assert.match(auth, /sign-in\/username/);
   assert.match(auth, /accounts\.dmc\.invalid/);

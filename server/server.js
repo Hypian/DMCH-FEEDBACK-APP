@@ -36,6 +36,14 @@ const MIME_TYPES = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml'
 };
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com data:; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests",
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Strict-Transport-Security': 'max-age=31536000',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY'
+};
 
 function getHashSecret() {
   if (process.env.DMC_DEVICE_HASH_SECRET) {
@@ -222,6 +230,9 @@ async function serveStatic(request, response, pathname) {
 }
 
 async function handleRequest(request, response) {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    response.setHeader(name, value);
+  }
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
   const requestOrigin = request.headers.origin;
   if (requestOrigin && TRUSTED_ORIGINS.has(requestOrigin)) {

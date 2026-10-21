@@ -109,6 +109,12 @@ test('Static file serving', async t => {
       assert.match(r.headers.get('content-type'), /javascript/);
     });
 
+    await t.test('GET /xlsx-export.js returns 200 javascript', async () => {
+      const r = await fetch(`${base}/xlsx-export.js`);
+      assert.equal(r.status, 200);
+      assert.match(r.headers.get('content-type'), /javascript/);
+    });
+
     await t.test('GET /logo-optimized.jpg returns 200 image/jpeg', async () => {
       const r = await fetch(`${base}/logo-optimized.jpg`);
       assert.equal(r.status, 200);
@@ -359,6 +365,20 @@ test('Response structure & headers', async t => {
     await t.test('API responses set Cache-Control: no-store', async () => {
       const r = await post(base, '/api/check', { deviceId: UUID_B });
       assert.equal(r.headers.get('cache-control'), 'no-store');
+    });
+
+    await t.test('API and static responses set browser security headers', async () => {
+      const r = await fetch(`${base}/`);
+      assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal(r.headers.get('x-frame-options'), 'DENY');
+      assert.equal(r.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+      assert.equal(r.headers.get('strict-transport-security'), 'max-age=31536000');
+      assert.equal(r.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()');
+      assert.match(r.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+      assert.match(r.headers.get('content-security-policy'), /object-src 'none'/);
+      const api = await post(base, '/api/check', { deviceId: UUID_A });
+      assert.equal(api.headers.get('x-content-type-options'), 'nosniff');
+      assert.match(api.headers.get('content-security-policy'), /default-src 'self'/);
     });
 
     await t.test('Static assets set a Cache-Control header (no-cache)', async () => {
