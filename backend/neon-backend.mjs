@@ -230,6 +230,23 @@ export async function handleNeonApi(request, response, url) {
     return true;
   }
 
+  const responseMatch = pathname.match(/^\/api\/responses\/([0-9a-f-]+)$/i);
+  if (responseMatch && request.method === 'DELETE') {
+    if (!validateAdminMethod(request, response)) return true;
+    if (!await getAdminSession(request, response)) return true;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseMatch[1])) {
+      sendJson(response, 400, { error: 'invalid_response_id' });
+      return true;
+    }
+    const result = await pool.query(
+      'delete from public.feedback_responses where id = $1 returning id',
+      [responseMatch[1]]
+    );
+    if (result.rowCount === 0) sendJson(response, 404, { error: 'response_not_found' });
+    else sendJson(response, 200, { ok: true, id: result.rows[0].id });
+    return true;
+  }
+
   if (pathname === '/api/responses' && request.method === 'DELETE') {
     if (!validateAdminMethod(request, response)) return true;
     if (!await getAdminSession(request, response)) return true;

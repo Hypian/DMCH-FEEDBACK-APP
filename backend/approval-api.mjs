@@ -126,6 +126,24 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     return true;
   }
 
+  if (pathname === '/api/admin/active-users') {
+    if (request.method !== 'GET') {
+      response.setHeader('Allow', 'GET');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
+    const result = await pool.query(
+      `select auth_user.name, auth_user.username
+       from public."user" as auth_user
+       left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
+       where coalesce(approval.status, 'approved') = 'approved'
+       order by auth_user.name asc, auth_user.username asc`
+    );
+    sendJson(response, 200, { users: result.rows });
+    return true;
+  }
+
   if (pathname === '/api/admin/users') {
     if (request.method !== 'GET') {
       response.setHeader('Allow', 'GET');

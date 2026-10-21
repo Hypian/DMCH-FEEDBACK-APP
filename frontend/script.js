@@ -21,12 +21,15 @@ const IX = { en: 0, fr: 1, rw: 2 };
 let S = { lang: 'en', a: {} }, i = 0, tab = 'users';
 let answerTimer = null, submitting = false, progressTimer = null;
 let feedbackResponses = [];
+let dashboardFeedbackTimer = null;
+let dashboardFeedbackRefreshInProgress = false;
 let departmentsLoaded = false;
 let adminSession = null;
 let adminLoading = false;
 let adminDataLoaded = false;
 let adminError = '';
 let adminDirectory = [];
+let activeUsers = [];
 let managedUsers = [];
 let userManagementLoading = false;
 let userManagementLoaded = false;
@@ -236,6 +239,7 @@ async function loadAdminData() {
     }));
     departmentsLoaded = true;
     adminDataLoaded = true;
+    startDashboardFeedbackRefresh();
   } catch (error) {
     console.error('Could not load dashboard data:', error);
     adminError = 'Dashboard data could not be loaded. Check database setup and account permissions.';
@@ -243,6 +247,36 @@ async function loadAdminData() {
     adminLoading = false;
     admin();
   }
+}
+
+async function refreshDashboardFeedback() {
+  if (!adminSession || location.hash !== '#admin' || !adminDataLoaded || adminLoading || dashboardFeedbackRefreshInProgress) return;
+  dashboardFeedbackRefreshInProgress = true;
+  try {
+    const responses = await apiRequest('/api/responses');
+    const updatedResponses = responses.map(toFeedbackResponse);
+    const previousIds = feedbackResponses.map(({ id, t }) => [id, t]);
+    const updatedIds = updatedResponses.map(({ id, t }) => [id, t]);
+    if (JSON.stringify(previousIds) !== JSON.stringify(updatedIds)) {
+      feedbackResponses = updatedResponses;
+      admin();
+    }
+  } catch (error) {
+    console.error('Could not refresh dashboard feedback:', error);
+  } finally {
+    dashboardFeedbackRefreshInProgress = false;
+  }
+}
+
+function startDashboardFeedbackRefresh() {
+  if (dashboardFeedbackTimer !== null || location.hash !== '#admin') return;
+  dashboardFeedbackTimer = setInterval(refreshDashboardFeedback, 3000);
+}
+
+function stopDashboardFeedbackRefresh() {
+  if (dashboardFeedbackTimer === null) return;
+  clearInterval(dashboardFeedbackTimer);
+  dashboardFeedbackTimer = null;
 }
 
 async function initializeAdmin() {
@@ -557,12 +591,17 @@ function userManagementUI() {
     return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
   }
   const refresh = `<button class="adm-btn" onclick="loadUserManagement()">Refresh</button>`;
+  const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
+    activeUsers.length
+      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">Active</span></article>`).join('')}</div>`
+      : '<p class="hint">There are no approved users to display.</p>'
+  }</section>`;
   const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
     adminDirectory.length
       ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
       : '<p class="hint">There are no administrators to display.</p>'
   }</section>`;
-  if (!adminSession.isSupremeAdmin) return directory;
+  if (!adminSession.isSupremeAdmin) return approvedUsers + directory;
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
     const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
@@ -583,7 +622,7 @@ function userManagementUI() {
       ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<p class="hint">There are no accounts to display.</p>'
   }</section>`;
-  return directory + accounts;
+  return approvedUsers + directory + accounts;
 }
 
 async function loadUserManagement() {
@@ -591,12 +630,16 @@ async function loadUserManagement() {
   userManagementError = '';
   admin();
   try {
-    const requests = [apiRequest('/api/admin/directory')];
+    const requests = [
+      apiRequest('/api/admin/directory'),
+      apiRequest('/api/admin/active-users')
+    ];
     if (adminSession.isSupremeAdmin) {
       requests.push(apiRequest('/api/admin/users'));
     }
-    const [directory, users] = await Promise.all(requests);
+    const [directory, approved, users] = await Promise.all(requests);
     adminDirectory = directory.admins;
+    activeUsers = approved.users;
     managedUsers = users?.users || [];
     userManagementLoaded = true;
   } catch (error) {
@@ -654,6 +697,7 @@ async function setUserRole(userId, role, enabled) {
 async function signOutAdmin() {
   try {
     await apiRequest('/api/auth/sign-out', 'POST', {});
+    stopDashboardFeedbackRefresh();
     adminSession = null;
     feedbackResponses = [];
     adminDataLoaded = false;
@@ -668,13 +712,13 @@ async function signOutAdmin() {
 
 function feedbacksUI() {
   const allR = feedbackResponses;
-  if (!allR.length) return `<div class="card"><p class="hint">No feedbacks submitted yet.</p></div>`;
+  if (!allR.length) return `<div class="card"><p class="hint">No feedbacks submitted yet. New submissions appear automatically.</p></div>`;
   const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
   return `<div class="card">
     <div class="filter-bar">
       <div>
         <h3 style="margin:0">Feedback Submissions (${R.length} of ${allR.length})</h3>
-        <p class="hint" style="margin:2px 0 0">Showing submissions in reverse chronological order.</p>
+        <p class="hint" style="margin:2px 0 0">Showing submissions in reverse chronological order. New feedback appears automatically every few seconds.</p>
       </div>
       <div class="filter-pills">
         <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All (${allR.length})</button>
@@ -693,10 +737,13 @@ function feedbacksUI() {
       const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
       const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
       const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
+      const safeId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id)
+        ? r.id
+        : '';
       return `<div class="fb-item">
         <div class="fb-meta">
           <span><b>#${R.length - idx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
-          <span><i class='bx bx-calendar'></i> ${esc(timeStr)}</span>
+          <span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="deleteFeedback('${safeId}')">Delete feedback</button>` : ''}</span>
         </div>
         <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
         ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
@@ -705,6 +752,25 @@ function feedbacksUI() {
         ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
       </div>`;
     }).join('') + `</div>`;
+}
+
+async function deleteFeedback(id) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    adminError = 'The feedback record ID is invalid.';
+    admin();
+    return;
+  }
+  if (!confirm('Delete this feedback record permanently? This cannot be undone.')) return;
+  try {
+    await apiRequest(`/api/responses/${encodeURIComponent(id)}`, 'DELETE');
+    feedbackResponses = feedbackResponses.filter((response) => response.id !== id);
+    adminError = '';
+    admin();
+  } catch (error) {
+    console.error('Could not delete feedback:', error);
+    adminError = 'The feedback could not be deleted. Refresh and try again.';
+    admin();
+  }
 }
 
 function deptUI() {
@@ -1320,10 +1386,15 @@ function startApp() {
   });
 }
 
-addEventListener('hashchange', startApp);
+addEventListener('hashchange', () => {
+  if (location.hash !== '#admin') stopDashboardFeedbackRefresh();
+  startApp();
+});
+addEventListener('focus', refreshDashboardFeedback);
 addEventListener('dmc-auth-state-change', (event) => {
 adminSession = event.detail.session;
 if (event.detail.event === 'SIGNED_OUT') {
+  stopDashboardFeedbackRefresh();
   feedbackResponses = [];
   adminDataLoaded = false;
   if (location.hash === '#admin') location.assign('login.html');

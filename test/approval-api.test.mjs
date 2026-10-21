@@ -51,6 +51,15 @@ class ApprovalPool {
         })
       };
     }
+    if (sql.includes("where coalesce(approval.status, 'approved') = 'approved'")) {
+      const users = this.users.filter((user) =>
+        (this.approvals.get(user.user_id)?.status || 'approved') === 'approved'
+      );
+      return {
+        rowCount: users.length,
+        rows: users.map(({ name, username }) => ({ name, username }))
+      };
+    }
     if (sql.includes('from public."user" as auth_user')) {
       return {
         rowCount: this.users.length,
@@ -212,6 +221,16 @@ test('admin directory is available to admins while the full account list require
   assert.equal(users.response.status, 200);
   assert.equal(users.data.users.find((user) => user.user_id === 'pending-user').status, 'pending');
   assert.equal(users.data.users.find((user) => user.user_id === 'regular-admin').is_admin, true);
+});
+
+test('approved account list is available to admins and excludes pending accounts', async () => {
+  const pool = new ApprovalPool();
+  const unauthorized = await call(pool, 'GET', '/api/admin/active-users', 'pending-user');
+  assert.equal(unauthorized.response.status, 403);
+
+  const activeUsers = await call(pool, 'GET', '/api/admin/active-users', 'regular-admin');
+  assert.equal(activeUsers.response.status, 200);
+  assert.deepEqual(activeUsers.data.users.map((user) => user.username), ['regular_admin', 'sandra']);
 });
 
 test('supreme admins can grant dashboard access and set supreme role only for admins', async () => {

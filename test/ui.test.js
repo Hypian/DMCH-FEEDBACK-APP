@@ -98,6 +98,8 @@ function makeApiFetch(state) {
       }
     } else if (pathname === '/api/admin/directory' && method === 'GET') {
       data = { admins: state.adminDirectory || [] };
+    } else if (pathname === '/api/admin/active-users' && method === 'GET') {
+      data = { users: state.activeUsers || [] };
     } else if (pathname === '/api/admin/users' && method === 'GET') {
       if (state.isSupremeAdmin !== true) {
         status = 403;
@@ -143,6 +145,12 @@ function makeApiFetch(state) {
       data = { user: { user_id: userId, [role]: JSON.parse(options.body).enabled } };
     } else if (pathname === '/api/responses' && method === 'GET') {
       data = state.responses;
+    } else if (/^\/api\/responses\/[0-9a-f-]+$/i.test(pathname) && method === 'DELETE') {
+      const id = pathname.split('/').at(-1);
+      state.responses = state.responses.filter((response) => response.id !== id);
+      state.deletedResponses ||= [];
+      state.deletedResponses.push(id);
+      data = { ok: true, id };
     } else if (pathname === '/api/responses' && method === 'DELETE') {
       state.responses.splice(0);
       data = { ok: true };
@@ -403,6 +411,10 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
     session: { user: { id: 'sandra-user', name: 'Sandra', username: 'sandra' } },
     isSupremeAdmin: true,
     adminDirectory: [{ name: 'Sandra', username: 'sandra', is_supreme_admin: true }],
+    activeUsers: [
+      { name: 'Sandra', username: 'sandra' },
+      { name: 'Approved Patient', username: 'patient' }
+    ],
     pendingUsers: [{
       user_id: 'new-user',
       name: 'New Applicant',
@@ -427,6 +439,8 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(app.innerHTML, /New Applicant/);
   assert.match(app.innerHTML, /@new_applicant/);
+  assert.match(app.innerHTML, /Active users \(2\)/);
+  assert.match(app.innerHTML, /Approved Patient/);
   assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users'), true);
 
   await vm.runInContext("reviewUser('new-user','approved')", context);
@@ -441,6 +455,42 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   await vm.runInContext("setUserRole('new-user','supreme',true)", context);
   assert.equal(backendState.managedUsers[0].is_supreme_admin, true);
   assert.match(app.innerHTML, /Supreme admin/);
+});
+
+test('dashboard feedback refreshes automatically and individual records can be deleted', async () => {
+  const feedback = {
+    id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+    submitted_at: '2026-10-21T18:00:00.000Z',
+    language: 'en',
+    department_id: 'o0',
+    department_name: 'General medicine',
+    answers: { cat: 0 },
+    is_demo: false,
+    user_id: null
+  };
+  const backendState = {
+    routeHash: '#admin',
+    session: { user: { id: 'sandra-user', name: 'Sandra', username: 'sandra' } },
+    responses: []
+  };
+  const { app, context, timers } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "location.hash='#admin';adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isSupremeAdmin:true};adminDataLoaded=true;tab='feedbacks';admin();startDashboardFeedbackRefresh()",
+    context
+  );
+  backendState.responses.push(feedback);
+
+  const refreshTimer = timers.get(vm.runInContext('dashboardFeedbackTimer', context));
+  assert.equal(refreshTimer.interval, true);
+  refreshTimer.callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(app.innerHTML, /General medicine/);
+  assert.equal(vm.runInContext('feedbackResponses.length', context), 1);
+
+  await vm.runInContext(`deleteFeedback('${feedback.id}')`, context);
+  assert.deepEqual(backendState.deletedResponses, [feedback.id]);
+  assert.equal(vm.runInContext('feedbackResponses.length', context), 0);
+  assert.match(backendState.calls.find((call) => call.url === `/api/responses/${feedback.id}`).options.method, /DELETE/);
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {

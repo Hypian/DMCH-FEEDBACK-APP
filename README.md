@@ -56,7 +56,7 @@ insert into public.feedback_supreme_admins (user_id)
 values ('SANDRA_BETTER_AUTH_USER_ID');
 ```
 
-The dashboard's **User Management** tab lets a supreme admin approve or decline pending accounts, grant or remove admin access, and grant or remove supreme-admin access. Regular admins can see the admin directory but cannot manage roles or approve accounts. The app prevents removing the last admin or last supreme admin. Applying the schema and supreme-admin migration is required before using these features.
+The dashboard's **User Management** tab lists approved accounts and lets a supreme admin approve or decline pending accounts, grant or remove admin access, and grant or remove supreme-admin access. Regular admins can see approved accounts and the admin directory but cannot manage roles or approve accounts. The app prevents removing the last admin or last supreme admin. **Feedback Records** updates automatically while the dashboard is open and lets admins delete individual feedback records; the existing clear-all control remains available. Applying the schema and supreme-admin migration is required before using user-management features.
 
 Better Auth's underlying user model requires an email-shaped identifier. The app generates it server-side from the username using the reserved `accounts.dmc.invalid` domain; users do not provide or use email addresses, and no verification or recovery email is sent. Existing email values remain in their existing account rows but are not used for login or shown in the UI. Password recovery is not available; users must keep their password safe.
 
