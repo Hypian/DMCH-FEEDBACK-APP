@@ -6,8 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 
-const script = fs.readFileSync(path.join(__dirname, '..', 'script.js'), 'utf8');
-const styles = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
+const frontendPath = (...parts) => path.join(__dirname, '..', 'frontend', ...parts);
+const backendPath = (...parts) => path.join(__dirname, '..', 'backend', ...parts);
+const script = fs.readFileSync(frontendPath('script.js'), 'utf8');
+const styles = fs.readFileSync(frontendPath('styles.css'), 'utf8');
 
 class FakeClassList {
   constructor(classes = []) {
@@ -63,7 +65,71 @@ class FakeElement {
   }
 }
 
-function makeContext(fetchImplementation, storage = new Map()) {
+function makeApiFetch(state) {
+  state.responses ||= [];
+  state.departments ||= [{
+    id: 'o0',
+    labels: ['General medicine', 'Médecine générale', 'Ubuvuzi Rusange'],
+    is_active: true,
+    sort_order: 0
+  }];
+
+  state.calls ||= [];
+  return async (url, options = {}) => {
+    state.calls.push({ url, options });
+    const pathname = new URL(url, 'http://localhost').pathname;
+    const method = options.method || 'GET';
+    let status = 200;
+    let data = {};
+    if (pathname === '/api/check') {
+      status = state.checkStatus || 200;
+      data = state.checkResult || { available: true };
+    } else if (pathname === '/api/departments') {
+      data = state.departments;
+    } else if (pathname === '/api/admin/session') {
+      if (!state.session) {
+        status = 401;
+        data = { error: 'authentication_required' };
+      } else if (state.isAdmin === false) {
+        status = 403;
+        data = { error: 'admin_access_required' };
+      } else {
+        data = { user: state.session.user };
+      }
+    } else if (pathname === '/api/responses' && method === 'GET') {
+      data = state.responses;
+    } else if (pathname === '/api/responses' && method === 'DELETE') {
+      state.responses.splice(0);
+      data = { ok: true };
+    } else if (pathname === '/api/submit') {
+      if (state.failInsert) {
+        status = 500;
+        data = { error: 'database_error' };
+      } else {
+        const body = JSON.parse(options.body);
+        state.responses.push({
+          id: `test-${state.responses.length + 1}`,
+          submitted_at: new Date().toISOString(),
+          language: body.language,
+          department_id: body.departmentId,
+          department_name: state.departments.find((department) => department.id === body.departmentId)?.labels[0],
+          answers: body.answers,
+          is_demo: false,
+          user_id: null
+        });
+        data = { ok: true };
+        status = 201;
+      }
+    }
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      async json() { return data; }
+    };
+  };
+}
+
+function makeContext(fetchImplementation, storage = new Map(), backendState = {}) {
   const timers = new Map();
   const options = [];
   const app = {
@@ -126,6 +192,11 @@ function makeContext(fetchImplementation, storage = new Map()) {
       return new FakeElement();
     }
   };
+  const location = {
+    hash: backendState.routeHash || '',
+    replace(value) { this.href = value; },
+    assign(value) { this.href = value; }
+  };
   const context = vm.createContext({
     document,
     localStorage: {
@@ -136,7 +207,8 @@ function makeContext(fetchImplementation, storage = new Map()) {
       },
       removeItem(key) { storage.delete(key); }
     },
-    fetch: fetchImplementation || (async () => { throw new Error('Unexpected network request.'); }),
+    fetch: fetchImplementation || makeApiFetch(backendState),
+    crypto: { randomUUID: () => '7ac62bf0-f9e4-4c87-9eb9-6bc5c840fd31' },
     setTimeout(callback, delay = 0) {
       const id = nextTimerId++;
       timers.set(id, { callback, delay, interval: false });
@@ -158,7 +230,7 @@ function makeContext(fetchImplementation, storage = new Map()) {
     clearInterval(id) { timers.delete(id); },
     addEventListener() {},
     scrollTo() {},
-    location: { hash: '' },
+    location,
     console: { error() {}, log() {} },
     alert() {},
     confirm() { return true; },
@@ -167,7 +239,7 @@ function makeContext(fetchImplementation, storage = new Map()) {
   });
   vm.runInContext(script, context);
 
-  return { app, context, options, storage, timers };
+  return { app, context, options, storage, timers, backendState };
 }
 
 test('single-choice selection updates in place and advances only once', () => {
@@ -204,39 +276,125 @@ test('welcome splash logo preserves its aspect ratio within the viewport', () =>
   assert.match(styles, /#splash img\{[^}]*width:min\(78vw,380px\);height:auto;aspect-ratio:760\/221;object-fit:contain/);
 });
 
-test('survey starts with Visited Services and omits browser-ID privacy disclaimer', () => {
+test('survey asks for visit time before Visited Services', () => {
   const { app, context } = makeContext();
   vm.runInContext("S={lang:'en',dept:null,a:{}}; i=0; render(false)", context);
 
-  assert.match(app.innerHTML, /Visited Services/);
+  assert.match(app.innerHTML, /Visit Time/);
+  assert.equal(vm.runInContext("flow().indexOf('time') < flow().indexOf('dept')", context), true);
   assert.doesNotMatch(app.innerHTML, /Are you an inpatient or outpatient/);
-  assert.doesNotMatch(app.innerHTML, /Feedback is confidential|anonymous ID saved in this browser/);
 });
 
-test('intro language changes in place and starts without making network requests', () => {
-  let fetchCalls = 0;
-  const { app, context, storage } = makeContext(async () => {
-    fetchCalls += 1;
-    throw new Error('The local demo must not make network requests.');
-  });
+test('admin portal offers shared email sign-in and has no default PIN', () => {
+  const { app, context } = makeContext();
+  vm.runInContext('admin()', context);
+
+  assert.match(app.innerHTML, /login\.html\?next=/);
+  assert.doesNotMatch(app.innerHTML, /1234|administration PIN/);
+});
+
+test('logged-out direct access to the admin route redirects to the login page', async () => {
+  const { context } = makeContext(null, new Map(), { routeHash: '#admin' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    vm.runInContext('location.href', context),
+    'login.html?next=index.html%23admin'
+  );
+});
+
+test('signup page collects onboarding details without granting admin privileges', () => {
+  const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
+  const auth = fs.readFileSync(frontendPath('auth.js'), 'utf8');
+  const schema = fs.readFileSync(backendPath('neon', 'schema.sql'), 'utf8');
+  const backend = fs.readFileSync(backendPath('neon-backend.mjs'), 'utf8');
+  assert.match(signup, /name="full_name"/);
+  assert.match(signup, /name="phone"/);
+  assert.match(signup, /name="password"/);
+  assert.match(signup, /name="confirm_password"/);
+  assert.match(auth, /sign-up\/email/);
+  assert.match(schema, /create table if not exists public\.feedback_admins/);
+  assert.match(backend, /where user_id = \$1/);
+  assert.doesNotMatch(backend, /service_role|supabase/i);
+});
+
+test('intro language changes in place and loads departments from the Node API', async () => {
+  const { app, context, storage, backendState } = makeContext();
   vm.runInContext('renderIntro(false)', context);
   assert.match(app.innerHTML, /<img class="intro-logo" src="logo-optimized\.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async">/);
   assert.doesNotMatch(app.innerHTML, /✦/);
   const rendersBeforeLanguageChange = app.renderCount;
 
-  vm.runInContext("chooseLanguage('fr')", context);
+  vm.runInContext("S.lang='fr'", context);
   assert.equal(app.renderCount, rendersBeforeLanguageChange);
-  assert.match(vm.runInContext('g(U.introTitle)', context), /QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES/);
+  assert.match(vm.runInContext('g(U.introTitle)', context), /QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES/);
 
-  vm.runInContext('startSurvey()', context);
+  await vm.runInContext('startSurvey()', context);
 
   assert.equal(vm.runInContext('i', context), 0);
+  assert.match(app.innerHTML, /Heure de la Visite/);
   assert.equal(storage.has('dmc_storage_check'), false);
-  assert.equal(storage.has('dmc_device_id'), false);
-  assert.equal(fetchCalls, 0);
+  assert.equal(storage.has('dmc_device_id'), true);
+  assert.equal(backendState.calls.filter((call) => call.url === '/api/check').length, 1);
+  assert.equal(backendState.calls.filter((call) => call.url === '/api/departments').length, 1);
+  assert.equal(vm.runInContext('departmentsLoaded', context), true);
   assert.equal(vm.runInContext("'phone' in S", context), false);
   assert.equal(vm.runInContext("flow().includes('phone')", context), false);
-  assert.match(app.innerHTML, /Services Visités/i);
+});
+
+test('language selection shows the translated intro heading and subtitle before the survey', () => {
+  const expectedIntro = {
+    rw: [
+      'GUKUSANYA IBITEKEREZO BY&#39;ABARWAYI BAJE KWIVUZA BATAHA (OPD)',
+      'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu.'
+    ],
+    en: [
+      'OUT PATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
+      'Your feedback is important to us and will help improve our services.'
+    ],
+    fr: [
+      'QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
+      'Votre avis nous aidera à améliorer nos services.'
+    ]
+  };
+
+  for (const [language, [heading, subtitle]] of Object.entries(expectedIntro)) {
+    const { app, context } = makeContext();
+    vm.runInContext(`selectSplashLang('${language}')`, context);
+
+    assert.equal(vm.runInContext('S.lang', context), language);
+    assert.ok(app.innerHTML.includes(heading), `${language} heading should be translated`);
+    assert.ok(app.innerHTML.includes(subtitle), `${language} subtitle should be translated`);
+    assert.match(app.innerHTML, /id="start-survey"/);
+    assert.equal(vm.runInContext('i', context), 0);
+  }
+});
+
+test('a device with a recent response cannot start another survey', async () => {
+  const backendState = {
+    checkStatus: 409,
+    checkResult: { error: 'duplicate_submission', retryAfterSeconds: 3600 }
+  };
+  const { app, context, storage } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext('renderIntro(false)', context);
+
+  await vm.runInContext('startSurvey()', context);
+
+  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING/);
+  assert.equal(storage.has('dmc_completed'), true);
+  assert.equal(storage.has('dmc_device_id'), true);
+});
+
+test('survey startup explains how to restore the feedback server connection', async () => {
+  const { app, context } = makeContext(async () => {
+    throw new TypeError('Failed to fetch');
+  });
+  vm.runInContext('renderIntro(false)', context);
+
+  await vm.runInContext('startSurvey()', context);
+
+  const message = vm.runInContext("$('intro-error').textContent", context);
+  assert.match(message, /Run npm start in the project folder/);
+  assert.match(message, /configure the required Neon settings in \.env/);
 });
 
 test('a local submission within 24 hours restores the completion screen without network access', () => {
@@ -247,7 +405,7 @@ test('a local submission within 24 hours restores the completion screen without 
     throw new Error('The local demo must not make network requests.');
   }, storage);
   vm.runInContext('renderIntro(false)', context);
-  vm.runInContext("chooseLanguage('fr')", context);
+  vm.runInContext("S.lang='fr'", context);
 
   vm.runInContext('startSurvey()', context);
 
@@ -257,13 +415,9 @@ test('a local submission within 24 hours restores the completion screen without 
   assert.equal(fetchCalls, 0);
 });
 
-test('successful local submission saves the response and restores the completion screen after refresh', async () => {
-  let fetchCalls = 0;
-  const fetchImplementation = async () => {
-    fetchCalls += 1;
-    throw new Error('The local demo must not make network requests.');
-  };
-  const { app, context, storage } = makeContext(fetchImplementation);
+test('successful feedback submission stores the response and restores completion after refresh', async () => {
+  const { app, context, storage, backendState } = makeContext();
+  vm.runInContext(`Date.now = () => ${Date.now()}`, context);
   const submission = vm.runInContext(
     "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',dept:'o0',a:{q1:1}}; submit()",
     context
@@ -271,23 +425,26 @@ test('successful local submission saves the response and restores the completion
   await Promise.resolve();
   assert.match(app.innerHTML, /submit-progress/);
   await submission;
-  assert.equal(fetchCalls, 0);
+  assert.equal(backendState.calls.filter((call) => call.url === '/api/submit').length, 1);
   assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
   assert.doesNotMatch(app.innerHTML, /Welcome to DMC Hospital/);
   assert.match(app.innerHTML, /Submitted/);
-  assert.equal(JSON.parse(storage.get('dmc_r')).length, 1);
-  assert.equal(JSON.parse(storage.get('dmc_r'))[0].a.q1, 1);
+  assert.equal(backendState.responses.length, 1);
+  assert.equal(backendState.responses[0].language, 'en');
+  assert.equal(backendState.responses[0].department_id, 'o0');
+  assert.equal(backendState.responses[0].answers.q1, 1);
+  assert.equal(storage.has('dmc_r'), false);
   assert.equal(JSON.parse(storage.get('dmc_completed')).lang, 'en');
 
-  const refreshed = makeContext(fetchImplementation, storage);
+  const refreshed = makeContext(null, storage);
   assert.match(refreshed.app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
   assert.equal(refreshed.timers.size, 0);
 });
 
-test('failed local save keeps answers and offers a successful retry', async () => {
+test('failed feedback save keeps answers and offers a successful retry', async () => {
   const storage = new Map();
-  storage.failWritesFor = new Set(['dmc_r']);
-  const { app, context } = makeContext(null, storage);
+  const backendState = { failInsert: true };
+  const { app, context } = makeContext(null, storage, backendState);
   vm.runInContext(
     "clearTimeout(welcomeTimer); welcomeTimer=null; S={lang:'en',dept:'o0',a:{q1:1}}",
     context
@@ -296,9 +453,9 @@ test('failed local save keeps answers and offers a successful retry', async () =
   await vm.runInContext('submit()', context);
   assert.match(app.innerHTML, /Your answers are still here/);
   assert.equal(vm.runInContext('S.a.q1', context), 1);
-  storage.failWritesFor.clear();
+  backendState.failInsert = false;
   await vm.runInContext('submit()', context);
 
-  assert.equal(JSON.parse(storage.get('dmc_r')).length, 1);
+  assert.equal(backendState.responses.length, 1);
   assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
 });

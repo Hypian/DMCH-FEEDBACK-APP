@@ -6,7 +6,17 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
+    "start": "node server/server.js",
+    "test": "node --test",
+    "auth:migrate": "auth migrate --config ./backend/neon-auth.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "better-auth": "^1.7.12",
+    "dotenv": "^16.4.7",
+    "nodemailer": "^10.1.7"
+  },
+  "devDependencies": {
+    "auth": "^1.7.12"
   }
 }

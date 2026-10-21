@@ -18,9 +18,32 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 /* Languages: add ['sw','Kiswahili'] here, IX.sw=3, and a 4th entry in every translation below */
 const LG = [['rw', 'Kinyarwanda'], ['en', 'English'], ['fr', 'Français']];
 const IX = { en: 0, fr: 1, rw: 2 };
-let S = { lang: 'en', a: {} }, i = 0, A = 0, tab = 'stats';
+let S = { lang: 'en', a: {} }, i = 0, tab = 'stats';
 let answerTimer = null, submitting = false, progressTimer = null;
+let feedbackResponses = [];
+let departmentsLoaded = false;
+let adminSession = null;
+let adminLoading = false;
+let adminDataLoaded = false;
+let adminError = '';
 const g = (a) => a[IX[S.lang]] || a[0];
+
+async function apiRequest(path, method = 'GET', body) {
+  const response = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(data?.message || data?.error || 'The server request failed.');
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
+  return data;
+}
 const U = {
   welcome: ['Welcome to DMC Hospital', 'Bienvenue à DMC Hospital', 'Murakaza neza kuri DMC Hospital'],
   pick: ['Choose your language', 'Choisissez votre langue', 'Hitamo ururimi'],
@@ -30,16 +53,16 @@ const U = {
     'GUKUSANYA IBITEKEREZO BY\'ABARWAYI BAJE KWIVUZA BATAHA (OPD)'
   ],
   introBody: [
-    'Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey. Your responses are anonymous and confidential',
-    'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services. Merci de prendre un instant pour répondre à ce court questionnaire. Vos réponses sont anonymes et confidentielles.',
-    'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu. Turabasaba ngo muduhe akanya gato mu kuzuza uru rupapuro rwikusanyabitekerezo kuri serivise dutanga. Icyitonderwa: Ibitekerezo byanyu n’ibanga kandi ntankurikizi cyangwa ingaruka bibagiraho.'
+    'Your feedback is important to us and will help improve our services. Please complete this short survey. Responses are confidential; if you are signed in, your response is linked to your account, otherwise it is anonymous.',
+    'Votre avis nous aidera à améliorer nos services. Merci de répondre à ce court questionnaire. Les réponses sont confidentielles; si vous êtes connecté, votre réponse est associée à votre compte, sinon elle est anonyme.',
+    'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu. Turabasaba kuzuza aka kabazo gato. Ibitekerezo bibikwa mu ibanga; niba winjiye muri konti, igitekerezo cyawe gihuzwa na konti yawe, bitabaye ibyo kikaguma kitagaragaza umwirondoro.'
   ],
   startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira ibibazo'],
   surveyProgress: ['Survey progress', 'Progression du questionnaire', 'Aho ugeze mu bibazo'],
   submittingTitle: ['Saving your survey', 'Enregistrement de votre questionnaire', 'Turimo kubika ibisubizo byawe'],
   submittingStep: ['Preparing your answers', 'Préparation de vos réponses', 'Gutegura ibisubizo byawe'],
-  savingAnswers: ['Saving your answers on this device…', 'Enregistrement de vos réponses sur cet appareil…', 'Turimo kubika ibisubizo byawe muri iki gikoresho…'],
-  submitting: ['Saving your survey on this device…', 'Enregistrement de votre questionnaire sur cet appareil…', 'Turimo kubika ibisubizo byawe muri iki gikoresho…'],
+  savingAnswers: ['Saving your answers securely…', 'Enregistrement sécurisé de vos réponses…', 'Turimo kubika ibisubizo byawe mu mutekano…'],
+  submitting: ['Sending your survey securely…', 'Envoi sécurisé de votre questionnaire…', 'Turimo kohereza ibisubizo byawe mu mutekano…'],
   completionTitle: [
     'THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!',
     'MERCI D\'AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!',
@@ -56,15 +79,20 @@ const U = {
     'Ce navigateur n’a pas pu enregistrer les données du questionnaire. Autorisez le stockage du site et réessayez.',
     'Iyi browser ntiyashoboye kubika ibisubizo. Emera ububiko bw’urubuga wongere ugerageze.'
   ],
+  connectionError: [
+    'The feedback server is unavailable. Run npm start in the project folder, open the URL it prints (normally http://localhost:5173), and configure the required Neon settings in .env.',
+    'Le serveur de commentaires est indisponible. Exécutez npm start dans le dossier du projet, ouvrez l’adresse affichée (normalement http://localhost:5173) et configurez les paramètres Neon requis dans .env.',
+    'Seriveri yakira ibitekerezo ntiboneka. Koresha npm start muri dosiye y’umushinga, ufungure aderesi igaragazwa (akenshi http://localhost:5173), kandi ushyire amakuru asabwa ya Neon muri .env.'
+  ],
   submitError: [
-    'We could not save your feedback on this device. Please try again.',
-    'Nous n’avons pas pu enregistrer votre avis sur cet appareil. Veuillez réessayer.',
-    'Ntitwashoboye kubika igitekerezo cyawe kuri iki gikoresho. Ongera ugerageze.'
+    'We could not save your feedback. Check your connection and try again.',
+    'Nous n’avons pas pu enregistrer votre avis. Vérifiez votre connexion et réessayez.',
+    'Ntitwashoboye kubika igitekerezo cyawe. Reba umurongo wa interineti wongere ugerageze.'
   ],
   retryHint: [
-    'Your answers are still here. Check that browser storage is available, then try again.',
-    'Vos réponses sont toujours là. Vérifiez que le stockage du navigateur est disponible, puis réessayez.',
-    'Ibisubizo byawe biracyahari. Reba niba ububiko bwa browser bukora, wongere ugerageze.'
+    'Your answers are still here. Check your connection, then try again.',
+    'Vos réponses sont toujours là. Vérifiez votre connexion, puis réessayez.',
+    'Ibisubizo byawe biracyahari. Reba umurongo wa interineti wongere ugerageze.'
   ],
   retrySubmit: ['Try saving again', 'Réessayer l’enregistrement', 'Ongera ugerageze kubika'],
   dept: ['Visited Services', 'Services Visités', 'Serivisi Yasuwe'],
@@ -156,13 +184,78 @@ let cfg = ld('dmc_c', null);
 if (!cfg || !cfg.v || cfg.v < 2) {
   cfg = {
     v: 2,
-    pin: cfg?.pin || '1234',
     depts: OPD.map((n, k) => ({ id: 'o' + k, n }))
   };
   sv('dmc_c', cfg);
 }
 
-const flow = () => ['dept', 'cat', 'time', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'];
+async function loadDepartments(includeInactive = false) {
+  const departments = await apiRequest(`/api/departments${includeInactive ? '?all=1' : ''}`);
+  cfg.depts = departments.map((department) => ({
+    id: department.id,
+    n: department.labels,
+    active: department.is_active
+  }));
+  departmentsLoaded = true;
+}
+
+function toFeedbackResponse(row) {
+  return {
+    id: row.id,
+    t: Date.parse(row.submitted_at),
+    l: row.language,
+    d: row.department_id,
+    dn: row.department_name,
+    a: row.answers,
+    demo: row.is_demo ? 1 : 0
+  };
+}
+
+async function loadAdminData() {
+  adminLoading = true;
+  adminError = '';
+  admin();
+  try {
+    const [responses, departments] = await Promise.all([
+      apiRequest('/api/responses'),
+      apiRequest('/api/departments?all=1')
+    ]);
+    feedbackResponses = responses.map(toFeedbackResponse);
+    cfg.depts = departments.map((department) => ({
+      id: department.id,
+      n: department.labels,
+      active: department.is_active
+    }));
+    departmentsLoaded = true;
+    adminDataLoaded = true;
+  } catch (error) {
+    console.error('Could not load dashboard data:', error);
+    adminError = 'Dashboard data could not be loaded. Check database setup and account permissions.';
+  } finally {
+    adminLoading = false;
+    admin();
+  }
+}
+
+async function initializeAdmin() {
+  try {
+    adminSession = await apiRequest('/api/admin/session');
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not initialize the admin dashboard:', error);
+    adminLoading = false;
+    if (error.status === 401) {
+      location.assign(`login.html?next=${encodeURIComponent('index.html#admin')}`);
+      return;
+    }
+    adminError = error.status === 403
+      ? 'This account is not authorized to access the admin dashboard.'
+      : 'Admin access could not be verified. Check server setup and account permissions.';
+    admin();
+  }
+}
+
+const flow = () => ['time', 'dept', 'cat', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'];
 
 function render(animate = true) {
   const f = flow(), st = f[i], t = (k) => g(U[k]);
@@ -224,6 +317,16 @@ function loadCompletion() {
   }
 }
 
+function getDeviceId() {
+  const key = 'dmc_device_id';
+  let deviceId = localStorage.getItem(key);
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem(key, deviceId);
+  }
+  return deviceId;
+}
+
 function renderComplete() {
   clearInterval(progressTimer);
   progressTimer = null;
@@ -258,7 +361,7 @@ function renderSubmitting(progress, message) {
   percent.textContent = `${value}%`;
 }
 
-function startSurvey() {
+async function startSurvey() {
   const button = $('start-survey');
   if (button) button.disabled = true;
   try {
@@ -266,19 +369,31 @@ function startSurvey() {
       renderComplete();
       return;
     }
+    if (!departmentsLoaded) await loadDepartments();
     const storageCheck = 'dmc_storage_check';
     localStorage.setItem(storageCheck, 'available');
     if (localStorage.getItem(storageCheck) !== 'available') {
       throw new Error('Browser storage did not retain a test value.');
     }
     localStorage.removeItem(storageCheck);
+    try {
+      await apiRequest('/api/check', 'POST', { deviceId: getDeviceId() });
+    } catch (error) {
+      if (error.status !== 409 || error.details?.error !== 'duplicate_submission') throw error;
+      const retryAfterMs = Number(error.details.retryAfterSeconds) * 1000;
+      storeCompletion(Date.now() - (COOLDOWN_MS - retryAfterMs));
+      renderComplete();
+      return;
+    }
     i = 0;
     render();
     scrollTo(0, 0);
   } catch (error) {
-    console.error('Could not start the local survey:', error);
+    console.error('Could not start the survey:', error);
     const notice = $('intro-error');
-    if (notice) notice.textContent = g(U.deviceStorageError);
+    if (notice) notice.textContent = String(error?.message || error).includes('Browser storage')
+      ? g(U.deviceStorageError)
+      : g(U.connectionError);
     if (button) {
       button.disabled = false;
       button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
@@ -346,16 +461,12 @@ async function submit() {
     renderSubmitting(progress, step);
   }, 120);
   try {
-    const storedResponses = localStorage.getItem('dmc_r');
-    const R = storedResponses ? JSON.parse(storedResponses) : [];
-    if (!Array.isArray(R)) throw new Error('Saved feedback data is invalid.');
-    const d = cfg.depts.find((x) => x.id === S.dept) || { n: ['?'] };
-    R.push({ t: Date.now(), l: S.lang, d: S.dept, dn: d.n[0], a: S.a });
-    const serializedResponses = JSON.stringify(R);
-    localStorage.setItem('dmc_r', serializedResponses);
-    if (localStorage.getItem('dmc_r') !== serializedResponses) {
-      throw new Error('Browser storage did not retain the feedback data.');
-    }
+    await apiRequest('/api/submit', 'POST', {
+      deviceId: getDeviceId(),
+      language: S.lang,
+      departmentId: S.dept,
+      answers: S.a
+    });
     storeCompletion();
     renderSubmitting(100, g(U.completionTitle));
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, 900 - (Date.now() - startedAt))));
@@ -389,10 +500,25 @@ function admin() {
     </div>
     <div class="adm-actions">
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
-      <button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>
+      ${adminSession ? `<span class="admin-user-email">${esc(adminSession.user.email || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>` : ''}
     </div>
   </div>`;
-  if (!A) return $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Admin Sign-in</h3><p class="hint">Enter administration PIN to access portal.</p><input type="password" id="pin" placeholder="Enter PIN (1234)" style="text-align:center"><button class="btn" onclick="login()"><i class='bx bx-log-in'></i> Sign in</button></div></div>`;
+  if (!adminSession) {
+    $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Admin Sign-in</h3><p class="hint">${esc(adminError || 'Sign in with your authorized account to access the dashboard.')}</p><a class="btn" href="login.html?next=${encodeURIComponent('index.html#admin')}">Sign in</a></div></div>`;
+    return;
+  }
+  if (adminLoading) {
+    $('app').innerHTML = h + `<div class="card" role="status" style="max-width:520px;margin:30px auto;text-align:center"><p>Loading secure dashboard data…</p></div></div>`;
+    return;
+  }
+  if (adminError && !adminDataLoaded) {
+    $('app').innerHTML = h + `<div class="card" role="alert" style="max-width:520px;margin:30px auto;text-align:center"><p class="error">${esc(adminError)}</p><button class="btn" onclick="loadAdminData()">Try again</button></div></div>`;
+    return;
+  }
+  if (!adminDataLoaded) {
+    loadAdminData();
+    return;
+  }
 
   const tabs = [
     ['stats', `<i class='bx bx-bar-chart-alt-2'></i> Analytics & Cohorts`],
@@ -401,7 +527,7 @@ function admin() {
     ['export', `<i class='bx bx-cloud-download'></i> Export Center`],
     ['depts', `<i class='bx bx-cog'></i> Manage Services`]
   ];
-  $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${
+  $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
     tab === 'stats' ? stats() :
     tab === 'depts_perf' ? deptsPerfUI() :
     tab === 'feedbacks' ? feedbacksUI() :
@@ -410,15 +536,23 @@ function admin() {
   }</div>`;
 }
 
-function login() {
-  if ($('pin').value === cfg.pin) {
-    A = 1;
+async function signOutAdmin() {
+  try {
+    await apiRequest('/api/auth/sign-out', 'POST', {});
+    adminSession = null;
+    feedbackResponses = [];
+    adminDataLoaded = false;
+    adminError = '';
+    location.assign('login.html');
+  } catch (error) {
+    console.error('Admin sign-out failed:', error);
+    adminError = 'Sign-out failed. Please try again.';
     admin();
-  } else alert('Wrong PIN');
+  }
 }
 
 function feedbacksUI() {
-  const allR = ld('dmc_r', []);
+  const allR = feedbackResponses;
   if (!allR.length) return `<div class="card"><p class="hint">No feedbacks submitted yet.</p></div>`;
   const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
   return `<div class="card">
@@ -460,27 +594,42 @@ function feedbacksUI() {
 
 function deptUI() {
   return `<div class=card><h3>Add visited service</h3><input type=text id=nd placeholder="Service name"><button class=btn onclick="add()"><i class='bx bx-plus'></i> Add</button></div>` +
-    cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="del('${d.id}')"><i class='bx bx-trash'></i> Delete</button></div>`).join('');
+    cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="setDepartmentActive('${d.id}',${!d.active})">${d.active ? 'Deactivate' : 'Restore'}</button></div>`).join('');
 }
 
-function del(id) {
-  if (confirm('Delete this service?')) {
-    cfg.depts = cfg.depts.filter((d) => d.id !== id);
-    sv('dmc_c', cfg);
+async function setDepartmentActive(id, active) {
+  if (!active && !confirm('Deactivate this service? It will no longer appear in the survey.')) return;
+  adminLoading = true;
+  admin();
+  try {
+    await apiRequest(`/api/admin/departments/${encodeURIComponent(id)}`, 'PATCH', { active });
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not update the service:', error);
+    adminLoading = false;
+    adminError = 'The service could not be updated. Please try again.';
     admin();
   }
 }
 
-function add() {
+async function add() {
   const n = $('nd').value.trim();
   if (!n) return;
-  cfg.depts.push({ id: 'x' + Date.now(), n: [n, n, n] });
-  sv('dmc_c', cfg);
+  adminLoading = true;
   admin();
+  try {
+    await apiRequest('/api/admin/departments', 'POST', { name: n });
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not add the service:', error);
+    adminLoading = false;
+    adminError = 'The service could not be added. Please try again.';
+    admin();
+  }
 }
 
 function deptsPerfUI() {
-  const allR = ld('dmc_r', []);
+  const allR = feedbackResponses;
   if (!allR.length) return `<div class="card"><p class="hint">No responses yet to calculate department performance.</p></div>`;
 
   const dMap = {};
@@ -553,7 +702,7 @@ function deptsPerfUI() {
 }
 
 function exportUI() {
-  const allR = ld('dmc_r', []);
+  const allR = feedbackResponses;
   return `<div class="card">
     <div class="export-banner">
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
@@ -592,8 +741,8 @@ function exportUI() {
 }
 
 function stats() {
-  const allR = ld('dmc_r', []);
-  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="exportCSV('full')"><i class='bx bx-download'></i> Export Full CSV</button><button onclick="if(confirm('Delete ALL responses?')){sv('dmc_r',[]);admin()}"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
+  const allR = feedbackResponses;
+  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="exportCSV('full')"><i class='bx bx-download'></i> Export Full CSV</button><button onclick="clearResponses()"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
   if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
 
   const newCount = allR.filter((r) => r.a?.cat === 0).length;
@@ -730,25 +879,51 @@ function stats() {
     tools;
 }
 
-function seed() {
-  const R = ld('dmc_r', []), D = cfg.depts, C = ['Great service', 'Waiting time was too long', 'Clean and calm environment', 'Please add more parking', 'Doctor was very patient and professional', ''];
-  for (let k = 0; k < 60; k++) {
-    if (!D.length) continue;
-    const d = D[Math.random() * D.length | 0], p = (n) => Math.random() ** 1.8 * n | 0;
-    const a = { cat: Math.random() > 0.45 ? 0 : 1, time: p(3), q1: p(5), q2: p(5), q3: p(5), q4: [p(12)], q5: p(3), q6: [p(12)], q7: p(5), q8: p(5), q10: C[p(6)] };
-    R.push({ t: Date.now() - Math.random() * 2592e6, l: ['rw', 'en', 'fr'][Math.random() * 3 | 0], d: d.id, dn: d.n[0], a, demo: 1 });
-  }
-  sv('dmc_r', R);
+async function seed() {
+  adminLoading = true;
   admin();
+  try {
+    await apiRequest('/api/admin/demo', 'POST', {});
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not add demo feedback:', error);
+    adminLoading = false;
+    adminError = 'Demo feedback could not be added. Please try again.';
+    admin();
+  }
 }
 
-function unseed() {
-  sv('dmc_r', ld('dmc_r', []).filter((r) => !r.demo));
+async function unseed() {
+  adminLoading = true;
   admin();
+  try {
+    await apiRequest('/api/admin/demo', 'DELETE');
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not remove demo feedback:', error);
+    adminLoading = false;
+    adminError = 'Demo feedback could not be removed. Please try again.';
+    admin();
+  }
+}
+
+async function clearResponses() {
+  if (!confirm('Delete ALL responses? This cannot be undone.')) return;
+  adminLoading = true;
+  admin();
+  try {
+    await apiRequest('/api/responses', 'DELETE');
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not clear feedback:', error);
+    adminLoading = false;
+    adminError = 'Feedback could not be cleared. Please try again.';
+    admin();
+  }
 }
 
 function exportCSV(type = 'full') {
-  const R = ld('dmc_r', []);
+  const R = feedbackResponses;
   if (!R.length) {
     alert('No feedback records available to export.');
     return;
@@ -944,7 +1119,7 @@ function selectSplashLang(code) {
   splashAnimTimers.forEach(clearTimeout);
   splashAnimTimers = [];
   if (IX.hasOwnProperty(code)) S.lang = code;
-  hideSplash(() => startSurvey());
+  hideSplash(() => renderIntro());
 }
 
 function startSplashSequence() {
@@ -983,7 +1158,7 @@ function startSplashSequence() {
 }
 
 /* ---------- Boot ---------- */
-function boot() {
+async function boot() {
   const adm = location.hash === '#admin', s = $('splash');
   if (welcomeTimer) {
     clearTimeout(welcomeTimer);
@@ -994,7 +1169,9 @@ function boot() {
 
   if (adm) {
     if (s) s.remove();
+    adminLoading = true;
     admin();
+    await initializeAdmin();
     return;
   }
   if (loadCompletion()) {
@@ -1008,5 +1185,22 @@ function boot() {
   }
   renderIntro();
 }
-addEventListener('hashchange', boot);
-boot();
+
+function startApp() {
+  boot().catch((error) => {
+    console.error('Could not start the app:', error);
+    const app = $('app');
+    if (app) app.innerHTML = `<main class="card" role="alert"><p class="error">The app could not start. Check the server connection and try again.</p></main>`;
+  });
+}
+
+addEventListener('hashchange', startApp);
+addEventListener('dmc-auth-state-change', (event) => {
+adminSession = event.detail.session;
+if (event.detail.event === 'SIGNED_OUT') {
+  feedbackResponses = [];
+  adminDataLoaded = false;
+  if (location.hash === '#admin') location.assign('login.html');
+}
+});
+startApp();

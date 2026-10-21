@@ -1,0 +1,125 @@
+async function request(path, body) {
+  const response = await fetch(`/api/auth/${path}`, {
+    method: body ? 'POST' : 'GET',
+    credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(data?.message || data?.error || 'Authentication request failed.');
+    error.code = data?.code || '';
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function emitAuthState(event, session = null) {
+  window.dispatchEvent(new CustomEvent('dmc-auth-state-change', {
+    detail: { event, session }
+  }));
+}
+
+export async function signUp(email, password, { fullName, phone } = {}) {
+  const data = await request('sign-up/email', {
+    name: fullName.trim(),
+    email: email.trim(),
+    password,
+    phone: phone.trim()
+  });
+  emitAuthState('SIGNED_UP', data);
+  return { data, error: null };
+}
+
+export async function signIn(email, password) {
+  const data = await request('sign-in/email', {
+    email: email.trim(),
+    password,
+    rememberMe: true
+  });
+  const current = await getSession();
+  emitAuthState('SIGNED_IN', current.data.session);
+  return { data, error: null };
+}
+
+export async function signOut() {
+  const data = await request('sign-out', {});
+  emitAuthState('SIGNED_OUT');
+  return { data, error: null };
+}
+
+export async function getSession() {
+  const data = await request('get-session');
+  return {
+    data: { session: data?.session ? data : null },
+    error: null
+  };
+}
+
+export async function requireAuth(redirectTo = 'login.html') {
+  const { data, error } = await getSession();
+  if (error) throw error;
+  if (!data.session) {
+    window.location.replace(redirectTo);
+    return null;
+  }
+  return data.session;
+}
+
+export async function redirectIfLoggedIn(redirectTo = 'index.html') {
+  const { data, error } = await getSession();
+  if (error) throw error;
+  if (data.session) {
+    window.location.replace(redirectTo);
+    return true;
+  }
+  return false;
+}
+
+export async function resetPassword(email, redirectTo) {
+  const data = await request('request-password-reset', {
+    email: email.trim(),
+    redirectTo
+  });
+  return { data, error: null };
+}
+
+export async function updatePassword(password, token) {
+  const data = await request('reset-password', {
+    newPassword: password,
+    token
+  });
+  return { data, error: null };
+}
+
+if (typeof window !== 'undefined') {
+  window.DMC_AUTH = {
+    signUp,
+    signIn,
+    signOut,
+    getSession,
+    requireAuth,
+    redirectIfLoggedIn,
+    resetPassword,
+    updatePassword
+  };
+  let activeUserId = null;
+  const refreshAuthState = async (initial = false) => {
+    try {
+      const { data } = await getSession();
+      const userId = data.session?.user?.id || null;
+      if (initial || userId !== activeUserId) {
+        activeUserId = userId;
+        emitAuthState(initial ? 'INITIAL_SESSION' : userId ? 'SIGNED_IN' : 'SIGNED_OUT', data.session);
+      }
+    } catch {
+      emitAuthState('SESSION_ERROR');
+    }
+  };
+  refreshAuthState(true);
+  window.addEventListener('focus', () => refreshAuthState());
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshAuthState();
+  });
+}

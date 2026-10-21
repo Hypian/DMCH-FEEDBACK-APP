@@ -12,11 +12,12 @@ const test = require('node:test');
 
 test('browser submissions are deduplicated for 24 hours, then accepted again', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmc-feedback-test-'));
-  const serverProcess = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+  const serverProcess = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
     env: {
       ...process.env,
       DMC_DATA_DIR: dataDir,
       DMC_DEVICE_HASH_SECRET: 'test-only-secret-that-is-at-least-32-bytes',
+      DMC_TEST_MODE: '1',
       HOST: '127.0.0.1',
       PORT: '0'
     },
@@ -29,7 +30,7 @@ test('browser submissions are deduplicated for 24 hours, then accepted again', a
 
   try {
     const address = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Server failed to start. ${errors}`)), 5000);
+      const timeout = setTimeout(() => reject(new Error(`Server failed to start. ${output} ${errors}`)), 15000);
       const checkOutput = () => {
         const match = output.match(/listening on http:\/\/127\.0\.0\.1:(\d+)/);
         if (match) {
@@ -59,6 +60,13 @@ test('browser submissions are deduplicated for 24 hours, then accepted again', a
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceId })
     });
+
+    const homepage = await fetch(address);
+    assert.equal(homepage.status, 200);
+    assert.match(await homepage.text(), /Patient Feedback/);
+    const stylesheet = await fetch(`${address}/styles.css`);
+    assert.equal(stylesheet.status, 200);
+    assert.match(stylesheet.headers.get('content-type'), /text\/css/);
 
     const deviceA = '7ac62bf0-f9e4-4c87-9eb9-6bc5c840fd31';
     const deviceB = 'd02a4869-a244-48b0-8e19-d59cab82943c';

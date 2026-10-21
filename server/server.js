@@ -6,11 +6,14 @@ const http = require('node:http');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
-const ROOT = __dirname;
+const ROOT = path.resolve(__dirname, '..');
+const FRONTEND_DIR = path.join(ROOT, 'frontend');
+require('dotenv').config({ path: path.join(ROOT, '.env') });
 const DATA_DIR = process.env.DMC_DATA_DIR || path.join(ROOT, 'data');
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || '0.0.0.0';
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const TEST_MODE = process.env.DMC_TEST_MODE === '1';
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -28,6 +31,9 @@ function getHashSecret() {
       throw new Error('DMC_DEVICE_HASH_SECRET must be at least 32 bytes long.');
     }
     return secret;
+  }
+  if (!TEST_MODE) {
+    throw new Error('DMC_DEVICE_HASH_SECRET must be configured with at least 32 bytes.');
   }
 
   const secretPath = path.join(DATA_DIR, 'device-hash.key');
@@ -49,21 +55,28 @@ function getHashSecret() {
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const hashSecret = getHashSecret();
-const database = new DatabaseSync(path.join(DATA_DIR, 'feedback.sqlite'));
-database.exec(`
-  CREATE TABLE IF NOT EXISTS device_submissions (
-    device_hash TEXT PRIMARY KEY,
-    submitted_at INTEGER NOT NULL
-  )
-`);
-const findSubmission = database.prepare(
-  'SELECT submitted_at FROM device_submissions WHERE device_hash = ?'
-);
-const saveSubmission = database.prepare(`
-  INSERT INTO device_submissions (device_hash, submitted_at)
-  VALUES (?, ?)
-  ON CONFLICT(device_hash) DO UPDATE SET submitted_at = excluded.submitted_at
-`);
+let database = null;
+let neonBackend = null;
+let authNodeHandler = null;
+let findSubmission = null;
+let saveSubmission = null;
+if (TEST_MODE) {
+  database = new DatabaseSync(path.join(DATA_DIR, 'feedback.sqlite'));
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS device_submissions (
+      device_hash TEXT PRIMARY KEY,
+      submitted_at INTEGER NOT NULL
+    )
+  `);
+  findSubmission = database.prepare(
+    'SELECT submitted_at FROM device_submissions WHERE device_hash = ?'
+  );
+  saveSubmission = database.prepare(`
+    INSERT INTO device_submissions (device_hash, submitted_at)
+    VALUES (?, ?)
+    ON CONFLICT(device_hash) DO UPDATE SET submitted_at = excluded.submitted_at
+  `);
+}
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -78,7 +91,7 @@ async function readJson(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1024) {
+    if (size > 64 * 1024) {
       const error = new Error('Request body is too large.');
       error.status = 413;
       throw error;
@@ -172,8 +185,8 @@ async function sendSubmission(request, response) {
 
 async function serveStatic(request, response, pathname) {
   const relativePath = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
-  const filePath = path.resolve(ROOT, relativePath);
-  if (!filePath.startsWith(`${ROOT}${path.sep}`)) {
+  const filePath = path.resolve(FRONTEND_DIR, relativePath);
+  if (!filePath.startsWith(`${FRONTEND_DIR}${path.sep}`)) {
     response.writeHead(403);
     response.end('Forbidden');
     return;
@@ -197,10 +210,22 @@ async function serveStatic(request, response, pathname) {
 
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
-  if (url.pathname === '/api/check') return sendDeviceCheck(request, response);
-  if (url.pathname === '/api/submit') return sendSubmission(request, response);
   if (url.pathname.startsWith('/api/')) {
-    sendJson(response, 404, { error: 'not_found' });
+    if (TEST_MODE) {
+      if (url.pathname === '/api/check') return sendDeviceCheck(request, response);
+      if (url.pathname === '/api/submit') return sendSubmission(request, response);
+      sendJson(response, 404, { error: 'not_found' });
+      return;
+    }
+    if (!neonBackend) {
+      sendJson(response, 503, { error: 'database_unavailable' });
+      return;
+    }
+    if (url.pathname.startsWith('/api/auth/')) {
+      authNodeHandler(request, response);
+      return;
+    }
+    await neonBackend.handleNeonApi(request, response, url);
     return;
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -222,14 +247,36 @@ const server = http.createServer((request, response) => {
   });
 });
 
-server.listen(PORT, HOST, () => {
-  const address = server.address();
-  console.log(`DMC feedback app listening on http://${HOST}:${address.port}`);
+async function startServer() {
+  if (!TEST_MODE) {
+    if (!process.env.NEON_DATABASE_URL) throw new Error('NEON_DATABASE_URL is required.');
+    if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.length < 32) {
+      throw new Error('BETTER_AUTH_SECRET must be at least 32 characters.');
+    }
+    if (!process.env.BETTER_AUTH_URL) throw new Error('BETTER_AUTH_URL is required.');
+    const backend = await import('../backend/neon-backend.mjs');
+    neonBackend = backend;
+    authNodeHandler = backend.authNodeHandler;
+    await backend.pool.query('select 1');
+  }
+  server.listen(PORT, HOST, () => {
+    const address = server.address();
+    console.log(`DMC feedback app listening on http://${HOST}:${address.port}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('Server startup failed:', error.message);
+  process.exitCode = 1;
 });
 
 function shutdown() {
   server.close((error) => {
-    database.close();
+    if (database) database.close();
+    if (neonBackend) neonBackend.pool.end().catch((poolError) => {
+      console.error('Database shutdown failed:', poolError);
+      process.exitCode = 1;
+    });
     if (error) {
       console.error('Server shutdown failed:', error);
       process.exitCode = 1;

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#E54B2B">
+  <title>Create account – DMC Hospital</title>
+  <link rel="stylesheet" href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body data-auth-page="signup">
+  <main class="auth-card">
+    <a class="auth-brand" href="index.html"><img src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221"></a>
+    <p class="eyebrow">DMC account</p>
+    <h1>Create account</h1>
+    <p class="intro-copy">New accounts are not admins by default. An authorized operator must separately approve dashboard access.</p>
+    <form data-auth-form novalidate>
+      <label for="full-name">Full name</label>
+      <input id="full-name" name="full_name" type="text" autocomplete="name" minlength="2" required>
+      <label for="phone">Phone number</label>
+      <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+      <label for="email">Email address</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="confirm-password">Confirm password</label>
+      <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required>
+      <p class="auth-message" data-auth-message role="alert" aria-live="polite" hidden></p>
+      <button class="btn" type="submit">Create account</button>
+    </form>
+    <nav class="auth-links" aria-label="Account links">
+      <a href="login.html">Already have an account? Sign in</a>
+      <a href="index.html">Patient feedback survey</a>
+    </nav>
+  </main>
+  <script type="module" src="auth-pages.js"></script>
+</body>
+
+</html>
