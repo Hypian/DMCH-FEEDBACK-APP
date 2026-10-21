@@ -366,6 +366,7 @@ test('signup page collects full name, username, and passwords without collecting
 test('signup offers a themed approval dialog and admin user management loads and approves requests', async () => {
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
   const authPages = fs.readFileSync(frontendPath('auth-pages.js'), 'utf8');
+  assert.match(styles, /\.account-approval-dialog\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*margin:\s*auto;/);
   assert.match(signup, /data-account-dialog/);
   assert.match(authPages, /Please wait for an administrator to approve it before signing in/);
 

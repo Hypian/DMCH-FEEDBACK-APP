@@ -17,6 +17,23 @@
 - `server/` contains the Node HTTP server that serves `frontend/` and routes API requests to `backend/`.
 - `.env.example` and `package.json` stay at the project root; run npm commands from there.
 
+## Deploy the app on Railway
+
+Railway runs the Node server and serves the frontend from the same HTTPS origin; Neon remains the database. The repository includes [`railway.json`](./railway.json), which selects `npm ci`, starts the app with `npm start`, and checks `/api/departments` for readiness. Railway supplies `PORT`; the server listens on it.
+
+1. Sign in at [Railway](https://railway.com/), create a project, and choose **Deploy from GitHub repo**. Connect `Hypian/DMCH-FEEDBACK-APP` and deploy the `main` branch from the repository root.
+2. In the Railway service's **Settings → Networking**, generate a public domain. Copy its HTTPS origin, for example `https://your-service.up.railway.app`.
+3. In the service's **Variables**, set:
+   - `NEON_DATABASE_URL` — the Neon connection string (keep it private).
+   - `BETTER_AUTH_SECRET` — a random secret of at least 32 characters.
+   - `DMC_DEVICE_HASH_SECRET` — a separate random secret of at least 32 characters.
+   - `BETTER_AUTH_URL` — the Railway HTTPS origin from step 2.
+   - `FRONTEND_ORIGIN` — the same Railway HTTPS origin from step 2.
+4. Save the variables and redeploy. Do not set `HOST` or `PORT`; Railway supplies the port, and the app listens on all interfaces by default.
+5. Open the Railway HTTPS URL. Confirm the homepage loads, then check `https://your-service.up.railway.app/api/departments` returns JSON. Use that same Railway URL for signup and survey access.
+
+Do not copy local `.env` files into GitHub, commit them, or put database credentials in Railway frontend/static files. GitHub Pages remains a separate static deployment and will not reach this Railway backend until `DMC_API_ORIGIN` is configured for its Pages workflow.
+
 ## Account approval and first administrator
 
 New signups are recorded as `pending`. Users sign up and log in with full name, username, and password, then wait for an administrator's approval before accessing protected account features. To promote Sandra, retrieve her Better Auth user ID in Neon and promote her once:
