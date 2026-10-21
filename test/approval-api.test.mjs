@@ -15,7 +15,7 @@ class ApprovalPool {
       ['other-user', { user_id: 'other-user', status: 'approved', created_at: '2026-10-20T10:00:00Z' }]
     ]);
     this.users = [
-      { user_id: 'pending-user', name: 'Pending Person', email: 'pending@example.com', phone: '+10000000000', created_at: '2026-10-21T10:00:00Z' }
+      { user_id: 'pending-user', name: 'Pending Person', username: 'pending_person', created_at: '2026-10-21T10:00:00Z' }
     ];
   }
 
@@ -116,6 +116,8 @@ test('pending approval list requires admin authorization and only returns pendin
   const admin = await call(pool, 'GET', '/api/admin/users/pending', 'sandra-user');
   assert.equal(admin.response.status, 200);
   assert.deepEqual(admin.data.users.map((user) => user.user_id), ['pending-user']);
+  assert.equal(admin.data.users[0].username, 'pending_person');
+  assert.equal('email' in admin.data.users[0], false);
 });
 
 test('admin can approve or reject a pending account exactly once', async () => {

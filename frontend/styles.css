@@ -889,7 +889,7 @@ textarea { min-height: 150px; resize: vertical; }
 .auth-links a { color: var(--red); font-weight: 600; text-decoration: none; transition: opacity var(--dur); }
 .auth-links a:hover { opacity: .75; }
 
-.admin-user-email { align-self: center; font-size: 13px; overflow-wrap: anywhere; color: var(--ink-3); }
+.admin-user-name { align-self: center; font-size: 13px; overflow-wrap: anywhere; color: var(--ink-3); }
 
 /* ─── Admin layout helpers ──────────────────────────────────────────── */
 .adm, .adm > * { min-width: 0; }

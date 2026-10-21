@@ -64,12 +64,9 @@ insert into public.feedback_departments (id, labels, sort_order) values
   ('o15', '["Minor surgery", "Petite chirurgie", "Kubagwa Byoroheje"]'::jsonb, 15)
 on conflict (id) do nothing;
 
--- Better Auth's migration creates the user table; this extends it for signup phones.
-alter table public."user"
-  add column if not exists phone text not null default '';
 
--- After Sandra signs up with her own email and confirms it, promote the account
--- once using the real ID (never the email or a shared default password):
+-- After Sandra signs up, promote the account once using the Better Auth user
+-- ID (never a shared default password):
 -- insert into public.feedback_admins (user_id) values ('BETTER_AUTH_USER_ID');
 
 -- Keep Neon Data API access disabled for these tables. The Node backend uses

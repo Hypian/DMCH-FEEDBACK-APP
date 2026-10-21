@@ -36,20 +36,21 @@ function emitAuthState(event, session = null) {
   }));
 }
 
-export async function signUp(email, password, { fullName, phone } = {}) {
+export async function signUp(username, password, { fullName } = {}) {
+  const normalizedUsername = username.trim().toLowerCase();
   const data = await request('sign-up/email', {
     name: fullName.trim(),
-    email: email.trim(),
+    email: `${normalizedUsername}@accounts.dmc.invalid`,
+    username: normalizedUsername,
     password,
-    phone: phone.trim()
   });
   emitAuthState('SIGNED_UP', data);
   return { data, error: null };
 }
 
-export async function signIn(email, password) {
-  const data = await request('sign-in/email', {
-    email: email.trim(),
+export async function signIn(username, password) {
+  const data = await request('sign-in/username', {
+    username: username.trim(),
     password,
     rememberMe: true
   });
@@ -97,22 +98,6 @@ export async function redirectIfLoggedIn(redirectTo = 'index.html') {
   return false;
 }
 
-export async function resetPassword(email, redirectTo) {
-  const data = await request('request-password-reset', {
-    email: email.trim(),
-    redirectTo
-  });
-  return { data, error: null };
-}
-
-export async function updatePassword(password, token) {
-  const data = await request('reset-password', {
-    newPassword: password,
-    token
-  });
-  return { data, error: null };
-}
-
 if (typeof window !== 'undefined') {
   window.DMC_AUTH = {
     signUp,
@@ -121,9 +106,7 @@ if (typeof window !== 'undefined') {
     getSession,
     getAccountStatus,
     requireAuth,
-    redirectIfLoggedIn,
-    resetPassword,
-    updatePassword
+    redirectIfLoggedIn
   };
   let activeUserId = null;
   const refreshAuthState = async (initial = false) => {

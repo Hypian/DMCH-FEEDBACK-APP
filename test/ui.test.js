@@ -310,7 +310,7 @@ test('survey asks for visit time before Visited Services', () => {
   assert.doesNotMatch(app.innerHTML, /Are you an inpatient or outpatient/);
 });
 
-test('admin portal offers shared email sign-in and has no default PIN', () => {
+test('admin portal offers shared username sign-in and has no default PIN', () => {
   const { app, context } = makeContext();
   vm.runInContext('admin()', context);
 
@@ -327,16 +327,37 @@ test('logged-out direct access to the admin route redirects to the login page', 
   );
 });
 
-test('signup page collects onboarding details without granting admin privileges', () => {
+test('signup page collects full name, username, and passwords without collecting email or phone', () => {
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
+  const login = fs.readFileSync(frontendPath('login.html'), 'utf8');
   const auth = fs.readFileSync(frontendPath('auth.js'), 'utf8');
+  const authBackend = fs.readFileSync(backendPath('neon-auth.mjs'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8');
   const schema = fs.readFileSync(backendPath('neon', 'schema.sql'), 'utf8');
+  const phoneMigration = fs.readFileSync(backendPath('neon', 'phone-optional-migration.sql'), 'utf8');
+  const usernameMigration = fs.readFileSync(backendPath('neon', 'username-auth-migration.sql'), 'utf8');
   const backend = fs.readFileSync(backendPath('neon-backend.mjs'), 'utf8');
   assert.match(signup, /name="full_name"/);
-  assert.match(signup, /name="phone"/);
+  assert.match(signup, /name="username"/);
   assert.match(signup, /name="password"/);
   assert.match(signup, /name="confirm_password"/);
+  assert.doesNotMatch(signup, /name="email"|name="phone"/);
+  assert.match(login, /name="username"/);
+  assert.doesNotMatch(login, /name="email"|forgot-password\.html/);
   assert.match(auth, /sign-up\/email/);
+  assert.match(auth, /sign-in\/username/);
+  assert.match(auth, /accounts\.dmc\.invalid/);
+  assert.match(authBackend, /email: `\$\{user\.username\.toLowerCase\(\)\}@accounts\.dmc\.invalid`/);
+  assert.match(authBackend, /requireEmailVerification: false/);
+  assert.doesNotMatch(authBackend, /sendResetPassword|sendVerificationEmail/);
+  assert.match(server, /\/api\/auth\/sign-in\/email/);
+  assert.match(server, /\/api\/auth\/request-password-reset/);
+  assert.match(server, /\/api\/auth\/reset-password/);
+  assert.equal(fs.existsSync(frontendPath('forgot-password.html')), false);
+  assert.equal(fs.existsSync(frontendPath('reset-password.html')), false);
+  assert.match(phoneMigration, /alter column phone drop not null/i);
+  assert.match(usernameMigration, /add column if not exists username text/i);
+  assert.match(usernameMigration, /create unique index if not exists user_username_unique/i);
   assert.match(schema, /create table if not exists public\.feedback_admins/);
   assert.match(backend, /where user_id = \$1/);
   assert.doesNotMatch(backend, /service_role|supabase/i);
@@ -346,27 +367,26 @@ test('signup offers a themed approval dialog and admin user management loads and
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
   const authPages = fs.readFileSync(frontendPath('auth-pages.js'), 'utf8');
   assert.match(signup, /data-account-dialog/);
-  assert.match(authPages, /Please check your email to verify your address, then wait for an administrator to approve/);
+  assert.match(authPages, /Please wait for an administrator to approve it before signing in/);
 
   const backendState = {
-    session: { user: { id: 'sandra-user', email: 'sandra@example.com' } },
+    session: { user: { id: 'sandra-user', name: 'Sandra', username: 'sandra' } },
     pendingUsers: [{
       user_id: 'new-user',
       name: 'New Applicant',
-      email: 'new@example.com',
-      phone: '+10000000000',
+      username: 'new_applicant',
       created_at: '2026-10-21T10:00:00Z'
     }]
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "adminSession={user:{id:'sandra-user',email:'sandra@example.com'}};adminDataLoaded=true;admin()",
+    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'}};adminDataLoaded=true;admin()",
     context
   );
   assert.equal(vm.runInContext('tab', context), 'users');
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(app.innerHTML, /New Applicant/);
-  assert.match(app.innerHTML, /new@example\.com/);
+  assert.match(app.innerHTML, /@new_applicant/);
   assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users/pending'), true);
 
   await vm.runInContext("reviewUser('new-user','approved')", context);

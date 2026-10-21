@@ -103,7 +103,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     const adminSession = await requireAdmin(request, response, pool, getAuthSession);
     if (!adminSession) return true;
     const result = await pool.query(
-      `select approval.user_id, auth_user.name, auth_user.email, auth_user.phone, approval.created_at
+      `select approval.user_id, auth_user.name, auth_user.username, approval.created_at
        from public.feedback_account_approvals as approval
        join public."user" as auth_user on auth_user.id = approval.user_id
        where approval.status = 'pending'

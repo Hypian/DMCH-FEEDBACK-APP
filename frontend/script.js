@@ -507,7 +507,7 @@ function admin() {
     </div>
     <div class="adm-actions">
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
-      ${adminSession ? `<span class="admin-user-email">${esc(adminSession.user.email || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>` : ''}
+      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>` : ''}
     </div>
   </div>`;
   if (!adminSession) {
@@ -558,7 +558,7 @@ function userManagementUI() {
   if (!pendingUsers.length) {
     return `<section class="card user-management"><h3>Pending account approvals</h3><p class="hint">There are no accounts waiting for approval.</p><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></section>`;
   }
-  return `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Account requests</p><h3>Pending approvals</h3></div><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></div><div class="pending-user-list">${pendingUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>${esc(user.email)}</p><p>${esc(user.phone || 'No phone number')}</p><small>Requested ${esc(new Date(user.created_at).toLocaleString())}</small></div><div class="pending-user-actions"><button class="adm-btn primary" onclick="reviewUser('${esc(user.user_id)}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${esc(user.user_id)}','rejected')">Decline</button></div></article>`).join('')}</div></section>`;
+  return `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Account requests</p><h3>Pending approvals</h3></div><button class="adm-btn" onclick="loadPendingUsers()">Refresh</button></div><div class="pending-user-list">${pendingUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p><small>Requested ${esc(new Date(user.created_at).toLocaleString())}</small></div><div class="pending-user-actions"><button class="adm-btn primary" onclick="reviewUser('${esc(user.user_id)}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${esc(user.user_id)}','rejected')">Decline</button></div></article>`).join('')}</div></section>`;
 }
 
 async function loadPendingUsers() {

@@ -17,6 +17,14 @@ const TRUSTED_ORIGINS = new Set(
     .filter(Boolean)
     .map((origin) => new URL(origin).origin)
 );
+const DISABLED_AUTH_PATHS = new Set([
+  '/api/auth/sign-in/email',
+  '/api/auth/request-password-reset',
+  '/api/auth/reset-password',
+  '/api/auth/send-verification-email',
+  '/api/auth/verify-email',
+  '/api/auth/change-email'
+]);
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const TEST_MODE = process.env.DMC_TEST_MODE === '1';
 const MIME_TYPES = {
@@ -244,6 +252,10 @@ async function handleRequest(request, response) {
       return;
     }
     if (url.pathname.startsWith('/api/auth/')) {
+      if (DISABLED_AUTH_PATHS.has(url.pathname)) {
+        sendJson(response, 404, { error: 'not_found' });
+        return;
+      }
       authNodeHandler(request, response);
       return;
     }

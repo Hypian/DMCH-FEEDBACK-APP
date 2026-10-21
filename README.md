@@ -2,12 +2,13 @@
 
 ## Neon setup
 
-1. Create a Neon PostgreSQL project and copy its pooled connection string into a local `.env` file based on [`.env.example`](./.env.example). Replace both secret placeholders with independent random values of at least 32 characters. Keep the connection string, SMTP password, and secrets server-only; never put them in browser JavaScript.
+1. Create a Neon PostgreSQL project and copy its pooled connection string into a local `.env` file based on [`.env.example`](./.env.example). Replace both secret placeholders with independent random values of at least 32 characters. Keep the connection string and secrets server-only; never put them in browser JavaScript.
 2. Set `BETTER_AUTH_URL` to the origin that serves this app. Locally, with the default port, use `http://localhost:5173`. Configure the production URL before deployment.
-3. Install dependencies with `npm install`, then create Better Auth's tables with `npm run auth:migrate`. Review the migration output before applying it. This command requires `NEON_DATABASE_URL` and `BETTER_AUTH_SECRET`.
-4. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, and device-lock tables.
-5. Configure SMTP variables in `.env` to enable signup verification and password-reset emails. Email flows fail visibly if SMTP is not configured; the app does not log email tokens or passwords.
-6. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
+3. Install dependencies with `npm install`. If the existing Better Auth `user` table has the legacy required `phone` column, run [`backend/neon/phone-optional-migration.sql`](./backend/neon/phone-optional-migration.sql) in the Neon SQL editor first. It preserves existing phone values while allowing new accounts that no longer collect phone numbers.
+4. Create/update Better Auth's tables with `npm run auth:migrate`. The username plugin adds the username field.
+5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, and device-lock tables.
+6. If you already have Better Auth accounts, run [`backend/neon/username-auth-migration.sql`](./backend/neon/username-auth-migration.sql). It safely ensures the username column and unique index exist, then assigns stable usernames without changing account IDs or password hashes. Query `select id, name, username from public."user";` and securely tell each existing user their assigned username. Review the migration before running it.
+7. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
 
 ## Project layout
 
@@ -18,10 +19,10 @@
 
 ## Account approval and first administrator
 
-New signups are recorded as `pending`. Users must verify their email and wait for an administrator's approval before their account can access protected account features. After Sandra signs up with her email and verifies it, retrieve her Better Auth user ID in Neon and promote her once:
+New signups are recorded as `pending`. Users sign up and log in with full name, username, and password, then wait for an administrator's approval before accessing protected account features. To promote Sandra, retrieve her Better Auth user ID in Neon and promote her once:
 
 ```sql
-select id, email from public."user" where email = 'SANDRA_EMAIL';
+select id, name, username from public."user" where username = 'SANDRA_USERNAME';
 begin;
 insert into public.feedback_admins (user_id) values ('SANDRA_BETTER_AUTH_USER_ID');
 update public.feedback_account_approvals
@@ -30,7 +31,9 @@ where user_id = 'SANDRA_BETTER_AUTH_USER_ID';
 commit;
 ```
 
-Sandra signs in with her email (not a username) and the strong password she chooses. The provided passcode was shared in chat and is weak; it is deliberately not embedded or seeded. The dashboard's **User Management** tab lists pending requests and lets Sandra approve or decline them. Applying the updated [`backend/neon/schema.sql`](./backend/neon/schema.sql) is required before enabling signup approval.
+Sandra signs in with her username and the strong password she chooses. The provided passcode was shared in chat and is weak; it is deliberately not embedded or seeded. The dashboard's **User Management** tab lists pending requests and lets Sandra approve or decline them. Applying [`backend/neon/schema.sql`](./backend/neon/schema.sql) is required before enabling signup approval.
+
+Better Auth's underlying user model requires an email-shaped identifier. The app generates it server-side from the username using the reserved `accounts.dmc.invalid` domain; users do not provide or use email addresses, and no verification or recovery email is sent. Existing email values remain in their existing account rows but are not used for login or shown in the UI. Password recovery is not available; users must keep their password safe.
 
 ## GitHub Pages
 
@@ -42,12 +45,12 @@ Only Neon is used by the running application. Supabase client files and SQL migr
 
 ## Create an additional administrator
 
-Sign up at `signup.html` with full name, phone number, email, and password, and confirm the email. A new account is not an administrator by default.
+Sign up at `signup.html` with full name, username, and password. Usernames are 3–30 letters, numbers, periods, or underscores, and are normalized to lowercase. A new account is not an administrator by default.
 
-To grant dashboard access, find the Better Auth user ID and email, then add that exact ID to the allowlist and mark the account approved:
+To grant dashboard access, look up the Better Auth user ID by username, then add that exact ID to the allowlist and mark the account approved:
 
 ```sql
-select id, email from public."user" where email = 'admin@example.com';
+select id, name, username from public."user" where username = 'admin_username';
 begin;
 insert into public.feedback_admins (user_id) values ('BETTER_AUTH_USER_ID');
 update public.feedback_account_approvals
@@ -67,13 +70,12 @@ Only allowlisted users can use admin endpoints. The database connection remains 
 
 ## Manual auth test plan
 
-1. Create an account; confirm the themed dialog says to verify the email and wait for administrator approval. Test invalid signup fields too.
-2. Confirm the email. Try signing in before approval; the account should be signed out again and shown a pending-approval dialog.
+1. Create an account with full name, username, and password; confirm the themed dialog says to wait for administrator approval. Test invalid fields and a duplicate username.
+2. Try signing in before approval; the account should be signed out again and shown a pending-approval dialog.
 3. Sign Sandra in, open the default User Management tab, approve the pending test account, then verify that account can sign in.
 4. Reject another test account and verify it cannot sign in to protected features.
 5. Refresh an approved session to confirm persistence; sign out and verify protected admin routes return to login.
-6. Request a password reset, use the email link, set a matching new password, and log in with it.
-7. Submit one survey twice from the same browser within 24 hours; the second submission should be rejected.
+6. Submit one survey twice from the same browser within 24 hours; the second submission should be rejected.
 
 ## Automated checks
 

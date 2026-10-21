@@ -204,8 +204,8 @@ export async function handleNeonApi(request, response, url) {
       sendJson(response, 200, {
         user: {
           id: session.user.id,
-          email: session.user.email,
-          name: session.user.name
+          name: session.user.name,
+          username: session.user.username
         }
       });
     }

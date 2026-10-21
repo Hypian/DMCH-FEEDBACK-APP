@@ -13,8 +13,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
     "better-auth": "^1.7.12",
-    "dotenv": "^16.4.7",
-    "nodemailer": "^10.1.7"
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "auth": "^1.7.12"

@@ -30,10 +30,9 @@
     <form data-auth-form novalidate>
       <label for="full-name">Full name</label>
       <input id="full-name" name="full_name" type="text" autocomplete="name" minlength="2" required>
-      <label for="phone">Phone number</label>
-      <input id="phone" name="phone" type="tel" autocomplete="tel" required>
-      <label for="email">Email address</label>
-      <input id="email" name="email" type="email" autocomplete="email" required>
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" minlength="3" maxlength="30" pattern="[A-Za-z0-9_.]+" aria-describedby="username-help" required>
+      <small id="username-help">3–30 letters, numbers, periods, or underscores.</small>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
       <label for="confirm-password">Confirm password</label>
