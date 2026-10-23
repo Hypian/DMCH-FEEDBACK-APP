@@ -2008,56 +2008,6 @@ function stats() {
   };
   const cd = (t, b) => `<div class=card><h3>${t}</h3>${b}</div>`;
 
-  // Donut 1: Satisfaction distribution
-  const star5 = R.filter((r) => r.a?.q8 === 0).length;
-  const star4 = R.filter((r) => r.a?.q8 === 1).length;
-  const star3 = R.filter((r) => r.a?.q8 === 2).length;
-  const star2 = R.filter((r) => r.a?.q8 === 3).length;
-  const star1 = R.filter((r) => r.a?.q8 === 4).length;
-  const donutSatisfaction = renderDonutChart({
-    title: `<i class='bx bx-pie-chart-alt-2' style="color:#10b981"></i> Overall Satisfaction Breakdown`,
-    subtitle: '5-point star rating distribution from patient reviews',
-    items: [
-      { label: '5★ Very Satisfied', value: star5, color: '#10b981' },
-      { label: '4★ Satisfied', value: star4, color: '#0284c7' },
-      { label: '3★ Neutral', value: star3, color: '#f59e0b' },
-      { label: '2★ Dissatisfied', value: star2, color: '#ea580c' },
-      { label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
-    ],
-    centerValue: `${pos}%`,
-    centerLabel: 'Satisfied'
-  });
-
-  // Donut 2: Cohorts
-  const donutCohorts = renderDonutChart({
-    title: `<i class='bx bx-user-pin' style="color:#0284c7"></i> Patient Cohort Ratio`,
-    subtitle: 'First-time vs. returning patient volume split',
-    items: [
-      { label: 'New / First-Time', value: newCount, color: '#0284c7' },
-      { label: 'Returning Patients', value: retCount, color: '#d97706' }
-    ],
-    centerValue: `${dateFiltered.length}`,
-    centerLabel: 'Submissions'
-  });
-
-  // Donut 3: Visit times
-  const time0 = R.filter((r) => r.a?.time === 0).length;
-  const time1 = R.filter((r) => r.a?.time === 1).length;
-  const time2 = R.filter((r) => r.a?.time === 2).length;
-  const time3 = R.filter((r) => r.a?.time === 3).length;
-  const donutTimeOfDay = renderDonutChart({
-    title: `<i class='bx bx-time-five' style="color:#8b5cf6"></i> Visit Times Distribution`,
-    subtitle: 'Patient arrivals across operating shifts',
-    items: [
-      { label: 'Morning (8am–12pm)', value: time0, color: '#06b6d4' },
-      { label: 'Afternoon (12pm–4pm)', value: time1, color: '#3b82f6' },
-      { label: 'Evening (4pm–8pm)', value: time2, color: '#8b5cf6' },
-      { label: 'Night / Emergency', value: time3, color: '#64748b' }
-    ],
-    centerValue: `${n}`,
-    centerLabel: 'Visits'
-  });
-
   // Department rankings in current cohort view
   const dStats = {};
   R.forEach((r) => {
@@ -2146,11 +2096,6 @@ function stats() {
       <div class=kpi><b>${avg}/5</b>Avg Satisfaction</div>
       <div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div>
       <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
-    </div>` +
-    `<div class="donut-charts-grid">
-      ${donutSatisfaction}
-      ${donutCohorts}
-      ${donutTimeOfDay}
     </div>` +
     cohortCardHtml +
     cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Satisfaction Ranking (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest in active view.</p>` + (rankHtml || '–')) +
