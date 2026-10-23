@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
-import { getAccountApproval, handleApprovalApi } from './approval-api.mjs';
+import { getAccountApproval, handleApprovalApi, requireApprovedAccount } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -208,30 +208,11 @@ export async function handleNeonApi(request, response, url) {
     return true;
   }
 
-  if (pathname === '/api/admin/session' && request.method === 'GET') {
-    const session = await getAdminSession(request, response);
-    if (session) {
-      const role = await pool.query(
-        'select exists (select 1 from public.feedback_supreme_admins where user_id = $1) as is_supreme_admin',
-        [session.user.id]
-      );
-      sendJson(response, 200, {
-        user: {
-          id: session.user.id,
-          name: session.user.name,
-          username: session.user.username
-        },
-        isSupremeAdmin: role.rows[0].is_supreme_admin
-      });
-    }
-    return true;
-  }
-
   if (pathname === '/api/admin/audit') {
     if (request.method === 'POST') {
       if (!validateAdminMethod(request, response)) return true;
-      const session = await getAdminSession(request, response);
-      if (!session) return true;
+      const account = await requireApprovedAccount(request, response, pool, getAuthSession);
+      if (!account) return true;
       if (!requireJson(request, response)) return true;
       const body = await readJson(request);
       if (!body || typeof body !== 'object' || Array.isArray(body)
@@ -241,7 +222,7 @@ export async function handleNeonApi(request, response, url) {
         return true;
       }
       await recordAuditEvent(pool, {
-        actorId: session.user.id,
+        actorId: account.session.user.id,
         action: 'report.exported',
         summary: `Exported the ${body.type} report as ${body.format.toUpperCase()}.`,
         targetType: 'report',
@@ -256,7 +237,7 @@ export async function handleNeonApi(request, response, url) {
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await getAdminSession(request, response)) return true;
+    if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select audit_entry.id, audit_entry.created_at, audit_entry.action, audit_entry.summary,
               audit_entry.target_type, audit_entry.target_id, audit_entry.metadata,
@@ -275,7 +256,7 @@ export async function handleNeonApi(request, response, url) {
 
   if (pathname === '/api/departments' && request.method === 'GET') {
     const includeInactive = url.searchParams.get('all') === '1';
-    if (includeInactive && !await getAdminSession(request, response)) return true;
+    if (includeInactive && !await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select id, labels, is_active, sort_order
        from public.feedback_departments
@@ -352,7 +333,7 @@ export async function handleNeonApi(request, response, url) {
   }
 
   if (pathname === '/api/responses' && request.method === 'GET') {
-    if (!await getAdminSession(request, response)) return true;
+    if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select ${responseFields} from public.feedback_responses
        order by submitted_at asc`

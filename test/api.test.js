@@ -313,6 +313,7 @@ test('/api/departments and admin routes blocked in TEST_MODE', async t => {
 
   const blocked = [
     { method: 'GET',    path: '/api/departments' },
+    { method: 'GET',    path: '/api/dashboard/session' },
     { method: 'GET',    path: '/api/admin/session' },
     { method: 'GET',    path: '/api/responses' },
     { method: 'POST',   path: '/api/admin/departments' },

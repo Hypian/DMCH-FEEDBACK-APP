@@ -91,15 +91,16 @@ function makeApiFetch(state) {
       data = state.checkResult || { available: true };
     } else if (pathname === '/api/departments') {
       data = state.departments;
-    } else if (pathname === '/api/admin/session') {
+    } else if (pathname === '/api/dashboard/session') {
       if (!state.session) {
         status = 401;
         data = { error: 'authentication_required' };
-      } else if (state.isAdmin === false) {
-        status = 403;
-        data = { error: 'admin_access_required' };
       } else {
-        data = { user: state.session.user, isSupremeAdmin: state.isSupremeAdmin === true };
+        data = {
+          user: state.session.user,
+          isAdmin: state.isAdmin !== false,
+          isSupremeAdmin: state.isSupremeAdmin === true
+        };
       }
     } else if (pathname === '/api/admin/directory' && method === 'GET') {
       data = { admins: state.adminDirectory || [] };
@@ -112,9 +113,9 @@ function makeApiFetch(state) {
       state.reportExports.push(JSON.parse(options.body));
       data = { ok: true };
     } else if (pathname === '/api/admin/users' && method === 'GET') {
-      if (state.isSupremeAdmin !== true) {
+      if (state.isAdmin === false) {
         status = 403;
-        data = { error: 'supreme_admin_access_required' };
+        data = { error: 'admin_access_required' };
       } else {
         data = { users: state.managedUsers || [] };
       }
@@ -468,7 +469,7 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isSupremeAdmin:true};adminDataLoaded=true;admin()",
+    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;admin()",
     context
   );
   assert.equal(vm.runInContext('tab', context), 'users');
@@ -496,13 +497,22 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
 test('regular admins can open User Management without supreme-admin controls', async () => {
   const backendState = {
     session: { user: { id: 'regular-admin', name: 'Regular Admin', username: 'regular_admin' } },
+    isAdmin: true,
     isSupremeAdmin: false,
     adminDirectory: [{ name: 'Regular Admin', username: 'regular_admin' }],
-    activeUsers: [{ name: 'Approved Patient', username: 'patient' }]
+    activeUsers: [{ name: 'Approved Patient', username: 'patient' }],
+    managedUsers: [{
+      user_id: 'pending-user',
+      name: 'Pending User',
+      username: 'pending_user',
+      status: 'pending',
+      is_admin: false,
+      is_supreme_admin: false
+    }]
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "adminSession={user:{id:'regular-admin',name:'Regular Admin',username:'regular_admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='users';admin()",
+    "adminSession={user:{id:'regular-admin',name:'Regular Admin',username:'regular_admin'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true;tab='users';admin()",
     context
   );
   await new Promise((resolve) => setImmediate(resolve));
@@ -514,7 +524,39 @@ test('regular admins can open User Management without supreme-admin controls', a
   assert.match(app.innerHTML, /Approved Patient/);
   assert.match(app.innerHTML, /Admin directory/);
   assert.doesNotMatch(app.innerHTML, /Accounts &amp; permissions/);
-  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users'), false);
+  assert.match(app.innerHTML, /All accounts \(1\)/);
+  assert.match(app.innerHTML, /Pending User/);
+  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users'), true);
+});
+
+test('approved regular users see dashboard tabs but not account management or write controls', () => {
+  const backendState = {
+    session: { user: { id: 'approved-user', name: 'Approved User', username: 'approved_user' } },
+    isAdmin: false,
+    isSupremeAdmin: false,
+    responses: []
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'approved-user',name:'Approved User',username:'approved_user'},isAdmin:false,isSupremeAdmin:false};adminDataLoaded=true;tab='users';admin()",
+    context
+  );
+
+  assert.equal(vm.runInContext('tab', context), 'stats');
+  assert.match(app.innerHTML, /Analytics & Cohorts/);
+  assert.match(app.innerHTML, /Department Matrix/);
+  assert.match(app.innerHTML, /Feedback Records/);
+  assert.match(app.innerHTML, /Export Center/);
+  assert.match(app.innerHTML, /Activity Log/);
+  assert.doesNotMatch(app.innerHTML, /User Management/);
+
+  vm.runInContext("tab='depts';admin()", context);
+  assert.match(app.innerHTML, /Services/);
+  assert.doesNotMatch(app.innerHTML, /Add visited service|Deactivate|Restore/);
+
+  vm.runInContext("tab='stats';admin()", context);
+  assert.match(app.innerHTML, /Export Full Dataset XLSX/);
+  assert.doesNotMatch(app.innerHTML, /Load demo data|Remove demo data|Clear all/);
 });
 
 test('dashboard feedback refreshes automatically and individual records can be deleted', async () => {
@@ -535,7 +577,7 @@ test('dashboard feedback refreshes automatically and individual records can be d
   };
   const { app, context, timers, feedbackDeleteDialog, feedbackDeleteDialogElements } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "location.hash='#admin';adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isSupremeAdmin:true};adminDataLoaded=true;tab='feedbacks';admin();startDashboardFeedbackRefresh()",
+    "location.hash='#admin';adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;tab='feedbacks';admin();startDashboardFeedbackRefresh()",
     context
   );
   backendState.responses.push(feedback);
@@ -595,7 +637,7 @@ test('admins can view a refreshed activity log and report exports contain feedba
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "location.hash='#admin';adminSession={user:{id:'regular-admin',name:'Regular Admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='audit';admin()",
+    "location.hash='#admin';adminSession={user:{id:'regular-admin',name:'Regular Admin'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true;tab='audit';admin()",
     context
   );
   await new Promise((resolve) => setImmediate(resolve));

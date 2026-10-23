@@ -69,6 +69,34 @@ async function requireSupremeAdmin(request, response, pool, getAuthSession) {
   return session;
 }
 
+export async function requireApprovedAccount(request, response, pool, getAuthSession) {
+  const session = await getAuthSession(request.headers);
+  if (!session?.user) {
+    sendJson(response, 401, { error: 'authentication_required' });
+    return null;
+  }
+  const status = await getAccountApproval(pool, session.user.id);
+  if (status !== 'approved') {
+    sendJson(response, 403, { error: 'account_approval_required', status });
+    return null;
+  }
+  const admin = await pool.query(
+    'select 1 from public.feedback_admins where user_id = $1',
+    [session.user.id]
+  );
+  const supreme = admin.rowCount > 0
+    ? await pool.query(
+      'select 1 from public.feedback_supreme_admins where user_id = $1',
+      [session.user.id]
+    )
+    : { rowCount: 0 };
+  return {
+    session,
+    isAdmin: admin.rowCount > 0,
+    isSupremeAdmin: supreme.rowCount > 0
+  };
+}
+
 export async function createPendingApproval(pool, userId) {
   await pool.query(
     `with approval as (
@@ -118,6 +146,26 @@ export async function getAccountApproval(pool, userId) {
 
 export async function handleApprovalApi(request, response, url, { pool, getAuthSession }) {
   const { pathname } = url;
+  if (pathname === '/api/dashboard/session') {
+    if (request.method !== 'GET') {
+      response.setHeader('Allow', 'GET');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    const account = await requireApprovedAccount(request, response, pool, getAuthSession);
+    if (!account) return true;
+    sendJson(response, 200, {
+      user: {
+        id: account.session.user.id,
+        name: account.session.user.name,
+        username: account.session.user.username
+      },
+      isAdmin: account.isAdmin,
+      isSupremeAdmin: account.isSupremeAdmin
+    });
+    return true;
+  }
+
   if (pathname === '/api/account/status') {
     if (request.method !== 'GET') {
       response.setHeader('Allow', 'GET');
@@ -159,11 +207,13 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       return true;
     }
     if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
+    await ensurePendingApprovals(pool);
     const result = await pool.query(
       `select auth_user.name, auth_user.username
        from public."user" as auth_user
        left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
-       where coalesce(approval.status, 'approved') = 'approved'
+       left join public.feedback_admins as admin on admin.user_id = auth_user.id
+       where approval.status = 'approved' or admin.user_id is not null
        order by auth_user.name asc, auth_user.username asc`
     );
     sendJson(response, 200, { users: result.rows });
@@ -176,7 +226,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
+    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
     await ensurePendingApprovals(pool);
     const result = await pool.query(
       `select auth_user.id as user_id, auth_user.name, auth_user.username,

@@ -90,9 +90,9 @@ class ApprovalPool {
         })
       };
     }
-    if (sql.includes("where coalesce(approval.status, 'approved') = 'approved'")) {
+    if (sql.includes("where approval.status = 'approved' or admin.user_id is not null")) {
       const users = this.users.filter((user) =>
-        (this.approvals.get(user.user_id)?.status || 'approved') === 'approved'
+        this.approvals.get(user.user_id)?.status === 'approved' || this.admins.has(user.user_id)
       );
       return {
         rowCount: users.length,
@@ -219,6 +219,26 @@ test('account status requires authentication and creates a pending record for si
   assert.deepEqual(admin.data, { status: 'approved' });
 });
 
+test('approved users can access the dashboard while pending users cannot', async () => {
+  const pool = new ApprovalPool();
+  const unauthenticated = await call(pool, 'GET', '/api/dashboard/session');
+  assert.equal(unauthenticated.response.status, 401);
+
+  const pending = await call(pool, 'GET', '/api/dashboard/session', 'pending-user');
+  assert.equal(pending.response.status, 403);
+  assert.deepEqual(pending.data, { error: 'account_approval_required', status: 'pending' });
+
+  const regularUser = await call(pool, 'GET', '/api/dashboard/session', 'other-user');
+  assert.equal(regularUser.response.status, 200);
+  assert.equal(regularUser.data.isAdmin, false);
+  assert.equal(regularUser.data.isSupremeAdmin, false);
+
+  const admin = await call(pool, 'GET', '/api/dashboard/session', 'sandra-user');
+  assert.equal(admin.response.status, 200);
+  assert.equal(admin.data.isAdmin, true);
+  assert.equal(admin.data.isSupremeAdmin, true);
+});
+
 test('account creation hook records new accounts as pending without overriding existing reviews', async () => {
   const pool = new ApprovalPool();
   await createPendingApproval(pool, 'new-signup');
@@ -237,6 +257,11 @@ test('account creation hook records new accounts as pending without overriding e
   const visibleToSupremeAdmin = await call(pool, 'GET', '/api/admin/users', 'sandra-user');
   assert.equal(
     visibleToSupremeAdmin.data.users.find((user) => user.user_id === 'new-signup').status,
+    'pending'
+  );
+  const visibleToAdmin = await call(pool, 'GET', '/api/admin/users', 'regular-admin');
+  assert.equal(
+    visibleToAdmin.data.users.find((user) => user.user_id === 'new-signup').status,
     'pending'
   );
 });
@@ -306,7 +331,7 @@ test('signup without an approval row is repaired and can be approved or declined
   assert.equal(pool.approvals.get('untracked-decline').status, 'rejected');
 });
 
-test('admin directory reads are available to admins while account management requires supreme-admin access', async () => {
+test('admins can view all accounts while approval and role changes require supreme-admin access', async () => {
   const pool = new ApprovalPool();
   const unauthorizedDirectory = await call(pool, 'GET', '/api/admin/directory', 'pending-user');
   assert.equal(unauthorizedDirectory.response.status, 403);
@@ -316,8 +341,16 @@ test('admin directory reads are available to admins while account management req
   assert.equal(directory.response.status, 200);
   assert.equal(directory.data.admins.length, 2);
 
-  const denied = await call(pool, 'GET', '/api/admin/users', 'regular-admin');
-  assert.equal(denied.response.status, 403);
+  const nonAdmin = await call(pool, 'GET', '/api/admin/users', 'pending-user');
+  assert.equal(nonAdmin.response.status, 403);
+  assert.deepEqual(nonAdmin.data, { error: 'admin_access_required' });
+  const approvedRegularUser = await call(pool, 'GET', '/api/admin/users', 'other-user');
+  assert.equal(approvedRegularUser.response.status, 403);
+  assert.deepEqual(approvedRegularUser.data, { error: 'admin_access_required' });
+
+  const regularAccounts = await call(pool, 'GET', '/api/admin/users', 'regular-admin');
+  assert.equal(regularAccounts.response.status, 200);
+  assert.equal(regularAccounts.data.users.find((user) => user.user_id === 'pending-user').status, 'pending');
 
   const supremeDirectory = await call(pool, 'GET', '/api/admin/directory', 'sandra-user');
   assert.equal(supremeDirectory.response.status, 200);
@@ -332,6 +365,12 @@ test('admin directory reads are available to admins while account management req
 
 test('approved account list is available to admins and excludes pending accounts', async () => {
   const pool = new ApprovalPool();
+  pool.users.push({
+    user_id: 'legacy-untracked',
+    name: 'Legacy Untracked',
+    username: 'legacy_untracked',
+    created_at: '2026-10-19T10:00:00Z'
+  });
   const unauthorized = await call(pool, 'GET', '/api/admin/active-users', 'pending-user');
   assert.equal(unauthorized.response.status, 403);
   assert.deepEqual(unauthorized.data, { error: 'admin_access_required' });
@@ -339,6 +378,7 @@ test('approved account list is available to admins and excludes pending accounts
   const activeUsers = await call(pool, 'GET', '/api/admin/active-users', 'regular-admin');
   assert.equal(activeUsers.response.status, 200);
   assert.deepEqual(activeUsers.data.users.map((user) => user.username), ['regular_admin', 'sandra']);
+  assert.equal(pool.approvals.get('legacy-untracked').status, 'pending');
 
   const supremeActiveUsers = await call(pool, 'GET', '/api/admin/active-users', 'sandra-user');
   assert.equal(supremeActiveUsers.response.status, 200);

@@ -60,5 +60,5 @@ test('successful logins and feedback mutations are written by the server', () =>
   assert.match(neonBackend, /action:\s*'feedback\.deleted'/);
   assert.match(neonBackend, /action:\s*'feedback\.cleared'/);
   assert.match(neonBackend, /if \(pathname === '\/api\/admin\/audit'\)/);
-  assert.match(neonBackend, /if \(!await getAdminSession\(request, response\)\) return true;/);
+  assert.match(neonBackend, /if \(!await requireApprovedAccount\(request, response, pool, getAuthSession\)\) return true;/);
 });

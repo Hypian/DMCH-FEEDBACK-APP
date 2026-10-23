@@ -294,7 +294,7 @@ function stopDashboardFeedbackRefresh() {
 
 async function initializeAdmin() {
   try {
-    adminSession = await apiRequest('/api/admin/session');
+    adminSession = await apiRequest('/api/dashboard/session');
     await loadAdminData();
   } catch (error) {
     console.error('Could not initialize the admin dashboard:', error);
@@ -304,8 +304,8 @@ async function initializeAdmin() {
       return;
     }
     adminError = error.status === 403
-      ? 'This account is not authorized to access the admin dashboard.'
-      : 'Admin access could not be verified. Check server setup and account permissions.';
+      ? 'This account must be approved before it can access the dashboard.'
+      : 'Dashboard access could not be verified. Check server setup and account permissions.';
     admin();
   }
 }
@@ -558,7 +558,7 @@ function admin() {
     </div>
   </div>`;
   if (!adminSession) {
-    $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Admin Sign-in</h3><p class="hint">${esc(adminError || 'Sign in with your authorized account to access the dashboard.')}</p><a class="btn" href="login.html?next=${encodeURIComponent('index.html#admin')}">Sign in</a></div></div>`;
+    $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Dashboard Sign-in</h3><p class="hint">${esc(adminError || 'Sign in with your approved account to access the dashboard.')}</p><a class="btn" href="login.html?next=${encodeURIComponent('index.html#admin')}">Sign in</a></div></div>`;
     return;
   }
   if (adminLoading) {
@@ -582,8 +582,9 @@ function admin() {
     ['depts', `<i class='bx bx-cog'></i> Manage Services`],
     ['audit', `<i class='bx bx-history'></i> Activity Log`]
   ];
-  tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
-  if (tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
+  if (adminSession.isAdmin) tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
+  if (!adminSession.isAdmin && tab === 'users') tab = 'stats';
+  if (adminSession.isAdmin && tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
     loadUserManagement();
   }
   if (tab === 'audit' && !auditLoading && !auditLoaded && !auditError) loadAuditEvents();
@@ -616,7 +617,19 @@ function userManagementUI() {
       ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
       : '<p class="hint">There are no administrators to display.</p>'
   }</section>`;
-  if (!adminSession.isSupremeAdmin) return approvedUsers + directory;
+  if (!adminSession.isSupremeAdmin) {
+    const accounts = managedUsers.map((user) => `<tr>
+      <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
+      <td><span class="user-role">${esc(user.status)}</span></td>
+      <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
+    </tr>`).join('');
+    const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${
+      managedUsers.length
+        ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
+        : '<p class="hint">There are no accounts to display.</p>'
+    }</section>`;
+    return approvedUsers + directory + accountList;
+  }
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
     const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
@@ -701,6 +714,7 @@ async function loadAuditEvents(showLoading = true) {
 }
 
 async function loadUserManagement() {
+  if (!adminSession?.isAdmin) return;
   userManagementLoading = true;
   userManagementError = '';
   admin();
@@ -709,7 +723,7 @@ async function loadUserManagement() {
       apiRequest('/api/admin/directory'),
       apiRequest('/api/admin/active-users')
     ];
-    if (adminSession.isSupremeAdmin) {
+    if (adminSession.isAdmin) {
       requests.push(apiRequest('/api/admin/users'));
     }
     const [directory, approved, users] = await Promise.all(requests);
@@ -812,7 +826,7 @@ function feedbacksUI() {
       const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
       const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
       const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
-      const safeId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id)
+      const safeId = adminSession?.isAdmin && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id)
         ? r.id
         : '';
       return `<div class="fb-item">
@@ -874,6 +888,9 @@ async function confirmFeedbackDelete() {
 }
 
 function deptUI() {
+  if (!adminSession?.isAdmin) {
+    return `<section class="card"><h3>Services</h3>${cfg.depts.map((d) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(d.n[0])}</h4></div><span class="user-role">${d.active ? 'Active' : 'Inactive'}</span></article>`).join('')}</section>`;
+  }
   return `<div class=card><h3>Add visited service</h3><input type=text id=nd placeholder="Service name"><button class=btn onclick="add()"><i class='bx bx-plus'></i> Add</button></div>` +
     cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="setDepartmentActive('${d.id}',${!d.active})">${d.active ? 'Deactivate' : 'Restore'}</button></div>`).join('');
 }
@@ -1023,7 +1040,7 @@ function exportUI() {
 
 function stats() {
   const allR = feedbackResponses;
-  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Dataset XLSX</button><button onclick="clearResponses()"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
+  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools>${adminSession?.isAdmin ? `<button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button>` : ''}<button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Dataset XLSX</button>${adminSession?.isAdmin ? '<button onclick="clearResponses()"><i class=\'bx bx-trash\'></i> Clear all</button>' : ''}</div></div>`;
   if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
 
   const newCount = allR.filter((r) => r.a?.cat === 0).length;
@@ -1515,8 +1532,8 @@ addEventListener('hashchange', () => {
 });
 addEventListener('focus', refreshDashboardFeedback);
 addEventListener('dmc-auth-state-change', (event) => {
-adminSession = event.detail.session;
 if (event.detail.event === 'SIGNED_OUT') {
+  adminSession = null;
   stopDashboardFeedbackRefresh();
   feedbackResponses = [];
   adminDataLoaded = false;
