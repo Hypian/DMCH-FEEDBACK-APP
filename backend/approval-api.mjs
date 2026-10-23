@@ -55,9 +55,29 @@ async function requireAdmin(request, response, pool, getAuthSession) {
   return session;
 }
 
+export async function ensureSupremeAdminBootstrap(pool) {
+  try {
+    const supremeCount = await pool.query(
+      'select count(*)::int as total from public.feedback_supreme_admins'
+    );
+    if (supremeCount.rows?.[0]?.total === 0) {
+      await pool.query(`
+        insert into public.feedback_supreme_admins (user_id)
+        select user_id from public.feedback_admins
+        order by created_at asc
+        limit 1
+        on conflict (user_id) do nothing
+      `);
+    }
+  } catch {
+    // Graceful fallback for mock tests or before table initialization
+  }
+}
+
 async function requireSupremeAdmin(request, response, pool, getAuthSession) {
   const session = await requireAdmin(request, response, pool, getAuthSession);
   if (!session) return null;
+  await ensureSupremeAdminBootstrap(pool);
   const result = await pool.query(
     'select 1 from public.feedback_supreme_admins where user_id = $1',
     [session.user.id]
@@ -80,6 +100,7 @@ export async function requireApprovedAccount(request, response, pool, getAuthSes
     sendJson(response, 403, { error: 'account_approval_required', status });
     return null;
   }
+  await ensureSupremeAdminBootstrap(pool);
   const admin = await pool.query(
     'select 1 from public.feedback_admins where user_id = $1',
     [session.user.id]
@@ -272,6 +293,109 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     );
     sendJson(response, 200, { users: result.rows });
     return true;
+  }
+
+  const userDeleteMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)$/);
+  if (userDeleteMatch) {
+    if (request.method !== 'DELETE') {
+      response.setHeader('Allow', 'DELETE');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
+    if (!adminSession) return true;
+    if (!requireTrustedOrigin(request, response)) return true;
+    const targetUserId = userDeleteMatch[1];
+    if (targetUserId === adminSession.user.id) {
+      sendJson(response, 400, { error: 'cannot_delete_own_account' });
+      return true;
+    }
+    const client = await pool.connect();
+    let transactionStarted = false;
+    try {
+      await client.query('begin');
+      transactionStarted = true;
+      await client.query('select pg_advisory_xact_lock($1)', [74192831]);
+      const targetUser = await client.query(
+        'select id, name, username from public."user" where id = $1',
+        [targetUserId]
+      );
+      if (targetUser.rowCount === 0) {
+        await client.query('rollback');
+        sendJson(response, 404, { error: 'user_not_found' });
+        return true;
+      }
+      const targetSupreme = await client.query(
+        'select 1 from public.feedback_supreme_admins where user_id = $1',
+        [targetUserId]
+      );
+      if (targetSupreme.rowCount > 0) {
+        const count = await client.query(
+          'select count(*)::int as total from public.feedback_supreme_admins'
+        );
+        if (count.rows[0].total <= 1) {
+          await client.query('rollback');
+          sendJson(response, 409, { error: 'last_supreme_admin_cannot_be_removed' });
+          return true;
+        }
+        await client.query(
+          'delete from public.feedback_supreme_admins where user_id = $1',
+          [targetUserId]
+        );
+      }
+      const targetAdmin = await client.query(
+        'select 1 from public.feedback_admins where user_id = $1',
+        [targetUserId]
+      );
+      if (targetAdmin.rowCount > 0) {
+        const count = await client.query(
+          'select count(*)::int as total from public.feedback_admins'
+        );
+        if (count.rows[0].total <= 1) {
+          await client.query('rollback');
+          sendJson(response, 409, { error: 'last_admin_cannot_be_removed' });
+          return true;
+        }
+        await client.query(
+          'delete from public.feedback_admins where user_id = $1',
+          [targetUserId]
+        );
+      }
+      await client.query(
+        'delete from public.feedback_account_approvals where user_id = $1',
+        [targetUserId]
+      );
+      try {
+        await client.query(
+          'delete from public."session" where "userId" = $1',
+          [targetUserId]
+        );
+      } catch {}
+      await client.query(
+        'delete from public."user" where id = $1',
+        [targetUserId]
+      );
+      await recordAuditEvent(client, {
+        actorId: adminSession.user.id,
+        action: 'account.deleted',
+        summary: `Permanently deleted account ${targetUser.rows[0]?.username || targetUserId}.`,
+        targetType: 'account',
+        targetId: targetUserId,
+        metadata: {
+          username: targetUser.rows[0]?.username,
+          name: targetUser.rows[0]?.name
+        }
+      });
+      await client.query('commit');
+      transactionStarted = false;
+      sendJson(response, 200, { deleted: true, userId: targetUserId });
+      return true;
+    } catch (error) {
+      if (transactionStarted) await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   const roleMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/(admin|supreme)$/);

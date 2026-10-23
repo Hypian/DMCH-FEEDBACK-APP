@@ -75,9 +75,12 @@ class ApprovalPool {
       const isAdmin = this.admins.has(values[0]);
       return { rowCount: isAdmin ? 1 : 0, rows: isAdmin ? [{ '?column?': 1 }] : [] };
     }
-    if (sql.includes('from public."user" where id = $1')) {
-      const exists = this.users.some((user) => user.user_id === values[0]);
-      return { rowCount: exists ? 1 : 0, rows: exists ? [{ '?column?': 1 }] : [] };
+    if (sql.startsWith('select') && sql.includes('from public."user" where id = $1')) {
+      const user = this.users.find((u) => u.user_id === values[0]);
+      return {
+        rowCount: user ? 1 : 0,
+        rows: user ? [{ id: user.user_id, name: user.name, username: user.username, '?column?': 1 }] : []
+      };
     }
     if (sql.includes('count(*)::int as total from public.feedback_admins')) {
       return { rowCount: 1, rows: [{ total: this.admins.size }] };
@@ -129,6 +132,23 @@ class ApprovalPool {
     }
     if (sql.includes('delete from public.feedback_supreme_admins')) {
       this.supremeAdmins.delete(values[0]);
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes('delete from public.feedback_account_approvals where user_id = $1')) {
+      this.approvals.delete(values[0]);
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes('delete from public."user" where id = $1')) {
+      this.users = this.users.filter((user) => user.user_id !== values[0]);
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes('delete from public."session"')) {
+      return { rowCount: 0, rows: [] };
+    }
+    if (sql.includes('select user_id from public.feedback_admins') && sql.includes('order by created_at asc')) {
+      if (this.supremeAdmins.size === 0 && this.admins.size > 0) {
+        this.supremeAdmins.add([...this.admins][0]);
+      }
       return { rowCount: 1, rows: [] };
     }
     if (sql.includes('insert into public.feedback_account_approvals')) {
@@ -644,4 +664,37 @@ test('supreme admin can deactivate and reactivate accounts with audit logs and a
   // 9. Audit event recorded for reactivation
   assert.equal(pool.auditEvents.some((e) => e.action === 'account.reactivated' && e.target_id === 'regular-user'), true);
 });
+
+test('supreme admin can permanently delete accounts with safeguards and audit logging', async () => {
+  const pool = new ApprovalPool();
+  pool.users.push({ user_id: 'user-to-delete', name: 'Delete Me', username: 'delete_me', created_at: '2026-10-20T10:00:00Z' });
+  pool.approvals.set('user-to-delete', { user_id: 'user-to-delete', status: 'approved', created_at: '2026-10-20T10:00:00Z' });
+
+  // 1. Regular admin cannot delete accounts
+  const unauth = await call(pool, 'DELETE', '/api/admin/users/user-to-delete', 'regular-admin');
+  assert.equal(unauth.response.status, 403);
+  assert.deepEqual(unauth.data, { error: 'supreme_admin_access_required' });
+
+  // 2. Supreme admin cannot delete their own account
+  const selfDelete = await call(pool, 'DELETE', '/api/admin/users/sandra-user', 'sandra-user');
+  assert.equal(selfDelete.response.status, 400);
+  assert.deepEqual(selfDelete.data, { error: 'cannot_delete_own_account' });
+
+  // 3. Deleting non-existent user returns 404
+  const notFound = await call(pool, 'DELETE', '/api/admin/users/ghost-user', 'sandra-user');
+  assert.equal(notFound.response.status, 404);
+  assert.deepEqual(notFound.data, { error: 'user_not_found' });
+
+  // 4. Supreme admin successfully deletes user-to-delete
+  const deleteRes = await call(pool, 'DELETE', '/api/admin/users/user-to-delete', 'sandra-user');
+  assert.equal(deleteRes.response.status, 200);
+  assert.equal(deleteRes.data.deleted, true);
+  assert.equal(deleteRes.data.userId, 'user-to-delete');
+  assert.equal(pool.users.some((u) => u.user_id === 'user-to-delete'), false);
+  assert.equal(pool.approvals.has('user-to-delete'), false);
+
+  // 5. Audit event recorded for deletion
+  assert.equal(pool.auditEvents.some((e) => e.action === 'account.deleted' && e.target_id === 'user-to-delete'), true);
+});
+
 

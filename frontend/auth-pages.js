@@ -91,12 +91,18 @@ function setLoading(isLoading, label) {
 async function runRequest(label, action, request) {
   showMessage('');
   setLoading(true, label);
+  let shouldResetLoading = true;
   try {
-    await request();
+    const outcome = await request();
+    if (outcome && outcome.redirecting) {
+      shouldResetLoading = false;
+    }
   } catch (error) {
     showMessage(authErrorMessage(error, action));
   } finally {
-    setLoading(false);
+    if (shouldResetLoading) {
+      setLoading(false);
+    }
   }
 }
 
@@ -148,7 +154,9 @@ form?.addEventListener('submit', (event) => {
         showApprovalDialog(account.status);
         return;
       }
+      setLoading(true, 'Signing in…');
       window.location.replace(nextPage());
+      return { redirecting: true };
     });
   }
 });

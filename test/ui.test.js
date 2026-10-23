@@ -163,6 +163,12 @@ function makeApiFetch(state) {
         if (role === 'is_admin' && user.is_admin) user.status = 'approved';
       }
       data = { user: { user_id: userId, [role]: JSON.parse(options.body).enabled } };
+    } else if (/^\/api\/admin\/users\/[^/]+$/.test(pathname) && method === 'DELETE') {
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      state.managedUsers = (state.managedUsers || []).filter((item) => item.user_id !== userId);
+      state.deletedUsers ||= [];
+      state.deletedUsers.push(userId);
+      data = { deleted: true, userId };
     } else if (pathname === '/api/responses' && method === 'GET') {
       data = state.responses;
     } else if (/^\/api\/responses\/[0-9a-f-]+$/i.test(pathname) && method === 'DELETE') {
@@ -510,6 +516,10 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   assert.match(app.innerHTML, /Reactivate/);
   await vm.runInContext("setUserStatus('new-user','approved')", context);
   assert.equal(backendState.managedUsers[0].status, 'approved');
+
+  assert.match(app.innerHTML, /Delete/);
+  await vm.runInContext("deleteUser('new-user','new_applicant')", context);
+  assert.deepEqual(backendState.deletedUsers, ['new-user']);
 });
 
 test('regular admins can open User Management without supreme-admin controls', async () => {

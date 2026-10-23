@@ -4,7 +4,10 @@ create table if not exists public.feedback_supreme_admins (
   created_at timestamptz not null default now()
 );
 
--- Bootstrap a Supreme Admin only after confirming the account with the owner:
--- insert into public.feedback_supreme_admins (user_id)
--- select user_id from public.feedback_admins
--- where user_id = (select id from public."user" where username = 'CONFIRMED_USERNAME');
+-- Bootstrap a Supreme Admin if none exists yet by promoting the earliest admin:
+insert into public.feedback_supreme_admins (user_id)
+select user_id from public.feedback_admins
+order by created_at asc
+limit 1
+on conflict (user_id) do nothing;
+

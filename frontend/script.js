@@ -602,12 +602,47 @@ function admin() {
 
 function userManagementUI() {
   if (userManagementLoading) {
-    return `<section class="card" role="status"><p>Loading account management…</p></section>`;
+    return `<section class="card user-management-loading" role="status" aria-live="polite">
+      <div class="um-loading-header">
+        <div class="um-loading-title">
+          <span class="um-pulse-dot"></span>
+          <h4>Synchronizing User Management</h4>
+        </div>
+        <span class="um-progress-pct">${userManagementProgressPct}%</span>
+      </div>
+      <div class="um-progress-bar-wrap" role="progressbar" aria-valuenow="${userManagementProgressPct}" aria-valuemin="0" aria-valuemax="100">
+        <div class="um-progress-bar-fill" style="width: ${userManagementProgressPct}%;"></div>
+      </div>
+      <div class="um-loading-steps">
+        <div class="um-loading-step ${userManagementStep > 1 ? 'completed' : userManagementStep === 1 ? 'active' : ''}">
+          <div class="um-step-icon">${userManagementStep > 1 ? `<i class='bx bx-check'></i>` : `<i class='bx bx-shield-quarter ${userManagementStep === 1 ? 'bx-spin' : ''}'></i>`}</div>
+          <div class="um-step-text">
+            <strong>Admin Directory</strong>
+            <span>Authorized administrators & supreme access</span>
+          </div>
+        </div>
+        <div class="um-loading-step ${userManagementStep > 2 ? 'completed' : userManagementStep === 2 ? 'active' : ''}">
+          <div class="um-step-icon">${userManagementStep > 2 ? `<i class='bx bx-check'></i>` : `<i class='bx bx-user-check ${userManagementStep === 2 ? 'bx-spin' : ''}'></i>`}</div>
+          <div class="um-step-text">
+            <strong>Active Accounts</strong>
+            <span>Verified user roster & approval status</span>
+          </div>
+        </div>
+        <div class="um-loading-step ${userManagementStep >= 3 && userManagementProgressPct >= 95 ? 'completed' : userManagementStep >= 3 ? 'active' : ''}">
+          <div class="um-step-icon">${userManagementProgressPct >= 95 ? `<i class='bx bx-check'></i>` : `<i class='bx bx-slider-alt ${userManagementStep >= 3 ? 'bx-spin' : ''}'></i>`}</div>
+          <div class="um-step-text">
+            <strong>Roles & Permissions</strong>
+            <span>Access control matrix & review queue</span>
+          </div>
+        </div>
+      </div>
+      <p class="um-status-note"><i class='bx bx-loader-alt bx-spin'></i> ${esc(userManagementStatusText)}</p>
+    </section>`;
   }
   if (userManagementError) {
     return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
   }
-  const refresh = `<button class="adm-btn" onclick="loadUserManagement()">Refresh</button>`;
+  const refresh = `<button class="adm-btn" onclick="loadUserManagement()"><i class='bx bx-refresh'></i> Refresh</button>`;
   const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
     activeUsers.length
       ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">Active</span></article>`).join('')}</div>`
@@ -636,28 +671,27 @@ function userManagementUI() {
     pendingUsers.length
       ? `<div class="pending-user-list">${pendingUsers.map((user) => {
           const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
-          return `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')">Decline</button>` : ''}</div></article>`;
+          return `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>` : ''}</div></article>`;
         }).join('')}</div>`
       : '<p class="hint">There are no pending accounts awaiting review.</p>'
   }</section>`;
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
     const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
-    const supremeAction = user.is_admin
-      ? `<button class="adm-btn" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`
-      : '';
+    const supremeAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`;
     const statusAction = user.status === 'deactivated'
-      ? `<button class="adm-btn primary" onclick="setUserStatus('${safeId}','approved')">Reactivate</button>`
-      : user.status === 'approved'
-        ? `<button class="adm-btn danger" onclick="setUserStatus('${safeId}','deactivated')">Deactivate</button>`
+      ? `<button class="adm-btn primary" onclick="setUserStatus('${safeId}','approved')"><i class='bx bx-check-shield'></i> Reactivate</button>`
+      : user.status === 'approved' || user.is_admin
+        ? `<button class="adm-btn danger" onclick="setUserStatus('${safeId}','deactivated')"><i class='bx bx-block'></i> Deactivate</button>`
         : '';
+    const deleteAction = `<button class="adm-btn danger" onclick="deleteUser('${safeId}','${esc(user.username || user.name || '')}')"><i class='bx bx-trash'></i> Delete</button>`;
     const actions = safeId && user.user_id !== adminSession.user.id
       ? `<div class="user-role-actions">${
           user.status === 'pending'
-            ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')">Decline</button>`
+            ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
             : ''
-        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}</div>`
-      : '<span class="hint">Current account</span>';
+        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
+      : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
     return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role ${user.status === 'deactivated' ? 'danger' : ''}">${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
   }).join('');
   const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
@@ -728,23 +762,49 @@ async function loadAuditEvents(showLoading = true) {
   }
 }
 
+let userManagementStep = 1;
+let userManagementProgressPct = 25;
+let userManagementStatusText = 'Connecting to admin directory…';
+
 async function loadUserManagement() {
   if (!adminSession?.isAdmin) return;
   userManagementLoading = true;
   userManagementError = '';
+  userManagementStep = 1;
+  userManagementProgressPct = 20;
+  userManagementStatusText = 'Connecting to admin directory…';
   admin();
   try {
-    const requests = [
-      apiRequest('/api/admin/directory'),
-      apiRequest('/api/admin/active-users')
-    ];
-    if (adminSession.isAdmin) {
-      requests.push(apiRequest('/api/admin/users'));
-    }
-    const [directory, approved, users] = await Promise.all(requests);
-    adminDirectory = directory.admins;
-    activeUsers = approved.users;
+    const dirPromise = apiRequest('/api/admin/directory').then((res) => {
+      userManagementStep = Math.max(userManagementStep, 2);
+      userManagementProgressPct = Math.max(userManagementProgressPct, 55);
+      userManagementStatusText = 'Fetching active accounts & approval roster…';
+      admin();
+      return res;
+    });
+
+    const activePromise = apiRequest('/api/admin/active-users').then((res) => {
+      userManagementStep = Math.max(userManagementStep, 3);
+      userManagementProgressPct = Math.max(userManagementProgressPct, 85);
+      userManagementStatusText = 'Compiling security roles & permissions matrix…';
+      admin();
+      return res;
+    });
+
+    const usersPromise = adminSession.isAdmin
+      ? apiRequest('/api/admin/users').then((res) => {
+          userManagementProgressPct = 95;
+          userManagementStatusText = 'Finalizing user accounts…';
+          return res;
+        })
+      : Promise.resolve({ users: [] });
+
+    const [directory, approved, users] = await Promise.all([dirPromise, activePromise, usersPromise]);
+    adminDirectory = directory.admins || [];
+    activeUsers = approved.users || [];
     managedUsers = users?.users || [];
+    userManagementProgressPct = 100;
+    userManagementStatusText = 'Ready';
     userManagementLoaded = true;
   } catch (error) {
     console.error('Could not load account management data:', error);
@@ -802,12 +862,16 @@ async function setUserStatus(userId, status) {
 }
 
 async function setUserRole(userId, role, enabled) {
+  const targetUser = managedUsers.find((u) => u.user_id === userId);
   const action = enabled ? 'grant' : 'remove';
   if (!enabled && !confirm(`Are you sure you want to ${action} this ${role === 'supreme' ? 'supreme-admin' : 'administrator'} role?`)) return;
   userManagementLoading = true;
   userManagementError = '';
   admin();
   try {
+    if (role === 'supreme' && enabled && targetUser && !targetUser.is_admin) {
+      await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/admin`, 'PATCH', { enabled: true });
+    }
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/${role}`, 'PATCH', { enabled });
     userManagementLoaded = false;
     await loadUserManagement();
@@ -819,7 +883,36 @@ async function setUserRole(userId, role, enabled) {
         ? 'The last admin cannot be removed.'
         : error.details?.error === 'supreme_admin_must_be_demoted_first'
           ? 'Remove the supreme-admin role before removing this admin.'
-          : 'The account role could not be updated. Refresh and try again.';
+          : error.details?.error === 'supreme_admin_must_be_an_admin'
+            ? 'The account must be an administrator before becoming a supreme admin.'
+            : 'The account role could not be updated. Refresh and try again.';
+  } finally {
+    userManagementLoading = false;
+    admin();
+  }
+}
+
+async function deleteUser(userId, username) {
+  const label = username ? `@${username}` : 'this user';
+  if (!confirm(`Are you sure you want to permanently delete the account ${label}? This cannot be undone.`)) return;
+  userManagementLoading = true;
+  userManagementError = '';
+  admin();
+  try {
+    await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}`, 'DELETE');
+    userManagementLoaded = false;
+    await loadUserManagement();
+  } catch (error) {
+    console.error('Could not delete account:', error);
+    userManagementError = error.details?.error === 'cannot_delete_own_account'
+      ? 'You cannot delete your own account.'
+      : error.details?.error === 'last_admin_cannot_be_removed'
+        ? 'The last administrator account cannot be deleted.'
+        : error.details?.error === 'last_supreme_admin_cannot_be_removed'
+          ? 'The last supreme administrator cannot be deleted.'
+          : error.details?.error === 'supreme_admin_must_be_demoted_first'
+            ? 'Remove the supreme-admin role before deleting this account.'
+            : 'The account could not be deleted. Refresh and try again.';
   } finally {
     userManagementLoading = false;
     admin();

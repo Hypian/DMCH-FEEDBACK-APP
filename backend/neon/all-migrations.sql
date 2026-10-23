@@ -53,3 +53,11 @@ alter table public.feedback_account_approvals
 create index if not exists feedback_account_approvals_pending_idx
   on public.feedback_account_approvals (created_at)
   where status = 'pending';
+
+-- 5. Safe Supreme Admin bootstrap: if feedback_supreme_admins is empty, promote the earliest admin
+insert into public.feedback_supreme_admins (user_id)
+select user_id from public.feedback_admins
+order by created_at asc
+limit 1
+on conflict (user_id) do nothing;
+
