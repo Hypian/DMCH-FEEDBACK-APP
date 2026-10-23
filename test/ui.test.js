@@ -871,5 +871,12 @@ test('Statistics & Visual Charts tab renders large donut graphs and proportional
   assert.match(app.innerHTML, /Doctor Care & Attentiveness/);
   assert.match(app.innerHTML, /Doctor Wait Time Breakdown/);
   assert.match(app.innerHTML, /Operational Delay Hotspots/);
+  assert.match(app.innerHTML, /openChartDetailModal/);
+  assert.match(app.innerHTML, /View Details/);
+
+  vm.runInContext("openChartDetailModal('satisfaction', 'star5')", context);
+  assert.equal(vm.runInContext("activeSliceNavigation?.rating", context), 'sat');
+  vm.runInContext("openChartDetailModal('cohorts', 'new')", context);
+  assert.equal(vm.runInContext("activeSliceNavigation?.cohort", context), 'new');
 });
 

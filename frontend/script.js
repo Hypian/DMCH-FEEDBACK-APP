@@ -721,7 +721,210 @@ function renderVisualBars(items, maxValue, unit = '') {
   `</div>`;
 }
 
-function renderLargeVisualDonut({ title, subtitle, items, centerValue, centerLabel }) {
+let activeSliceNavigation = null;
+
+function openChartDetailModal(chartKey, itemKey = 'all') {
+  const dialog = $('chart-detail-dialog');
+  const allFiltered = getFilteredResponses();
+  const n = allFiltered.length;
+
+  let subset = [];
+  let categoryName = '';
+  let sliceLabel = '';
+  let sliceColor = '#e54b2b';
+  let navFilter = {};
+
+  if (chartKey === 'satisfaction') {
+    categoryName = 'Overall Satisfaction Spectrum';
+    const ratingMap = {
+      star5: { label: '5★ Very Satisfied', filter: (r) => r.a?.q8 === 0, color: '#10b981', navRating: 'sat' },
+      star4: { label: '4★ Satisfied', filter: (r) => r.a?.q8 === 1, color: '#0284c7', navRating: 'sat' },
+      star3: { label: '3★ Neutral', filter: (r) => r.a?.q8 === 2, color: '#f59e0b', navRating: 'neu' },
+      star2: { label: '2★ Dissatisfied', filter: (r) => r.a?.q8 === 3, color: '#ea580c', navRating: 'diss' },
+      star1: { label: '1★ Very Dissatisfied', filter: (r) => r.a?.q8 === 4, color: '#e54b2b', navRating: 'diss' }
+    };
+    if (ratingMap[itemKey]) {
+      const target = ratingMap[itemKey];
+      sliceLabel = target.label;
+      sliceColor = target.color;
+      subset = allFiltered.filter(target.filter);
+      navFilter = { rating: target.navRating };
+    } else {
+      sliceLabel = 'All Rated Reviews (1–5★)';
+      sliceColor = '#10b981';
+      subset = allFiltered.filter((r) => r.a?.q8 != null);
+    }
+  } else if (chartKey === 'cohorts') {
+    categoryName = 'Patient Cohort Ratio';
+    if (itemKey === 'new') {
+      sliceLabel = 'First-Time / New Patients';
+      sliceColor = '#0284c7';
+      subset = allFiltered.filter((r) => r.a?.cat === 0);
+      navFilter = { cohort: 'new' };
+    } else if (itemKey === 'returning') {
+      sliceLabel = 'Returning Patients';
+      sliceColor = '#d97706';
+      subset = allFiltered.filter((r) => r.a?.cat === 1);
+      navFilter = { cohort: 'returning' };
+    } else {
+      sliceLabel = 'All Patient Cohorts';
+      sliceColor = '#0284c7';
+      subset = allFiltered;
+    }
+  } else if (chartKey === 'times') {
+    categoryName = 'Visit Shifts Distribution';
+    const timeMap = {
+      time0: { label: 'Morning (8am–12pm)', filter: (r) => r.a?.time === 0, color: '#06b6d4' },
+      time1: { label: 'Afternoon (12pm–4pm)', filter: (r) => r.a?.time === 1, color: '#3b82f6' },
+      time2: { label: 'Evening (4pm–8pm)', filter: (r) => r.a?.time === 2, color: '#8b5cf6' },
+      time3: { label: 'Night / Emergency', filter: (r) => r.a?.time === 3, color: '#64748b' }
+    };
+    if (timeMap[itemKey]) {
+      const target = timeMap[itemKey];
+      sliceLabel = target.label;
+      sliceColor = target.color;
+      subset = allFiltered.filter(target.filter);
+    } else {
+      sliceLabel = 'All Operating Shifts';
+      sliceColor = '#3b82f6';
+      subset = allFiltered;
+    }
+  } else if (chartKey === 'doctor') {
+    categoryName = 'Doctor Care & Attentiveness';
+    const docMap = {
+      docYes: { label: 'Yes, Doctor Listened Attentively', filter: (r) => r.a?.q5 === 0, color: '#10b981' },
+      docPart: { label: 'Doctor Was Partially Attentive', filter: (r) => r.a?.q5 === 1, color: '#f59e0b' },
+      docNo: { label: 'Doctor Did Not Listen Attentively', filter: (r) => r.a?.q5 === 2, color: '#e54b2b' }
+    };
+    if (docMap[itemKey]) {
+      const target = docMap[itemKey];
+      sliceLabel = target.label;
+      sliceColor = target.color;
+      subset = allFiltered.filter(target.filter);
+    } else {
+      sliceLabel = 'All Doctor Care Evaluations';
+      sliceColor = '#e54b2b';
+      subset = allFiltered.filter((r) => r.a?.q5 != null);
+    }
+  }
+
+  activeSliceNavigation = navFilter;
+
+  const count = subset.length;
+  const pct = n > 0 ? Math.round((count / n) * 100) : 0;
+  const s8 = subset.filter((r) => r.a?.q8 != null).map((r) => 5 - r.a.q8);
+  const avgSat = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–';
+  const newCount = subset.filter((r) => r.a?.cat === 0).length;
+  const retCount = subset.filter((r) => r.a?.cat === 1).length;
+  const withComments = subset.filter((r) => (r.a?.q9 && r.a.q9.trim()) || (r.a?.q10 && r.a.q10.trim()));
+
+  const deptFreq = {};
+  subset.forEach((r) => {
+    const d = r.dn || 'General medicine';
+    deptFreq[d] = (deptFreq[d] || 0) + 1;
+  });
+  const topDeptEntry = Object.entries(deptFreq).sort((a, b) => b[1] - a[1])[0];
+  const topDeptStr = topDeptEntry ? `${topDeptEntry[0]} (${topDeptEntry[1]})` : '–';
+
+  const badgeEl = $('chart-detail-badge');
+  if (badgeEl) {
+    badgeEl.textContent = categoryName;
+    badgeEl.style.backgroundColor = `${sliceColor}18`;
+    badgeEl.style.color = sliceColor;
+    badgeEl.style.borderColor = `${sliceColor}40`;
+  }
+  const titleEl = $('chart-detail-title');
+  if (titleEl) titleEl.textContent = sliceLabel;
+  const subtitleEl = $('chart-detail-subtitle');
+  if (subtitleEl) subtitleEl.textContent = `Detailed breakdown for active range: ${getDateFilterLabel()} • ${count} of ${n} responses (${pct}%)`;
+  const countEl = $('chart-detail-count');
+  if (countEl) countEl.textContent = count;
+
+  const statsEl = $('chart-detail-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="chart-stat-tile">
+        <span class="cst-num" style="color:${sliceColor}">${count}</span>
+        <span class="cst-lbl">Total Responses (${pct}%)</span>
+      </div>
+      <div class="chart-stat-tile">
+        <span class="cst-num" style="color:var(--navy)">${avgSat} <small style="font-size:13px;font-weight:normal">/ 5.0</small></span>
+        <span class="cst-lbl">Average Satisfaction</span>
+      </div>
+      <div class="chart-stat-tile">
+        <span class="cst-num" style="color:var(--navy)">${newCount} / ${retCount}</span>
+        <span class="cst-lbl">New vs. Returning</span>
+      </div>
+      <div class="chart-stat-tile">
+        <span class="cst-num" style="font-size:14px;color:var(--ink);">${esc(topDeptStr)}</span>
+        <span class="cst-lbl">Top Visited Service</span>
+      </div>
+      <div class="chart-stat-tile">
+        <span class="cst-num" style="color:var(--red)">${withComments.length}</span>
+        <span class="cst-lbl">Written Comments</span>
+      </div>
+    `;
+  }
+
+  const recordsEl = $('chart-detail-records');
+  if (recordsEl) {
+    if (!count) {
+      recordsEl.innerHTML = `<div class="chart-record-empty"><p class="hint">No matching responses found for this slice within ${esc(getDateFilterLabel())}.</p></div>`;
+    } else {
+      const waitOptions = ['<15 min', '15–30 min', '30–60 min', '>60 min'];
+      const shiftOptions = ['Morning (8am–12pm)', 'Afternoon (12pm–4pm)', 'Evening (4pm–8pm)', 'Night / Emergency'];
+      recordsEl.innerHTML = subset.map((r, idx) => {
+        const timeStr = r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'Recent';
+        const star = r.a?.q8 != null ? 5 - r.a.q8 : null;
+        const starColor = star >= 4 ? '#10b981' : star === 3 ? '#f59e0b' : '#e54b2b';
+        const starLabel = star ? `${star}★ Rating` : 'Not Rated';
+        const cohortLabel = r.a?.cat === 0 ? 'First-Time Patient' : 'Returning Patient';
+        const shiftLabel = r.a?.time != null ? shiftOptions[r.a.time] : '';
+        const waitLabel = r.a?.q3 != null ? `Wait: ${waitOptions[r.a.q3] || '–'}` : '';
+        const comment = [r.a?.q9, r.a?.q10].filter((x) => x && x.trim()).join(' — ');
+
+        return `<div class="chart-record-card">
+          <div class="chart-record-header">
+            <div class="chart-record-dept">
+              <b>#${idx + 1} ${esc(r.dn || 'General medicine')}</b>
+              <small class="hint"><i class='bx bx-time'></i> ${esc(timeStr)}</small>
+            </div>
+            <div class="chart-record-badges">
+              <span class="chart-record-pill" style="color:${starColor};background:${starColor}15;border-color:${starColor}35;"><i class='bx bxs-star'></i> ${starLabel}</span>
+              <span class="chart-record-pill cohort"><i class='bx bx-user'></i> ${cohortLabel}</span>
+              ${shiftLabel ? `<span class="chart-record-pill shift"><i class='bx bx-time-five'></i> ${esc(shiftLabel)}</span>` : ''}
+              ${waitLabel ? `<span class="chart-record-pill wait">${esc(waitLabel)}</span>` : ''}
+            </div>
+          </div>
+          ${comment ? `<div class="chart-record-comment"><i class='bx bxs-quote-left'></i> <span>"${esc(comment)}"</span></div>` : ''}
+        </div>`;
+      }).join('');
+    }
+  }
+
+  if (dialog && typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  }
+}
+
+function closeChartDetailModal() {
+  const dialog = $('chart-detail-dialog');
+  if (dialog && typeof dialog.close === 'function') {
+    dialog.close();
+  }
+}
+
+function goToFeedbacksSlice() {
+  closeChartDetailModal();
+  if (activeSliceNavigation) {
+    if (activeSliceNavigation.rating) feedbackRatingFilter = activeSliceNavigation.rating;
+    if (activeSliceNavigation.cohort) cohortFilter = activeSliceNavigation.cohort;
+  }
+  tab = 'feedbacks';
+  admin();
+}
+
+function renderLargeVisualDonut({ chartKey, title, subtitle, items, centerValue, centerLabel }) {
   const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
   const size = 220;
   const strokeWidth = 32;
@@ -742,15 +945,18 @@ function renderLargeVisualDonut({ title, subtitle, items, centerValue, centerLab
       stroke-dasharray="${strokeDasharray}"
       stroke-dashoffset="${strokeDashoffset}"
       transform="rotate(-90 ${size / 2} ${size / 2})"
-      class="donut-segment">
-      <title>${esc(item.label)}: ${item.value} (${Math.round(percent * 100)}%)</title>
+      class="donut-segment"
+      onclick="event.stopPropagation();openChartDetailModal('${chartKey}','${item.key || ''}')"
+      role="button"
+      tabindex="0">
+      <title>${esc(item.label)}: ${item.value} (${Math.round(percent * 100)}%) – Click to view details</title>
     </circle>`;
   }).join('') : `<circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(2)}" fill="none" stroke="#e5eaf0" stroke-width="${strokeWidth}" />`;
 
   const legend = items.map((item) => {
     const val = Number(item.value) || 0;
     const pct = total > 0 ? Math.round((val / total) * 100) : 0;
-    return `<div class="big-legend-item">
+    return `<div class="big-legend-item" onclick="event.stopPropagation();openChartDetailModal('${chartKey}','${item.key || ''}')" role="button" tabindex="0" title="Click to view details for ${esc(item.label)}">
       <div class="big-legend-row">
         <div class="big-legend-left">
           <span class="big-legend-swatch" style="background:${item.color}"></span>
@@ -767,17 +973,20 @@ function renderLargeVisualDonut({ title, subtitle, items, centerValue, centerLab
     </div>`;
   }).join('');
 
-  return `<div class="big-donut-card">
+  return `<div class="big-donut-card" onclick="openChartDetailModal('${chartKey}','all')" role="region" aria-label="${esc(title)}">
     <div class="big-donut-header">
-      <h4>${title}</h4>
-      ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
+      <div class="big-donut-header-left">
+        <h4>${title}</h4>
+        ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
+      </div>
+      <span class="big-donut-click-hint"><i class='bx bx-search-alt'></i> View Details</span>
     </div>
     <div class="big-donut-body">
       <div class="big-donut-svg-wrap">
         <svg viewBox="0 0 ${size} ${size}" class="big-donut-svg" role="img" aria-label="${esc(title)}">
           ${segments}
         </svg>
-        <div class="big-donut-center">
+        <div class="big-donut-center" onclick="event.stopPropagation();openChartDetailModal('${chartKey}','all')" style="cursor:pointer;pointer-events:auto;" title="Click to view full dataset">
           <span class="big-donut-center-val">${esc(centerValue)}</span>
           <span class="big-donut-center-lbl">${esc(centerLabel)}</span>
         </div>
@@ -819,14 +1028,15 @@ function chartsUI() {
   const star2 = R.filter((r) => r.a?.q8 === 3).length;
   const star1 = R.filter((r) => r.a?.q8 === 4).length;
   const bigDonutSatisfaction = renderLargeVisualDonut({
+    chartKey: 'satisfaction',
     title: `<i class='bx bx-star' style="color:#10b981"></i> Overall Satisfaction Spectrum`,
     subtitle: '5-point star rating breakdown across patient reviews',
     items: [
-      { label: '5★ Very Satisfied', value: star5, color: '#10b981' },
-      { label: '4★ Satisfied', value: star4, color: '#0284c7' },
-      { label: '3★ Neutral', value: star3, color: '#f59e0b' },
-      { label: '2★ Dissatisfied', value: star2, color: '#ea580c' },
-      { label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
+      { key: 'star5', label: '5★ Very Satisfied', value: star5, color: '#10b981' },
+      { key: 'star4', label: '4★ Satisfied', value: star4, color: '#0284c7' },
+      { key: 'star3', label: '3★ Neutral', value: star3, color: '#f59e0b' },
+      { key: 'star2', label: '2★ Dissatisfied', value: star2, color: '#ea580c' },
+      { key: 'star1', label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
     ],
     centerValue: `${pos}%`,
     centerLabel: 'Satisfied (4-5★)'
@@ -834,11 +1044,12 @@ function chartsUI() {
 
   // Donut 2: Cohorts Ratio
   const bigDonutCohorts = renderLargeVisualDonut({
+    chartKey: 'cohorts',
     title: `<i class='bx bx-user-pin' style="color:#0284c7"></i> Patient Cohort Ratio`,
     subtitle: 'First-time visitors vs. returning patients distribution',
     items: [
-      { label: 'First-Time Patients', value: newCount, color: '#0284c7' },
-      { label: 'Returning Patients', value: retCount, color: '#d97706' }
+      { key: 'new', label: 'First-Time Patients', value: newCount, color: '#0284c7' },
+      { key: 'returning', label: 'Returning Patients', value: retCount, color: '#d97706' }
     ],
     centerValue: `${dateFiltered.length}`,
     centerLabel: 'Submissions'
@@ -850,13 +1061,14 @@ function chartsUI() {
   const time2 = R.filter((r) => r.a?.time === 2).length;
   const time3 = R.filter((r) => r.a?.time === 3).length;
   const bigDonutVisitTimes = renderLargeVisualDonut({
+    chartKey: 'times',
     title: `<i class='bx bx-time-five' style="color:#8b5cf6"></i> Visit Shifts Distribution`,
     subtitle: 'Patient attendance across day and night operational shifts',
     items: [
-      { label: 'Morning (8am–12pm)', value: time0, color: '#06b6d4' },
-      { label: 'Afternoon (12pm–4pm)', value: time1, color: '#3b82f6' },
-      { label: 'Evening (4pm–8pm)', value: time2, color: '#8b5cf6' },
-      { label: 'Night / Emergency', value: time3, color: '#64748b' }
+      { key: 'time0', label: 'Morning (8am–12pm)', value: time0, color: '#06b6d4' },
+      { key: 'time1', label: 'Afternoon (12pm–4pm)', value: time1, color: '#3b82f6' },
+      { key: 'time2', label: 'Evening (4pm–8pm)', value: time2, color: '#8b5cf6' },
+      { key: 'time3', label: 'Night / Emergency', value: time3, color: '#64748b' }
     ],
     centerValue: `${n}`,
     centerLabel: 'Visits'
@@ -869,12 +1081,13 @@ function chartsUI() {
   const docTotal = docYes + docPart + docNo;
   const docPct = docTotal > 0 ? Math.round((docYes / docTotal) * 100) : 0;
   const bigDonutDoctor = renderLargeVisualDonut({
+    chartKey: 'doctor',
     title: `<i class='bx bx-heart' style="color:#e54b2b"></i> Doctor Care & Attentiveness`,
     subtitle: 'Did doctor listen attentively and answer your questions?',
     items: [
-      { label: 'Yes, Attentive', value: docYes, color: '#10b981' },
-      { label: 'Partially Attentive', value: docPart, color: '#f59e0b' },
-      { label: 'Not Attentive', value: docNo, color: '#e54b2b' }
+      { key: 'docYes', label: 'Yes, Attentive', value: docYes, color: '#10b981' },
+      { key: 'docPart', label: 'Partially Attentive', value: docPart, color: '#f59e0b' },
+      { key: 'docNo', label: 'Not Attentive', value: docNo, color: '#e54b2b' }
     ],
     centerValue: `${docPct}%`,
     centerLabel: 'Attentive'
@@ -1926,17 +2139,6 @@ function stats() {
 
   const cm = R.flatMap((r) => [r.a?.q10, r.a?.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
 
-  const visualChartsBanner = `<div class="visual-charts-banner card">
-    <div class="vcb-content">
-      <div>
-        <span class="vcb-badge"><i class='bx bx-pie-chart-alt-2'></i> Dedicated Visual Analytics</span>
-        <h4>Looking for larger visual charts & graphs?</h4>
-        <p class="hint">Visit the dedicated <b>Statistics & Visual Charts</b> tab for oversized high-resolution interactive donut charts, expanded legends, and proportional bar analytics.</p>
-      </div>
-      <button class="adm-btn primary" onclick="tab='charts';admin()"><i class='bx bx-pie-chart-alt-2'></i> Open Statistics & Charts</button>
-    </div>
-  </div>`;
-
   return dateBarHtml +
     filterBarHtml +
     `<div class=kpis>
@@ -1945,7 +2147,6 @@ function stats() {
       <div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div>
       <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
     </div>` +
-    visualChartsBanner +
     `<div class="donut-charts-grid">
       ${donutSatisfaction}
       ${donutCohorts}

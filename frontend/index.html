@@ -55,6 +55,30 @@
       <button class="adm-btn danger" id="user-delete-confirm" type="button" onclick="confirmUserDelete()">Delete Account</button>
     </div>
   </dialog>
+  <dialog class="chart-detail-dialog" id="chart-detail-dialog" aria-labelledby="chart-detail-title">
+    <div class="chart-dialog-inner">
+      <div class="chart-dialog-header">
+        <div class="chart-dialog-title-wrap">
+          <span class="chart-dialog-badge" id="chart-detail-badge">Data Drill-Down</span>
+          <h2 id="chart-detail-title">Interactive Chart Details</h2>
+          <p class="hint" id="chart-detail-subtitle">Showing data records and metrics for the selected slice.</p>
+        </div>
+        <button class="dialog-close-btn" type="button" onclick="closeChartDetailModal()" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="chart-dialog-stats" id="chart-detail-stats"></div>
+      <div class="chart-dialog-records-wrap">
+        <div class="chart-dialog-records-head">
+          <h4><i class="bx bx-list-ul"></i> Matching Patient Records (<span id="chart-detail-count">0</span>)</h4>
+          <span class="hint" style="margin:0">Verbatim responses for this category</span>
+        </div>
+        <div class="chart-dialog-records" id="chart-detail-records"></div>
+      </div>
+      <div class="chart-dialog-actions">
+        <button class="adm-btn" type="button" onclick="closeChartDetailModal()"><i class="bx bx-x"></i> Close Details</button>
+        <button class="adm-btn primary" type="button" id="chart-detail-filter-btn" onclick="goToFeedbacksSlice()"><i class="bx bx-message-square-detail"></i> Open in Feedback Records</button>
+      </div>
+    </div>
+  </dialog>
   <script src="api-config.js"></script>
   <script src="xlsx-export.js"></script>
   <script src="script.js"></script>

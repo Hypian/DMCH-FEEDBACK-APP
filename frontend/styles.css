@@ -2140,6 +2140,7 @@ textarea { min-height: 150px; resize: vertical; }
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* ─── Big Donut Cards & Interactive Drill-Down ────────────────────── */
 .big-donut-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2148,11 +2149,30 @@ textarea { min-height: 150px; resize: vertical; }
   box-shadow: 0 2px 8px rgba(23, 38, 60, 0.05);
   display: flex;
   flex-direction: column;
+  position: relative;
+  cursor: pointer;
+  transition: transform .26s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow .26s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color .22s ease,
+              background .22s ease;
+}
+.big-donut-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(229, 75, 43, 0.42);
+  background: linear-gradient(145deg, #FFFFFF 0%, #FFF5F2 100%);
+  box-shadow: 0 16px 36px rgba(229, 75, 43, 0.12), 0 3px 10px rgba(23, 38, 60, 0.05);
 }
 .big-donut-header {
   border-bottom: 1px solid var(--border-2);
   padding-bottom: 14px;
   margin-bottom: 18px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.big-donut-header-left {
+  flex: 1;
 }
 .big-donut-header h4 {
   margin: 0;
@@ -2167,6 +2187,27 @@ textarea { min-height: 150px; resize: vertical; }
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--ink-3);
+}
+.big-donut-click-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--red);
+  background: rgba(229, 75, 43, 0.08);
+  border: 1px solid rgba(229, 75, 43, 0.22);
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: all .2s ease;
+  flex-shrink: 0;
+}
+.big-donut-card:hover .big-donut-click-hint {
+  background: var(--red);
+  color: #FFFFFF;
+  border-color: var(--red);
+  box-shadow: 0 2px 8px rgba(229, 75, 43, 0.35);
 }
 .big-donut-body {
   display: flex;
@@ -2220,6 +2261,18 @@ textarea { min-height: 150px; resize: vertical; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 6px 10px;
+  margin: -2px -10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color .18s ease, transform .18s ease;
+}
+.big-legend-item:hover {
+  background: rgba(229, 75, 43, 0.08);
+  transform: translateX(4px);
+}
+.big-legend-item:hover .big-legend-right span:first-child {
+  color: var(--red);
 }
 .big-legend-row {
   display: flex;
@@ -2260,6 +2313,251 @@ textarea { min-height: 150px; resize: vertical; }
   height: 100%;
   border-radius: 999px;
   transition: width .4s var(--ease-out);
+}
+
+.donut-segment {
+  cursor: pointer;
+  transition: stroke-width .22s cubic-bezier(0.16, 1, 0.3, 1), opacity .18s ease, filter .2s ease;
+}
+.donut-segment:hover {
+  stroke-width: 38px;
+  filter: drop-shadow(0 3px 10px rgba(229, 75, 43, 0.32));
+}
+
+/* ─── Interactive Chart Detail Modal ───────────────────────────────── */
+.chart-detail-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(94vw, 860px);
+  max-height: 90vh;
+  margin: auto;
+  padding: 0;
+  border: 1.5px solid rgba(229, 75, 43, 0.32);
+  border-radius: 22px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 80px rgba(35, 27, 23, 0.30), 0 0 0 1px rgba(229, 75, 43, 0.15);
+  overflow: hidden;
+}
+.chart-detail-dialog::backdrop {
+  background: rgba(27, 22, 20, 0.62);
+  backdrop-filter: blur(5px);
+}
+.chart-detail-dialog[open] {
+  animation: dialog-in .3s var(--ease-out);
+}
+.chart-detail-dialog[open]::backdrop {
+  animation: backdrop-in .3s ease-out;
+}
+
+.chart-dialog-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  padding: 26px 30px;
+  overflow-y: auto;
+  gap: 18px;
+}
+.chart-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  border-bottom: 1px solid var(--border-2);
+  padding-bottom: 14px;
+}
+.chart-dialog-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 75, 43, 0.25);
+  background: var(--red-tint);
+  color: var(--red);
+  margin-bottom: 6px;
+}
+.chart-dialog-title-wrap h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  color: var(--navy);
+}
+.chart-dialog-title-wrap .hint {
+  margin: 0;
+  font-size: 13px;
+}
+.dialog-close-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  line-height: 1;
+  transition: all .15s ease;
+  flex-shrink: 0;
+}
+.dialog-close-btn:hover {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: rgba(153, 27, 27, 0.25);
+}
+
+.chart-dialog-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.chart-stat-tile {
+  background: #FFF8F6;
+  border: 1px solid rgba(229, 75, 43, 0.22);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chart-stat-tile .cst-num {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.chart-stat-tile .cst-lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.chart-dialog-records-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chart-dialog-records-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chart-dialog-records-head h4 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.chart-dialog-records {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.chart-record-card {
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all .15s ease;
+}
+.chart-record-card:hover {
+  border-color: rgba(229, 75, 43, 0.35);
+  box-shadow: 0 4px 12px rgba(229, 75, 43, 0.08);
+  background: #FFFCFA;
+}
+.chart-record-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chart-record-dept b {
+  font-size: 14px;
+  color: var(--ink);
+  margin-right: 8px;
+}
+.chart-record-dept small {
+  font-size: 12px;
+}
+.chart-record-badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chart-record-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.chart-record-pill.cohort {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.25);
+}
+.chart-record-pill.shift {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: rgba(139, 92, 246, 0.25);
+}
+.chart-record-pill.wait {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+.chart-record-comment {
+  background: #FFF8F6;
+  border-left: 3px solid var(--red);
+  padding: 8px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-style: italic;
+}
+.chart-record-comment i {
+  color: var(--red);
+  font-size: 14px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.chart-record-empty {
+  text-align: center;
+  padding: 30px;
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+
+.chart-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border-2);
+  padding-top: 14px;
 }
 
 .chart-card-full {
