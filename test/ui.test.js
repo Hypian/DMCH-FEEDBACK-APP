@@ -608,13 +608,30 @@ test('admins can view a refreshed activity log and report exports contain feedba
   assert.equal(app.renderCount, rendersBeforeUnchangedRefresh);
 
   await vm.runInContext('loadAdminData()', context);
-  vm.runInContext("exportCSV('full')", context);
-  const csv = backendState.downloadedBlob.parts[0];
-  assert.match(csv, /General medicine/);
-  assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.invalid""\)"/);
-  assert.equal(backendState.downloadedBlob.options.type, 'text/csv;charset=utf-8');
-  assert.equal(backendState.reportExports[0].format, 'csv');
-  assert.equal(app.children.at(-1).download, 'DMC-Patient-Feedback-full-2026-10-23.csv');
+  const excelReports = [];
+  const apiFetch = context.fetch;
+  context.fetch = async (url, options) => {
+    if (new URL(url, 'https://dmc.example/').pathname === '/logo-optimized.jpg') {
+      return {
+        ok: true,
+        status: 200,
+        async arrayBuffer() { return new Uint8Array([0xFF, 0xD8, 0xFF, 0xD9]).buffer; }
+      };
+    }
+    return apiFetch(url, options);
+  };
+  context.DMCExcelExport = {
+    async downloadWorkbook(report) { excelReports.push(report); }
+  };
+  await vm.runInContext("exportExcel('full')", context);
+  assert.equal(excelReports.length, 1);
+  assert.equal(excelReports[0].rows.length, 1);
+  assert.equal(excelReports[0].rows[0][0], 'f47ac10b-58cc-4372-a567-0e02b2c3d479');
+  assert.equal(excelReports[0].rows[0][4], 'General medicine');
+  assert.equal(excelReports[0].rows[0][17], '=HYPERLINK("https://example.invalid")');
+  assert.equal(excelReports[0].filename.endsWith('.xlsx'), true);
+  assert.equal(excelReports[0].logoBytes.length, 4);
+  assert.equal(backendState.reportExports[0].format, 'xlsx');
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {
