@@ -103,7 +103,7 @@ test('all dashboard export actions download XLSX workbooks', () => {
   assert.match(appScript, /onclick="exportExcel\('full'\)"/);
   assert.match(appScript, /onclick="exportExcel\('departments'\)"/);
   assert.match(appScript, /onclick="exportExcel\('patients'\)"/);
-  assert.match(appScript, /Quick Export XLSX/);
+  assert.doesNotMatch(appScript, /Quick Export XLSX/);
   assert.match(appScript, /Export Matrix XLSX/);
   assert.doesNotMatch(appScript, /exportCSV|\.csv/);
 });

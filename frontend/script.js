@@ -543,6 +543,183 @@ async function submit() {
 /* ---------- Admin (#admin) ---------- */
 let cohortFilter = 'all';
 let adminSigningOut = false;
+let adminDateFilter = 'all'; // 'all', 'today', '7d', '30d', 'custom'
+let customStartDate = '';
+let customEndDate = '';
+let feedbackSearchQuery = '';
+let feedbackServiceFilter = 'all';
+let feedbackRatingFilter = 'all'; // 'all', 'sat', 'neu', 'diss'
+let feedbackPage = 1;
+const FEEDBACK_PAGE_SIZE = 10;
+let deptSearchQuery = '';
+let deptIssueFilter = 'all'; // 'all', 'delay', 'dissatisfied', 'top'
+let deptSortKey = 'total'; // 'total', 'avg', 'diss', 'delay'
+
+function getFilteredResponses() {
+  const all = feedbackResponses || [];
+  if (adminDateFilter === 'all') return all;
+  const now = new Date();
+  if (adminDateFilter === 'today') {
+    const todayStr = now.toISOString().slice(0, 10);
+    return all.filter((r) => r.t && new Date(r.t).toISOString().slice(0, 10) === todayStr);
+  }
+  if (adminDateFilter === '7d') {
+    const cutoff = Date.now() - 7 * 86400000;
+    return all.filter((r) => r.t && new Date(r.t).getTime() >= cutoff);
+  }
+  if (adminDateFilter === '30d') {
+    const cutoff = Date.now() - 30 * 86400000;
+    return all.filter((r) => r.t && new Date(r.t).getTime() >= cutoff);
+  }
+  if (adminDateFilter === 'custom') {
+    return all.filter((r) => {
+      if (!r.t) return false;
+      const t = new Date(r.t).getTime();
+      if (customStartDate) {
+        const start = new Date(customStartDate + 'T00:00:00').getTime();
+        if (t < start) return false;
+      }
+      if (customEndDate) {
+        const end = new Date(customEndDate + 'T23:59:59.999').getTime();
+        if (t > end) return false;
+      }
+      return true;
+    });
+  }
+  return all;
+}
+
+function getDateFilterLabel() {
+  if (adminDateFilter === 'today') return 'Today';
+  if (adminDateFilter === '7d') return 'Last 7 Days';
+  if (adminDateFilter === '30d') return 'Last 30 Days';
+  if (adminDateFilter === 'custom') {
+    if (customStartDate && customEndDate) return `${customStartDate} to ${customEndDate}`;
+    if (customStartDate) return `From ${customStartDate}`;
+    if (customEndDate) return `Up to ${customEndDate}`;
+    return 'Custom Date Range';
+  }
+  return 'All Time';
+}
+
+function setDateFilter(filter) {
+  adminDateFilter = filter;
+  feedbackPage = 1;
+  admin();
+}
+
+function updateCustomDates(start, end) {
+  customStartDate = start;
+  customEndDate = end;
+  adminDateFilter = 'custom';
+  feedbackPage = 1;
+  admin();
+}
+
+function renderDateFilterBar(contextTitle = 'Filter by period') {
+  const count = getFilteredResponses().length;
+  const total = feedbackResponses.length;
+  return `<div class="date-filter-bar">
+    <div class="date-filter-info">
+      <span class="date-filter-label"><i class='bx bx-calendar'></i> <b>Time Range:</b> ${esc(getDateFilterLabel())}</span>
+      <span class="date-filter-count">(${count} of ${total} records)</span>
+    </div>
+    <div class="date-filter-controls">
+      <div class="date-quick-pills">
+        <button type="button" class="date-pill ${adminDateFilter === 'all' ? 'active' : ''}" onclick="setDateFilter('all')">All Time</button>
+        <button type="button" class="date-pill ${adminDateFilter === 'today' ? 'active' : ''}" onclick="setDateFilter('today')">Today</button>
+        <button type="button" class="date-pill ${adminDateFilter === '7d' ? 'active' : ''}" onclick="setDateFilter('7d')">Last 7 Days</button>
+        <button type="button" class="date-pill ${adminDateFilter === '30d' ? 'active' : ''}" onclick="setDateFilter('30d')">Last 30 Days</button>
+        <button type="button" class="date-pill ${adminDateFilter === 'custom' ? 'active' : ''}" onclick="setDateFilter('custom')">Custom</button>
+      </div>
+      <div class="date-custom-inputs" style="${adminDateFilter === 'custom' ? 'display:flex;' : 'display:none;'}">
+        <input type="date" class="date-input" aria-label="Start date" id="date-start" value="${esc(customStartDate)}" onchange="updateCustomDates(this.value, $('date-end')?.value || '')">
+        <span class="date-sep">to</span>
+        <input type="date" class="date-input" aria-label="End date" id="date-end" value="${esc(customEndDate)}" onchange="updateCustomDates($('date-start')?.value || '', this.value)">
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDonutChart({ title, subtitle, items, centerValue, centerLabel }) {
+  const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const size = 150;
+  const strokeWidth = 24;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  let accumulatedPercent = 0;
+  const segments = total > 0 ? items.map((item) => {
+    if (!item.value) return '';
+    const percent = item.value / total;
+    const strokeDasharray = `${(percent * circumference).toFixed(2)} ${circumference.toFixed(2)}`;
+    const strokeDashoffset = (-accumulatedPercent * circumference).toFixed(2);
+    accumulatedPercent += percent;
+    return `<circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(2)}"
+      fill="none"
+      stroke="${item.color}"
+      stroke-width="${strokeWidth}"
+      stroke-dasharray="${strokeDasharray}"
+      stroke-dashoffset="${strokeDashoffset}"
+      transform="rotate(-90 ${size / 2} ${size / 2})"
+      class="donut-segment">
+      <title>${esc(item.label)}: ${item.value} (${Math.round(percent * 100)}%)</title>
+    </circle>`;
+  }).join('') : `<circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(2)}" fill="none" stroke="#e5eaf0" stroke-width="${strokeWidth}" />`;
+
+  const legend = items.map((item) => {
+    const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+    return `<div class="chart-legend-item">
+      <span class="legend-swatch" style="background:${item.color}"></span>
+      <span class="legend-label" title="${esc(item.label)}">${esc(item.label)}</span>
+      <b class="legend-val">${item.value} <small style="font-weight:normal;opacity:.8">(${pct}%)</small></b>
+    </div>`;
+  }).join('');
+
+  return `<div class="donut-chart-card">
+    <div class="donut-chart-header">
+      <h4>${title}</h4>
+      ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
+    </div>
+    <div class="donut-chart-body">
+      <div class="donut-svg-wrap">
+        <svg viewBox="0 0 ${size} ${size}" class="donut-svg" role="img" aria-label="${esc(title)}">
+          ${segments}
+        </svg>
+        <div class="donut-center-info">
+          <span class="donut-center-val">${esc(centerValue)}</span>
+          <span class="donut-center-lbl">${esc(centerLabel)}</span>
+        </div>
+      </div>
+      <div class="chart-legend">
+        ${legend}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderVisualBars(items, maxValue, unit = '') {
+  if (!items || !items.length) return '<p class="hint">–</p>';
+  return `<div class="visual-bar-chart">` +
+    items.map(([label, val, color]) => {
+      const num = Number(val) || 0;
+      const pct = Math.min(100, Math.round((num / (maxValue || 1)) * 100));
+      const barColor = color || (pct >= 75 ? '#10b981' : pct >= 45 ? '#0284c7' : pct >= 25 ? '#f59e0b' : '#e54b2b');
+      return `<div class="visual-bar-row">
+        <div class="vbar-meta">
+          <span class="vbar-label">${esc(label)}</span>
+          <div class="vbar-metrics">
+            <b>${val}${unit}</b>
+            ${unit !== '%' && maxValue ? `<small style="color:var(--ink-3)">(${pct}%)</small>` : ''}
+          </div>
+        </div>
+        <div class="vbar-track">
+          <div class="vbar-fill" style="width:${pct}%;background:${barColor}"></div>
+        </div>
+      </div>`;
+    }).join('') +
+  `</div>`;
+}
 
 function admin() {
   const h = `<div class="wrap adm"><div class="adm-header">
@@ -555,7 +732,7 @@ function admin() {
     </div>
     <div class="adm-actions">
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
-      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()" ${adminSigningOut ? 'disabled' : ''}>${adminSigningOut ? "<i class='bx bx-loader-alt bx-spin'></i> Signing out…" : "<i class='bx bx-log-out'></i> Sign out"}</button><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Quick Export XLSX</button>` : ''}
+      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()" ${adminSigningOut ? 'disabled' : ''}>${adminSigningOut ? "<i class='bx bx-loader-alt bx-spin'></i> Signing out…" : "<i class='bx bx-log-out'></i> Sign out"}</button>` : ''}
     </div>
   </div>`;
   if (!adminSession) {
@@ -943,45 +1120,120 @@ async function signOutAdmin() {
 function feedbacksUI() {
   const allR = feedbackResponses;
   if (!allR.length) return `<div class="card"><p class="hint">No feedbacks submitted yet. New submissions appear automatically.</p></div>`;
-  const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
-  return `<div class="card">
+
+  const dateFiltered = getFilteredResponses();
+  let R = cohortFilter === 'new' ? dateFiltered.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? dateFiltered.filter((r) => r.a?.cat === 1) : dateFiltered;
+
+  if (feedbackServiceFilter !== 'all') {
+    R = R.filter((r) => r.dn === feedbackServiceFilter);
+  }
+
+  if (feedbackRatingFilter === 'sat') {
+    R = R.filter((r) => r.a?.q8 != null && (5 - r.a.q8) >= 4);
+  } else if (feedbackRatingFilter === 'neu') {
+    R = R.filter((r) => r.a?.q8 != null && (5 - r.a.q8) === 3);
+  } else if (feedbackRatingFilter === 'diss') {
+    R = R.filter((r) => r.a?.q8 != null && (5 - r.a.q8) <= 2);
+  }
+
+  if (feedbackSearchQuery.trim()) {
+    const q = feedbackSearchQuery.trim().toLowerCase();
+    R = R.filter((r) => {
+      const matchDept = (r.dn || '').toLowerCase().includes(q);
+      const matchQ9 = (r.a?.q9 || '').toLowerCase().includes(q);
+      const matchQ10 = (r.a?.q10 || '').toLowerCase().includes(q);
+      const matchId = (r.id || '').toLowerCase().includes(q);
+      const matchLang = (r.l || '').toLowerCase().includes(q);
+      return matchDept || matchQ9 || matchQ10 || matchId || matchLang;
+    });
+  }
+
+  const totalItems = R.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / FEEDBACK_PAGE_SIZE));
+  if (feedbackPage > totalPages) feedbackPage = totalPages;
+  if (feedbackPage < 1) feedbackPage = 1;
+  const startIndex = (feedbackPage - 1) * FEEDBACK_PAGE_SIZE;
+  const pageItems = R.slice().reverse().slice(startIndex, startIndex + FEEDBACK_PAGE_SIZE);
+
+  const uniqueDepts = Array.from(new Set(allR.map((r) => r.dn).filter(Boolean))).sort();
+  const deptOptions = `<option value="all"${feedbackServiceFilter === 'all' ? ' selected' : ''}>All Visited Services</option>` +
+    uniqueDepts.map((d) => `<option value="${esc(d)}"${feedbackServiceFilter === d ? ' selected' : ''}>${esc(d)}</option>`).join('');
+
+  const startDisplay = totalItems === 0 ? 0 : startIndex + 1;
+  const endDisplay = Math.min(totalItems, startIndex + FEEDBACK_PAGE_SIZE);
+  const paginationHtml = totalItems > FEEDBACK_PAGE_SIZE ? `
+    <div class="fb-pagination">
+      <span class="fb-pagination-info">Showing <b>${startDisplay}–${endDisplay}</b> of <b>${totalItems}</b> submissions</span>
+      <div class="fb-pagination-btns">
+        <button class="pg-btn" ${feedbackPage <= 1 ? 'disabled' : ''} onclick="feedbackPage--;admin()"><i class='bx bx-chevron-left'></i> Prev</button>
+        <span style="font-size:12.5px;font-weight:600;padding:0 6px">Page ${feedbackPage} of ${totalPages}</span>
+        <button class="pg-btn" ${feedbackPage >= totalPages ? 'disabled' : ''} onclick="feedbackPage++;admin()">Next <i class='bx bx-chevron-right'></i></button>
+      </div>
+    </div>` : '';
+
+  const dateBarHtml = renderDateFilterBar('Feedback Records');
+
+  const controlsHtml = `
+    <div class="fb-controls-bar">
+      <div class="fb-search-wrap">
+        <i class='bx bx-search'></i>
+        <input type="search" placeholder="Search comments, service, or submission ID…" value="${esc(feedbackSearchQuery)}" oninput="feedbackSearchQuery=this.value;feedbackPage=1;admin()">
+      </div>
+      <select class="fb-select" onchange="feedbackServiceFilter=this.value;feedbackPage=1;admin()" aria-label="Filter by department">
+        ${deptOptions}
+      </select>
+      <div class="fb-chips-row">
+        <button class="date-pill ${feedbackRatingFilter === 'all' ? 'active' : ''}" onclick="feedbackRatingFilter='all';feedbackPage=1;admin()">All Ratings</button>
+        <button class="date-pill ${feedbackRatingFilter === 'sat' ? 'active' : ''}" onclick="feedbackRatingFilter='sat';feedbackPage=1;admin()">4-5★ Satisfied</button>
+        <button class="date-pill ${feedbackRatingFilter === 'neu' ? 'active' : ''}" onclick="feedbackRatingFilter='neu';feedbackPage=1;admin()">3★ Neutral</button>
+        <button class="date-pill ${feedbackRatingFilter === 'diss' ? 'active' : ''}" onclick="feedbackRatingFilter='diss';feedbackPage=1;admin()">1-2★ Issues</button>
+      </div>
+    </div>`;
+
+  const itemsHtml = pageItems.length ? pageItems.map((r, idx) => {
+    const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
+    const sScore = r.a?.q8 != null ? 5 - r.a.q8 : null;
+    const scoreBadge = sScore != null
+      ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
+      : '';
+    const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
+    const catBadge = cat ? `<span class="cohort-badge ${r.a?.cat === 0 ? 'new' : 'ret'}" style="margin-left:6px">${cat}</span>` : '';
+    const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
+    const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
+    const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
+    const safeId = adminSession?.isAdmin && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id)
+      ? r.id
+      : '';
+    const globalIdx = totalItems - (startIndex + idx);
+    return `<div class="fb-item">
+      <div class="fb-meta">
+        <span><b>#${globalIdx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
+        <span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="deleteFeedback('${safeId}')">Delete feedback</button>` : ''}</span>
+      </div>
+      <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
+      ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
+      ${issues ? `<div class="hint" style="margin:4px 0"><b>Unpleasant experience / issues:</b> ${esc(issues)}</div>` : ''}
+      ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
+      ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
+    </div>`;
+  }).join('') : `<div style="text-align:center;padding:32px 16px"><p class="hint">No feedback submissions match your active filter criteria.</p><button class="adm-btn" onclick="feedbackSearchQuery='';feedbackServiceFilter='all';feedbackRatingFilter='all';cohortFilter='all';setDateFilter('all');">Reset all filters</button></div>`;
+
+  return dateBarHtml + `<div class="card">
     <div class="filter-bar">
       <div>
-        <h3 style="margin:0">Feedback Submissions (${R.length} of ${allR.length})</h3>
+        <h3 style="margin:0">Feedback Submissions (${totalItems} of ${allR.length})</h3>
         <p class="hint" style="margin:2px 0 0">Showing submissions in reverse chronological order. New feedback appears automatically every few seconds.</p>
       </div>
       <div class="filter-pills">
-        <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All (${allR.length})</button>
-        <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">New (${allR.filter((r) => r.a?.cat === 0).length})</button>
-        <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning (${allR.filter((r) => r.a?.cat === 1).length})</button>
+        <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';feedbackPage=1;admin()">All (${dateFiltered.length})</button>
+        <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';feedbackPage=1;admin()">New (${dateFiltered.filter((r) => r.a?.cat === 0).length})</button>
+        <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';feedbackPage=1;admin()">Returning (${dateFiltered.filter((r) => r.a?.cat === 1).length})</button>
       </div>
-    </div>` +
-    R.slice().reverse().map((r, idx) => {
-      const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
-      const sScore = r.a?.q8 != null ? 5 - r.a.q8 : null;
-      const scoreBadge = sScore != null
-        ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
-        : '';
-      const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
-      const catBadge = cat ? `<span class="cohort-badge ${r.a?.cat === 0 ? 'new' : 'ret'}" style="margin-left:6px">${cat}</span>` : '';
-      const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
-      const delays = (r.a?.q4 || []).map((i) => Q.q4.o[i]?.[0]).filter(Boolean).join(', ');
-      const issues = (r.a?.q6 || []).map((i) => Q.q6.o[i]?.[0]).filter(Boolean).join(', ');
-      const safeId = adminSession?.isAdmin && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id)
-        ? r.id
-        : '';
-      return `<div class="fb-item">
-        <div class="fb-meta">
-          <span><b>#${R.length - idx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
-          <span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="deleteFeedback('${safeId}')">Delete feedback</button>` : ''}</span>
-        </div>
-        <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
-        ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
-        ${issues ? `<div class="hint" style="margin:4px 0"><b>Unpleasant experience / issues:</b> ${esc(issues)}</div>` : ''}
-        ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
-        ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
-      </div>`;
-    }).join('') + `</div>`;
+    </div>
+    ${controlsHtml}
+    ${itemsHtml}
+    ${paginationHtml}
+  </div>`;
 }
 
 async function deleteFeedback(id) {
@@ -1071,8 +1323,9 @@ function deptsPerfUI() {
   const allR = feedbackResponses;
   if (!allR.length) return `<div class="card"><p class="hint">No responses yet to calculate department performance.</p></div>`;
 
+  const dateFiltered = getFilteredResponses();
   const dMap = {};
-  allR.forEach((r) => {
+  dateFiltered.forEach((r) => {
     const name = r.dn || 'Unknown';
     if (!dMap[name]) dMap[name] = { total: 0, newP: 0, retP: 0, scores: [], delays: 0, issues: 0 };
     const d = dMap[name];
@@ -1084,7 +1337,7 @@ function deptsPerfUI() {
     if (r.a?.q6?.length && !r.a.q6.includes(Q.q6.o.length - 1)) d.issues += 1;
   });
 
-  const list = Object.entries(dMap).map(([name, d]) => {
+  let list = Object.entries(dMap).map(([name, d]) => {
     const avg = d.scores.length ? (d.scores.reduce((a, b) => a + b, 0) / d.scores.length).toFixed(1) : '–';
     const num = d.scores.length ? (d.scores.reduce((a, b) => a + b, 0) / d.scores.length) : 5;
     const satPct = d.scores.length ? Math.round(d.scores.filter((s) => s >= 4).length / d.scores.length * 100) : 0;
@@ -1092,9 +1345,29 @@ function deptsPerfUI() {
     const delayPct = Math.round(d.delays / d.total * 100);
     const issuePct = Math.round(d.issues / d.total * 100);
     return { name, ...d, avg, num, satPct, dissPct, delayPct, issuePct };
-  }).sort((a, b) => b.total - a.total);
+  });
 
-  const rows = list.map((d, i) => {
+  if (deptSearchQuery.trim()) {
+    const q = deptSearchQuery.trim().toLowerCase();
+    list = list.filter((d) => d.name.toLowerCase().includes(q));
+  }
+
+  if (deptIssueFilter === 'delay') {
+    list = list.filter((d) => d.delayPct > 20);
+  } else if (deptIssueFilter === 'dissatisfied') {
+    list = list.filter((d) => d.dissPct > 15);
+  } else if (deptIssueFilter === 'top') {
+    list = list.filter((d) => d.num >= 4.0);
+  }
+
+  list.sort((a, b) => {
+    if (deptSortKey === 'avg') return b.num - a.num;
+    if (deptSortKey === 'diss') return b.dissPct - a.dissPct;
+    if (deptSortKey === 'delay') return b.delayPct - a.delayPct;
+    return b.total - a.total;
+  });
+
+  const rows = list.length ? list.map((d, i) => {
     const scoreCls = d.num < 3 ? 'badge-low' : d.num >= 4 ? 'badge-high' : 'badge-mid';
     return `<tr>
       <td><b>#${i + 1}</b></td>
@@ -1108,9 +1381,11 @@ function deptsPerfUI() {
       <td>${d.delayPct > 25 ? `<span style="color:#c81e1e;font-weight:600">${d.delayPct}%</span>` : `${d.delayPct}%`}</td>
       <td>${d.issuePct > 15 ? `<span style="color:#c81e1e;font-weight:600">${d.issuePct}%</span>` : `${d.issuePct}%`}</td>
     </tr>`;
-  }).join('');
+  }).join('') : `<tr><td colspan="10" style="text-align:center;padding:24px"><span class="hint">No services match the active matrix filter.</span></td></tr>`;
 
-  return `<div class="card">
+  const dateBarHtml = renderDateFilterBar('Department Matrix');
+
+  return dateBarHtml + `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div>
         <h3 style="margin:0"><i class='bx bx-buildings'></i> Department Performance Matrix (${list.length} Services)</h3>
@@ -1118,19 +1393,31 @@ function deptsPerfUI() {
       </div>
       <button class="adm-btn primary" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Export Matrix XLSX</button>
     </div>
+    <div class="fb-controls-bar">
+      <div class="dept-search-wrap">
+        <i class='bx bx-search'></i>
+        <input type="search" placeholder="Search department name…" value="${esc(deptSearchQuery)}" oninput="deptSearchQuery=this.value;admin()">
+      </div>
+      <div class="filter-pills">
+        <button class="filter-pill ${deptIssueFilter === 'all' ? 'active' : ''}" onclick="deptIssueFilter='all';admin()">All Services</button>
+        <button class="filter-pill ${deptIssueFilter === 'delay' ? 'active' : ''}" onclick="deptIssueFilter='delay';admin()">High Delay (&gt;20%)</button>
+        <button class="filter-pill ${deptIssueFilter === 'dissatisfied' ? 'active' : ''}" onclick="deptIssueFilter='dissatisfied';admin()">Needs Attention (&gt;15% Dissatisfied)</button>
+        <button class="filter-pill ${deptIssueFilter === 'top' ? 'active' : ''}" onclick="deptIssueFilter='top';admin()">Top Rated (&ge;4.0★)</button>
+      </div>
+    </div>
     <div class="dept-table-wrap">
       <table class="dept-table">
         <thead>
           <tr>
             <th>Rank</th>
             <th>Department / Service</th>
-            <th>Reviews</th>
+            <th style="cursor:pointer" onclick="deptSortKey='total';admin()">Reviews <i class='bx bx-sort'></i></th>
             <th>New</th>
             <th>Returning</th>
-            <th>Avg Score</th>
+            <th style="cursor:pointer" onclick="deptSortKey='avg';admin()">Avg Score <i class='bx bx-sort'></i></th>
             <th>Satisfied (4-5★)</th>
-            <th>Dissatisfied (≤2★)</th>
-            <th>Delay Rate</th>
+            <th style="cursor:pointer" onclick="deptSortKey='diss';admin()">Dissatisfied (&le;2★) <i class='bx bx-sort'></i></th>
+            <th style="cursor:pointer" onclick="deptSortKey='delay';admin()">Delay Rate <i class='bx bx-sort'></i></th>
             <th>Issue Rate</th>
           </tr>
         </thead>
@@ -1141,13 +1428,15 @@ function deptsPerfUI() {
 }
 
 function exportUI() {
-  const allR = feedbackResponses;
-  return `<div class="card">
+  const filtered = getFilteredResponses();
+  const dateLabel = getDateFilterLabel();
+  const dateBarHtml = renderDateFilterBar('Export Center');
+  return dateBarHtml + `<div class="card">
     <div class="export-banner">
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
       <div>
         <h3>DMC Hospital — Data Export Center</h3>
-        <p>Download premium, formatted Excel workbooks with the DMC logo and color-coded report data.</p>
+        <p>Download executive Excel workbooks with the official DMC logo, brand colors, and active date filters applied (${filtered.length} records • ${esc(dateLabel)}).</p>
       </div>
     </div>
     <div class="export-grid">
@@ -1155,9 +1444,9 @@ function exportUI() {
         <div>
           <i class='bx bx-file-blank export-icon'></i>
           <h4>Complete Survey Dataset</h4>
-          <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments.</p>
+          <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments for ${esc(dateLabel)}.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Download XLSX (${allR.length})</button></div>
+        <div class="report-actions"><button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Download XLSX (${filtered.length})</button></div>
       </div>
       <div class="export-card">
         <div>
@@ -1184,9 +1473,15 @@ function stats() {
   const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools>${adminSession?.isAdmin ? `<button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button>` : ''}<button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Dataset XLSX</button>${adminSession?.isAdmin ? '<button onclick="clearResponses()"><i class=\'bx bx-trash\'></i> Clear all</button>' : ''}</div></div>`;
   if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
 
-  const newCount = allR.filter((r) => r.a?.cat === 0).length;
-  const retCount = allR.filter((r) => r.a?.cat === 1).length;
-  const R = cohortFilter === 'new' ? allR.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? allR.filter((r) => r.a?.cat === 1) : allR;
+  const dateFiltered = getFilteredResponses();
+  const dateBarHtml = renderDateFilterBar('Analytics & Cohorts');
+  if (!dateFiltered.length) {
+    return dateBarHtml + `<div class="card"><p class="hint">No responses recorded for ${esc(getDateFilterLabel())}. Try selecting "All Time" or adjusting the date range.</p></div>` + tools;
+  }
+
+  const newCount = dateFiltered.filter((r) => r.a?.cat === 0).length;
+  const retCount = dateFiltered.filter((r) => r.a?.cat === 1).length;
+  const R = cohortFilter === 'new' ? dateFiltered.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? dateFiltered.filter((r) => r.a?.cat === 1) : dateFiltered;
   const n = R.length;
 
   // Cohort deep-dive stats
@@ -1199,8 +1494,8 @@ function stats() {
     const docGood = sub.length ? Math.round(sub.filter((r) => r.a?.q5 === 0).length / sub.length * 100) : 0;
     return { count: sub.length, avg, sat, diss, delays, docGood };
   };
-  const newStats = cohortCalc(allR.filter((r) => r.a?.cat === 0));
-  const retStats = cohortCalc(allR.filter((r) => r.a?.cat === 1));
+  const newStats = cohortCalc(dateFiltered.filter((r) => r.a?.cat === 0));
+  const retStats = cohortCalc(dateFiltered.filter((r) => r.a?.cat === 1));
 
   // Current view stats
   const s8 = R.filter((r) => r.a.q8 != null).map((r) => 5 - r.a.q8);
@@ -1222,6 +1517,56 @@ function stats() {
     return v.length ? Math.round(v.filter((r) => r.a[k] <= 1).length / v.length * 100) : 0;
   };
   const cd = (t, b) => `<div class=card><h3>${t}</h3>${b}</div>`;
+
+  // Donut 1: Satisfaction distribution
+  const star5 = R.filter((r) => r.a?.q8 === 0).length;
+  const star4 = R.filter((r) => r.a?.q8 === 1).length;
+  const star3 = R.filter((r) => r.a?.q8 === 2).length;
+  const star2 = R.filter((r) => r.a?.q8 === 3).length;
+  const star1 = R.filter((r) => r.a?.q8 === 4).length;
+  const donutSatisfaction = renderDonutChart({
+    title: `<i class='bx bx-pie-chart-alt-2' style="color:#10b981"></i> Overall Satisfaction Breakdown`,
+    subtitle: '5-point star rating distribution from patient reviews',
+    items: [
+      { label: '5★ Very Satisfied', value: star5, color: '#10b981' },
+      { label: '4★ Satisfied', value: star4, color: '#0284c7' },
+      { label: '3★ Neutral', value: star3, color: '#f59e0b' },
+      { label: '2★ Dissatisfied', value: star2, color: '#ea580c' },
+      { label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
+    ],
+    centerValue: `${pos}%`,
+    centerLabel: 'Satisfied'
+  });
+
+  // Donut 2: Cohorts
+  const donutCohorts = renderDonutChart({
+    title: `<i class='bx bx-user-pin' style="color:#0284c7"></i> Patient Cohort Ratio`,
+    subtitle: 'First-time vs. returning patient volume split',
+    items: [
+      { label: 'New / First-Time', value: newCount, color: '#0284c7' },
+      { label: 'Returning Patients', value: retCount, color: '#d97706' }
+    ],
+    centerValue: `${dateFiltered.length}`,
+    centerLabel: 'Submissions'
+  });
+
+  // Donut 3: Visit times
+  const time0 = R.filter((r) => r.a?.time === 0).length;
+  const time1 = R.filter((r) => r.a?.time === 1).length;
+  const time2 = R.filter((r) => r.a?.time === 2).length;
+  const time3 = R.filter((r) => r.a?.time === 3).length;
+  const donutTimeOfDay = renderDonutChart({
+    title: `<i class='bx bx-time-five' style="color:#8b5cf6"></i> Visit Times Distribution`,
+    subtitle: 'Patient arrivals across operating shifts',
+    items: [
+      { label: 'Morning (8am–12pm)', value: time0, color: '#06b6d4' },
+      { label: 'Afternoon (12pm–4pm)', value: time1, color: '#3b82f6' },
+      { label: 'Evening (4pm–8pm)', value: time2, color: '#8b5cf6' },
+      { label: 'Night / Emergency', value: time3, color: '#64748b' }
+    ],
+    centerValue: `${n}`,
+    centerLabel: 'Visits'
+  });
 
   // Department rankings in current cohort view
   const dStats = {};
@@ -1255,7 +1600,7 @@ function stats() {
       <p class="hint" style="margin:2px 0 0">Filter analytics by patient visit category.</p>
     </div>
     <div class="filter-pills">
-      <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All Patients (${allR.length})</button>
+      <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All Patients (${dateFiltered.length})</button>
       <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">New Patients (${newCount})</button>
       <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning (${retCount})</button>
     </div>
@@ -1264,13 +1609,13 @@ function stats() {
   const cohortCardHtml = `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="margin:0"><i class='bx bx-user-pin'></i> Cohort Performance: New vs. Returning Patients</h3>
-      <span class="hint" style="margin:0">Total Submissions: ${allR.length}</span>
+      <span class="hint" style="margin:0">Submissions in range: ${dateFiltered.length}</span>
     </div>
     <div class="cohort-grid">
       <div class="cohort-card">
         <div class="cohort-header">
           <h4><i class='bx bx-user-plus' style="color:#0369a1"></i> New Patients</h4>
-          <span class="cohort-badge new">${newStats.count} visits (${allR.length ? Math.round(newStats.count / allR.length * 100) : 0}%)</span>
+          <span class="cohort-badge new">${newStats.count} visits (${dateFiltered.length ? Math.round(newStats.count / dateFiltered.length * 100) : 0}%)</span>
         </div>
         <div class="cohort-metrics">
           <div class="cohort-metric"><span>Avg Score</span><b>${newStats.avg}/5</b></div>
@@ -1282,7 +1627,7 @@ function stats() {
       <div class="cohort-card">
         <div class="cohort-header">
           <h4><i class='bx bx-user-check' style="color:#92400e"></i> Returning Patients</h4>
-          <span class="cohort-badge ret">${retStats.count} visits (${allR.length ? Math.round(retStats.count / allR.length * 100) : 0}%)</span>
+          <span class="cohort-badge ret">${retStats.count} visits (${dateFiltered.length ? Math.round(retStats.count / dateFiltered.length * 100) : 0}%)</span>
         </div>
         <div class="cohort-metrics">
           <div class="cohort-metric"><span>Avg Score</span><b>${retStats.avg}/5</b></div>
@@ -1294,25 +1639,37 @@ function stats() {
     </div>
   </div>`;
 
+  // Visual Bar data formatting
+  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v]) => [k, v, '#17263c']);
+  const waitTimes = q('q3').map(([k, v]) => [k, v, k.toLowerCase().includes('less') || k.includes('15') ? '#10b981' : k.includes('30') ? '#0284c7' : k.includes('60') ? '#f59e0b' : '#e54b2b']);
+  const delayHotspots = q('q4', 1).map(([k, v]) => [k, v, '#e54b2b']);
+  const issueHotspots = q('q6', 1).map(([k, v]) => [k, v, '#ea580c']);
+  const qualityScores = [['Reception Staff Care', good('q1'), '#059669'], ['Cashier & Billing Experience', good('q2'), '#0284c7'], ['Hospital Cleanliness Rating', good('q7'), '#10b981']];
+  const doctorCare = q('q5').map(([k, v]) => [k, v, k.toLowerCase().startsWith('yes') ? '#10b981' : k.toLowerCase().startsWith('part') ? '#f59e0b' : '#e54b2b']);
+
   const cm = R.flatMap((r) => [r.a?.q10, r.a?.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
 
-  return filterBarHtml +
+  return dateBarHtml +
+    filterBarHtml +
     `<div class=kpis>
       <div class=kpi><b>${n}</b>${cohortFilter === 'new' ? 'New Patient' : cohortFilter === 'returning' ? 'Returning' : 'Total'} Responses</div>
       <div class=kpi><b>${avg}/5</b>Avg Satisfaction</div>
       <div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div>
       <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
     </div>` +
+    `<div class="donut-charts-grid">
+      ${donutSatisfaction}
+      ${donutCohorts}
+      ${donutTimeOfDay}
+    </div>` +
     cohortCardHtml +
     cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Satisfaction Ranking (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest in active view.</p>` + (rankHtml || '–')) +
-    cd('Responses by Visited Service', bars(tl((r) => r.dn))) +
-    cd('Overall Satisfaction Rating', bars(q('q8'))) +
-    cd('Wait Time Before Seeing Doctor', bars(q('q3'))) +
-    cd('Where Delays Occurred', bars(q('q4', 1))) +
-    cd('Where Unpleasant Experience Was Reported', bars(q('q6', 1))) +
-    cd('Cleanliness & Reception Quality (Rated Excellent/Good)', bars([['Reception', good('q1')], ['Cashier', good('q2')], ['Cleanliness', good('q7')]], 100, '%')) +
-    cd('Doctor Listened Carefully', bars(q('q5'))) +
-    cd('Visit Time of Day', bars(tl((r) => r.a?.time != null ? Q.time.o[r.a.time]?.[0] : null))) +
+    cd('Responses by Visited Service', renderVisualBars(deptBars, deptBars[0]?.[1] || 1, ' reviews')) +
+    cd('Wait Time Before Seeing Doctor', renderVisualBars(waitTimes, n)) +
+    cd('Where Delays Occurred (Delay Hotspots)', renderVisualBars(delayHotspots, n)) +
+    cd('Where Unpleasant Experience Was Reported', renderVisualBars(issueHotspots, n)) +
+    cd('Cleanliness & Reception Quality (Rated Excellent/Good)', renderVisualBars(qualityScores, 100, '%')) +
+    cd('Doctor Care & Attentiveness (Listened Carefully)', renderVisualBars(doctorCare, n)) +
     cd('Languages Used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
     cd('Recent Comments & Improvement Suggestions', cm.map((x) => `<div class=cm>${esc(x)}</div>`).join('') || '–') +
     tools;
@@ -1539,11 +1896,16 @@ function getReportData(type) {
     alert('The selected report is not supported.');
     return null;
   }
-  if (!feedbackResponses.length) {
-    alert('No feedback records available to export.');
+  const filtered = getFilteredResponses();
+  if (!filtered.length) {
+    alert(`No feedback records available to export for ${getDateFilterLabel()}.`);
     return null;
   }
-  return buildReportData(type, feedbackResponses, new Date().toISOString().slice(0, 10));
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filterLabel = getDateFilterLabel();
+  const report = buildReportData(type, filtered, dateStr);
+  report.subtitle = `Confidential quality-improvement report | Filter: ${filterLabel} | Generated ${dateStr} | ${filtered.length} feedback submissions`;
+  return report;
 }
 
 async function recordReportExport(type, format) {

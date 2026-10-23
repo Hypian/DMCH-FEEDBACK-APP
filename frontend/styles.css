@@ -1680,3 +1680,350 @@ textarea { min-height: 150px; resize: vertical; }
   .cohort-metric { padding: 10px; }
   .cohort-metric b { font-size: 21px; }
 }
+
+/* ─── Executive Date Filter Bar ─────────────────────────────────────── */
+.date-filter-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(23, 38, 60, 0.04);
+}
+.date-filter-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+.date-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.date-filter-label i {
+  color: var(--red);
+  font-size: 16px;
+}
+.date-filter-count {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.date-filter-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.date-quick-pills {
+  display: inline-flex;
+  background: #f1f4f8;
+  padding: 3px;
+  border-radius: 999px;
+  gap: 2px;
+}
+.date-pill {
+  border: none;
+  background: transparent;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.date-pill:hover {
+  color: var(--navy);
+}
+.date-pill.active {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(23, 38, 60, 0.25);
+}
+.date-custom-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.date-input {
+  padding: 5px 8px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  height: 32px;
+  margin-bottom: 0 !important;
+}
+.date-sep {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* ─── Feedback & Matrix Filter Controls ─────────────────────────────── */
+.fb-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.fb-search-wrap, .dept-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+.fb-search-wrap i, .dept-search-wrap i {
+  position: absolute;
+  left: 10px;
+  color: var(--ink-3);
+  font-size: 16px;
+  pointer-events: none;
+}
+.fb-search-wrap input, .dept-search-wrap input {
+  width: 100%;
+  padding: 8px 12px 8px 32px;
+  margin-bottom: 0 !important;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+.fb-select {
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  height: 34px;
+  cursor: pointer;
+}
+.fb-chips-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ─── Feedback Pagination Bar ───────────────────────────────────────── */
+.fb-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.fb-pagination-info {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fb-pagination-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all .15s ease;
+  min-height: 32px;
+}
+.pg-btn:hover:not(:disabled) {
+  background: #f1f4f8;
+  border-color: var(--ink-3);
+}
+.pg-btn.active {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
+  font-weight: 600;
+}
+.pg-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* ─── Executive Donut / Pie Charts ──────────────────────────────────── */
+.donut-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.donut-chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(23, 38, 60, 0.05);
+}
+.donut-chart-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.donut-chart-header .hint {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.donut-chart-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 16px;
+  margin-top: 14px;
+}
+.donut-svg-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  flex-shrink: 0;
+}
+.donut-svg {
+  width: 100%;
+  height: 100%;
+}
+.donut-center-info {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.donut-center-val {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.1;
+}
+.donut-center-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-top: 3px;
+  text-align: center;
+  max-width: 80px;
+}
+.chart-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 140px;
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  gap: 8px;
+}
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.legend-label {
+  flex: 1;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.legend-val {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* ─── Executive Colorful Benchmark Bars ─────────────────────────────── */
+.visual-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 10px;
+}
+.visual-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vbar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.vbar-label {
+  font-weight: 500;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vbar-metrics {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.vbar-metrics b {
+  color: var(--ink);
+}
+.vbar-track {
+  width: 100%;
+  height: 10px;
+  background: #edf1f6;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.vbar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .4s ease;
+}
