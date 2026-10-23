@@ -493,23 +493,28 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   assert.match(app.innerHTML, /Supreme admin/);
 });
 
-test('regular admins cannot access or load User Management', () => {
+test('regular admins can open User Management without supreme-admin controls', async () => {
   const backendState = {
     session: { user: { id: 'regular-admin', name: 'Regular Admin', username: 'regular_admin' } },
-    isSupremeAdmin: false
+    isSupremeAdmin: false,
+    adminDirectory: [{ name: 'Regular Admin', username: 'regular_admin' }],
+    activeUsers: [{ name: 'Approved Patient', username: 'patient' }]
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
     "adminSession={user:{id:'regular-admin',name:'Regular Admin',username:'regular_admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='users';admin()",
     context
   );
+  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(vm.runInContext('tab', context), 'stats');
-  assert.doesNotMatch(app.innerHTML, />User Management</);
-  assert.doesNotMatch(app.innerHTML, /Admin directory|Active users|Accounts &amp; permissions/);
-  assert.equal(backendState.calls.some((call) =>
-    ['/api/admin/directory', '/api/admin/active-users', '/api/admin/users'].includes(call.url)
-  ), false);
+  assert.equal(vm.runInContext('tab', context), 'users');
+  assert.match(app.innerHTML, /User Management/);
+  assert.ok(app.innerHTML.indexOf('Activity Log') < app.innerHTML.indexOf('User Management'));
+  assert.doesNotMatch(app.innerHTML, /class="wrap adm s"/);
+  assert.match(app.innerHTML, /Approved Patient/);
+  assert.match(app.innerHTML, /Admin directory/);
+  assert.doesNotMatch(app.innerHTML, /Accounts &amp; permissions/);
+  assert.equal(backendState.calls.some((call) => call.url === '/api/admin/users'), false);
 });
 
 test('dashboard feedback refreshes automatically and individual records can be deleted', async () => {
@@ -601,6 +606,10 @@ test('admins can view a refreshed activity log and report exports contain feedba
   assert.match(app.innerHTML, /Activity Log/);
   assert.match(app.innerHTML, /Feedback submitted for General medicine/);
   assert.match(app.innerHTML, /Anonymous patient/);
+
+  const rendersBeforeUnchangedRefresh = app.renderCount;
+  await vm.runInContext('refreshDashboardFeedback()', context);
+  assert.equal(app.renderCount, rendersBeforeUnchangedRefresh);
 
   await vm.runInContext('loadAdminData()', context);
   await vm.runInContext("exportExcel('full')", context);

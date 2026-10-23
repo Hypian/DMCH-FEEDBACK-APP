@@ -544,7 +544,7 @@ async function submit() {
 let cohortFilter = 'all';
 
 function admin() {
-  const h = `<div class="wrap adm s"><div class="adm-header">
+  const h = `<div class="wrap adm"><div class="adm-header">
     <div class="adm-brand">
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
       <div class="adm-title">
@@ -574,7 +574,6 @@ function admin() {
     return;
   }
 
-  if (tab === 'users' && !adminSession.isSupremeAdmin) tab = 'stats';
   const tabs = [
     ['stats', `<i class='bx bx-bar-chart-alt-2'></i> Analytics & Cohorts`],
     ['depts_perf', `<i class='bx bx-buildings'></i> Department Matrix`],
@@ -583,9 +582,7 @@ function admin() {
     ['depts', `<i class='bx bx-cog'></i> Manage Services`],
     ['audit', `<i class='bx bx-history'></i> Activity Log`]
   ];
-  if (adminSession.isSupremeAdmin) {
-    tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
-  }
+  tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
   if (tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
     loadUserManagement();
   }
@@ -677,13 +674,16 @@ function auditUI() {
 async function loadAuditEvents(showLoading = true) {
   if (auditRefreshInProgress) return;
   auditRefreshInProgress = true;
+  let auditChanged = false;
   if (showLoading) {
     auditLoading = true;
     auditError = '';
     admin();
   }
   try {
-    auditEntries = await apiRequest('/api/admin/audit');
+    const updatedEntries = await apiRequest('/api/admin/audit');
+    auditChanged = JSON.stringify(auditEntries) !== JSON.stringify(updatedEntries);
+    auditEntries = updatedEntries;
     auditLoaded = true;
     auditError = '';
   } catch (error) {
@@ -694,7 +694,7 @@ async function loadAuditEvents(showLoading = true) {
     if (showLoading) {
       auditLoading = false;
       admin();
-    } else if (tab === 'audit') {
+    } else if (tab === 'audit' && auditChanged) {
       admin();
     }
   }
