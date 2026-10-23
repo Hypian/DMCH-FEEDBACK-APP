@@ -164,6 +164,7 @@ button, input, textarea { font: inherit; color: inherit; touch-action: manipulat
   padding-bottom: 14px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
 }
 
 .top-row {

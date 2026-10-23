@@ -359,6 +359,7 @@ test('survey screen entrance animation leaves the top logo outside the animation
   assert.match(styles, /\.wrap\.screen-enter\s*\{\s*animation:\s*none\s*;/);
   assert.match(styles, /\.wrap\.screen-enter\s*>\s*:not\(\.top\)\s*\{\s*animation:\s*screen-enter/);
   assert.doesNotMatch(styles, /\.screen-enter\{animation:screen-enter/);
+  assert.match(styles, /\.top\s*\{[^}]*border-radius:\s*var\(--radius-md\);/);
   assert.match(styles, /\.top img\s*\{[^}]*width:\s*124px;\s*height:\s*36px;[^}]*flex:\s*none;\s*object-fit:\s*contain/);
 });
 
