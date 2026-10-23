@@ -392,3 +392,62 @@ test('Response structure & headers', async t => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('Concurrency & Stress – 25 simultaneous users on server', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmc-api-test-concurrency-'));
+  const { proc, base } = await startTestServer(dataDir);
+
+  try {
+    await t.test('25 simultaneous distinct users submit feedback concurrently', async () => {
+      const userIds = Array.from({ length: 25 }, (_, i) => {
+        const hex = i.toString(16).padStart(12, '0');
+        return `11111111-2222-4333-8444-${hex}`;
+      });
+
+      const responses = await Promise.all(
+        userIds.map((deviceId) => post(base, '/api/submit', { deviceId }))
+      );
+
+      for (const res of responses) {
+        assert.equal(res.status, 201, 'Each distinct user submission must succeed with 201');
+        const json = await res.json();
+        assert.deepEqual(json, { ok: true });
+      }
+    });
+
+    await t.test('25 simultaneous users check device availability in parallel', async () => {
+      const userIds = Array.from({ length: 25 }, (_, i) => {
+        const hex = (i + 100).toString(16).padStart(12, '0');
+        return `22222222-3333-4444-9555-${hex}`;
+      });
+
+      const responses = await Promise.all(
+        userIds.map((deviceId) => post(base, '/api/check', { deviceId }))
+      );
+
+      for (const res of responses) {
+        assert.equal(res.status, 200, 'Each availability check must return 200');
+        const json = await res.json();
+        assert.deepEqual(json, { available: true });
+      }
+    });
+
+    await t.test('30 simultaneous static and dynamic requests without connection drops', async () => {
+      const requests = Array.from({ length: 30 }, (_, i) => {
+        if (i % 3 === 0) return fetch(`${base}/`);
+        if (i % 3 === 1) return fetch(`${base}/styles.css`);
+        return fetch(`${base}/script.js`);
+      });
+
+      const results = await Promise.all(requests);
+      for (const res of results) {
+        assert.equal(res.status, 200, 'All static requests under concurrent load must return 200');
+      }
+    });
+  } finally {
+    proc.kill();
+    await once(proc, 'exit');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+

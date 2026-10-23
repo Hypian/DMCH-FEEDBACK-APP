@@ -849,3 +849,27 @@ test('failed feedback save keeps answers and offers a successful retry', async (
   assert.equal(backendState.responses.length, 1);
   assert.match(app.innerHTML, /Thank you for choosing Dream Medical Center Hospital!/);
 });
+
+test('Statistics & Visual Charts tab renders large donut graphs and proportional bars', () => {
+  const backendState = {
+    session: { user: { id: 'admin-user', name: 'Admin', username: 'admin' } },
+    isAdmin: true,
+    isSupremeAdmin: false,
+    responses: []
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'admin-user',name:'Admin',username:'admin'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true;feedbackResponses=[{id:'f-1',submitted_at:'2026-10-21T18:00:00.000Z',language:'en',department_id:'o0',department_name:'General medicine',dn:'General medicine',a:{cat:0,time:0,q1:0,q2:0,q3:0,q4:[],q5:0,q6:[],q7:0,q8:0},is_demo:false,user_id:null}];tab='charts';admin()",
+    context
+  );
+
+  assert.equal(vm.runInContext('tab', context), 'charts');
+  assert.match(app.innerHTML, /Statistics & Visual Charts/);
+  assert.match(app.innerHTML, /big-donut-grid/);
+  assert.match(app.innerHTML, /Overall Satisfaction Spectrum/);
+  assert.match(app.innerHTML, /Patient Cohort Ratio/);
+  assert.match(app.innerHTML, /Doctor Care & Attentiveness/);
+  assert.match(app.innerHTML, /Doctor Wait Time Breakdown/);
+  assert.match(app.innerHTML, /Operational Delay Hotspots/);
+});
+

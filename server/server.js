@@ -84,6 +84,8 @@ let saveSubmission = null;
 if (TEST_MODE) {
   database = new DatabaseSync(path.join(DATA_DIR, 'feedback.sqlite'));
   database.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS device_submissions (
       device_hash TEXT PRIMARY KEY,
       submitted_at INTEGER NOT NULL

@@ -46,6 +46,15 @@
       <button class="adm-btn danger" id="feedback-delete-confirm" type="button" onclick="confirmFeedbackDelete()">Delete feedback</button>
     </div>
   </dialog>
+  <dialog class="feedback-delete-dialog user-delete-dialog" id="user-delete-dialog" aria-labelledby="user-delete-title" aria-describedby="user-delete-description">
+    <div class="approval-dialog-mark" aria-hidden="true"><i class="bx bx-user-x"></i></div>
+    <h2 id="user-delete-title">Delete User Account?</h2>
+    <p class="intro-copy" id="user-delete-description">This user account will be permanently deleted and will lose all dashboard access. This action cannot be undone.</p>
+    <div class="feedback-delete-actions">
+      <button class="adm-btn" id="user-delete-cancel" type="button" onclick="cancelUserDelete()">Cancel</button>
+      <button class="adm-btn danger" id="user-delete-confirm" type="button" onclick="confirmUserDelete()">Delete Account</button>
+    </div>
+  </dialog>
   <script src="api-config.js"></script>
   <script src="xlsx-export.js"></script>
   <script src="script.js"></script>

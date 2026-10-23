@@ -721,6 +721,249 @@ function renderVisualBars(items, maxValue, unit = '') {
   `</div>`;
 }
 
+function renderLargeVisualDonut({ title, subtitle, items, centerValue, centerLabel }) {
+  const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const size = 220;
+  const strokeWidth = 32;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  let accumulatedPercent = 0;
+  const segments = total > 0 ? items.map((item) => {
+    if (!item.value) return '';
+    const percent = item.value / total;
+    const strokeDasharray = `${(percent * circumference).toFixed(2)} ${circumference.toFixed(2)}`;
+    const strokeDashoffset = (-accumulatedPercent * circumference).toFixed(2);
+    accumulatedPercent += percent;
+    return `<circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(2)}"
+      fill="none"
+      stroke="${item.color}"
+      stroke-width="${strokeWidth}"
+      stroke-dasharray="${strokeDasharray}"
+      stroke-dashoffset="${strokeDashoffset}"
+      transform="rotate(-90 ${size / 2} ${size / 2})"
+      class="donut-segment">
+      <title>${esc(item.label)}: ${item.value} (${Math.round(percent * 100)}%)</title>
+    </circle>`;
+  }).join('') : `<circle cx="${size / 2}" cy="${size / 2}" r="${radius.toFixed(2)}" fill="none" stroke="#e5eaf0" stroke-width="${strokeWidth}" />`;
+
+  const legend = items.map((item) => {
+    const val = Number(item.value) || 0;
+    const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+    return `<div class="big-legend-item">
+      <div class="big-legend-row">
+        <div class="big-legend-left">
+          <span class="big-legend-swatch" style="background:${item.color}"></span>
+          <span>${esc(item.label)}</span>
+        </div>
+        <div class="big-legend-right">
+          <span>${val}</span>
+          <small style="color:var(--ink-3);font-weight:normal">(${pct}%)</small>
+        </div>
+      </div>
+      <div class="big-legend-track">
+        <div class="big-legend-fill" style="width:${pct}%;background:${item.color}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="big-donut-card">
+    <div class="big-donut-header">
+      <h4>${title}</h4>
+      ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
+    </div>
+    <div class="big-donut-body">
+      <div class="big-donut-svg-wrap">
+        <svg viewBox="0 0 ${size} ${size}" class="big-donut-svg" role="img" aria-label="${esc(title)}">
+          ${segments}
+        </svg>
+        <div class="big-donut-center">
+          <span class="big-donut-center-val">${esc(centerValue)}</span>
+          <span class="big-donut-center-lbl">${esc(centerLabel)}</span>
+        </div>
+      </div>
+      <div class="big-donut-legend">
+        ${legend}
+      </div>
+    </div>
+  </div>`;
+}
+
+function chartsUI() {
+  const allR = feedbackResponses;
+  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Filtered Dataset XLSX</button></div></div>`;
+  if (!allR.length) {
+    return `<div class="card"><p class="hint">No responses recorded yet to plot charts.</p></div>` + tools;
+  }
+
+  const dateFiltered = getFilteredResponses();
+  const dateBarHtml = renderDateFilterBar('Statistics & Visual Charts');
+  if (!dateFiltered.length) {
+    return dateBarHtml + `<div class="card"><p class="hint">No responses recorded for ${esc(getDateFilterLabel())}. Try selecting "All Time" or adjusting the date range.</p><button class="adm-btn primary" onclick="setDateFilter('all')">Reset to All Time</button></div>` + tools;
+  }
+
+  const newCount = dateFiltered.filter((r) => r.a?.cat === 0).length;
+  const retCount = dateFiltered.filter((r) => r.a?.cat === 1).length;
+  const R = cohortFilter === 'new' ? dateFiltered.filter((r) => r.a?.cat === 0) : cohortFilter === 'returning' ? dateFiltered.filter((r) => r.a?.cat === 1) : dateFiltered;
+  const n = R.length;
+
+  const s8 = R.filter((r) => r.a.q8 != null).map((r) => 5 - r.a.q8);
+  const avg = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–';
+  const pos = s8.length ? Math.round(s8.filter((x) => x >= 4).length / s8.length * 100) : 0;
+  const neg = s8.length ? Math.round(s8.filter((x) => x <= 2).length / s8.length * 100) : 0;
+
+  // Donut 1: Satisfaction Spectrum
+  const star5 = R.filter((r) => r.a?.q8 === 0).length;
+  const star4 = R.filter((r) => r.a?.q8 === 1).length;
+  const star3 = R.filter((r) => r.a?.q8 === 2).length;
+  const star2 = R.filter((r) => r.a?.q8 === 3).length;
+  const star1 = R.filter((r) => r.a?.q8 === 4).length;
+  const bigDonutSatisfaction = renderLargeVisualDonut({
+    title: `<i class='bx bx-star' style="color:#10b981"></i> Overall Satisfaction Spectrum`,
+    subtitle: '5-point star rating breakdown across patient reviews',
+    items: [
+      { label: '5★ Very Satisfied', value: star5, color: '#10b981' },
+      { label: '4★ Satisfied', value: star4, color: '#0284c7' },
+      { label: '3★ Neutral', value: star3, color: '#f59e0b' },
+      { label: '2★ Dissatisfied', value: star2, color: '#ea580c' },
+      { label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
+    ],
+    centerValue: `${pos}%`,
+    centerLabel: 'Satisfied (4-5★)'
+  });
+
+  // Donut 2: Cohorts Ratio
+  const bigDonutCohorts = renderLargeVisualDonut({
+    title: `<i class='bx bx-user-pin' style="color:#0284c7"></i> Patient Cohort Ratio`,
+    subtitle: 'First-time visitors vs. returning patients distribution',
+    items: [
+      { label: 'First-Time Patients', value: newCount, color: '#0284c7' },
+      { label: 'Returning Patients', value: retCount, color: '#d97706' }
+    ],
+    centerValue: `${dateFiltered.length}`,
+    centerLabel: 'Submissions'
+  });
+
+  // Donut 3: Visit Times
+  const time0 = R.filter((r) => r.a?.time === 0).length;
+  const time1 = R.filter((r) => r.a?.time === 1).length;
+  const time2 = R.filter((r) => r.a?.time === 2).length;
+  const time3 = R.filter((r) => r.a?.time === 3).length;
+  const bigDonutVisitTimes = renderLargeVisualDonut({
+    title: `<i class='bx bx-time-five' style="color:#8b5cf6"></i> Visit Shifts Distribution`,
+    subtitle: 'Patient attendance across day and night operational shifts',
+    items: [
+      { label: 'Morning (8am–12pm)', value: time0, color: '#06b6d4' },
+      { label: 'Afternoon (12pm–4pm)', value: time1, color: '#3b82f6' },
+      { label: 'Evening (4pm–8pm)', value: time2, color: '#8b5cf6' },
+      { label: 'Night / Emergency', value: time3, color: '#64748b' }
+    ],
+    centerValue: `${n}`,
+    centerLabel: 'Visits'
+  });
+
+  // Donut 4: Doctor Care & Attentiveness
+  const docYes = R.filter((r) => r.a?.q5 === 0).length;
+  const docPart = R.filter((r) => r.a?.q5 === 1).length;
+  const docNo = R.filter((r) => r.a?.q5 === 2).length;
+  const docTotal = docYes + docPart + docNo;
+  const docPct = docTotal > 0 ? Math.round((docYes / docTotal) * 100) : 0;
+  const bigDonutDoctor = renderLargeVisualDonut({
+    title: `<i class='bx bx-heart' style="color:#e54b2b"></i> Doctor Care & Attentiveness`,
+    subtitle: 'Did doctor listen attentively and answer your questions?',
+    items: [
+      { label: 'Yes, Attentive', value: docYes, color: '#10b981' },
+      { label: 'Partially Attentive', value: docPart, color: '#f59e0b' },
+      { label: 'Not Attentive', value: docNo, color: '#e54b2b' }
+    ],
+    centerValue: `${docPct}%`,
+    centerLabel: 'Attentive'
+  });
+
+  // Visual Bar data helpers
+  const tl = (f, lb) => {
+    const m = {};
+    R.forEach((r) => [].concat(f(r)).forEach((x) => {
+      if (x != null && x !== '') m[x] = (m[x] || 0) + 1;
+    }));
+    return Object.entries(m).map(([k, v]) => [lb ? lb(k) : k, v]).sort((a, b) => b[1] - a[1]);
+  };
+  const q = (k, ex) => tl((r) => r.a[k], (v) => Q[k].o[+v][0]).filter((e) => !ex || e[0] !== Q[k].o[Q[k].o.length - 1][0]);
+  const good = (k) => {
+    const v = R.filter((r) => r.a[k] != null);
+    return v.length ? Math.round(v.filter((r) => r.a[k] <= 1).length / v.length * 100) : 0;
+  };
+
+  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v]) => [k, v, '#17263c']);
+  const waitTimes = q('q3').map(([k, v]) => [k, v, k.toLowerCase().includes('less') || k.includes('15') ? '#10b981' : k.includes('30') ? '#0284c7' : k.includes('60') ? '#f59e0b' : '#e54b2b']);
+  const delayHotspots = q('q4', 1).map(([k, v]) => [k, v, '#e54b2b']);
+  const issueHotspots = q('q6', 1).map(([k, v]) => [k, v, '#ea580c']);
+  const qualityScores = [
+    ['Reception Staff Care & Courtesy', good('q1'), '#059669'],
+    ['Cashier & Billing Efficiency', good('q2'), '#0284c7'],
+    ['Hospital Cleanliness & Hygiene', good('q7'), '#10b981']
+  ];
+  const langBars = tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])).map(([k, v]) => [k, v, '#2563eb']);
+
+  const filterBarHtml = `<div class="filter-bar">
+    <div>
+      <h3 style="margin:0"><i class='bx bx-filter-alt'></i> Patient Cohort Slice</h3>
+      <p class="hint" style="margin:2px 0 0">Filter visual charts by patient visit type.</p>
+    </div>
+    <div class="filter-pills">
+      <button class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All Patients (${dateFiltered.length})</button>
+      <button class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">First-Time (${newCount})</button>
+      <button class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning (${retCount})</button>
+    </div>
+  </div>`;
+
+  return dateBarHtml +
+    filterBarHtml +
+    `<div class="kpis">
+      <div class="kpi"><b>${n}</b>${cohortFilter === 'new' ? 'New Patient' : cohortFilter === 'returning' ? 'Returning' : 'Total'} Responses</div>
+      <div class="kpi"><b>${avg}/5</b>Avg Satisfaction</div>
+      <div class="kpi"><b>${pos}%</b>Satisfied (4–5★)</div>
+      <div class="kpi"><b>${neg}%</b>Dissatisfied (≤2★)</div>
+    </div>` +
+    `<div class="big-donut-grid">
+      ${bigDonutSatisfaction}
+      ${bigDonutCohorts}
+      ${bigDonutVisitTimes}
+      ${bigDonutDoctor}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-buildings'></i> Visited Services & Review Volumes</h3>
+      <p class="hint">Patient review counts by outpatient department or clinical service.</p>
+      ${renderVisualBars(deptBars, deptBars[0]?.[1] || 1, ' reviews')}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-timer'></i> Doctor Wait Time Breakdown</h3>
+      <p class="hint">How long patients waited before being attended to by the doctor.</p>
+      ${renderVisualBars(waitTimes, n)}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-alarm-exclamation' style="color:#e54b2b"></i> Operational Delay Hotspots</h3>
+      <p class="hint">Service points where patients encountered excessive waiting or bottlenecks.</p>
+      ${renderVisualBars(delayHotspots, n)}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-error-circle' style="color:#ea580c"></i> Service Friction & Incident Points</h3>
+      <p class="hint">Specific hospital units where patients reported an unpleasant or unsatisfactory experience.</p>
+      ${renderVisualBars(issueHotspots, n)}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-shield-check' style="color:#059669"></i> Touchpoint Quality Benchmark (% Rated Good/Excellent)</h3>
+      <p class="hint">Percentage of positive ratings across reception, billing, and general facility cleanliness.</p>
+      ${renderVisualBars(qualityScores, 100, '%')}
+    </div>` +
+    `<div class="chart-card-full">
+      <h3><i class='bx bx-globe'></i> Patient Preferred Survey Languages</h3>
+      <p class="hint">Language distribution chosen by respondents for feedback submission.</p>
+      ${renderVisualBars(langBars, n, ' patients')}
+    </div>` +
+    tools;
+}
+
 function admin() {
   const h = `<div class="wrap adm"><div class="adm-header">
     <div class="adm-brand">
@@ -754,6 +997,7 @@ function admin() {
 
   const tabs = [
     ['stats', `<i class='bx bx-bar-chart-alt-2'></i> Analytics & Cohorts`],
+    ['charts', `<i class='bx bx-pie-chart-alt-2'></i> Statistics & Visual Charts`],
     ['depts_perf', `<i class='bx bx-buildings'></i> Department Matrix`],
     ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback Records`],
     ['export', `<i class='bx bx-cloud-download'></i> Export Center`],
@@ -768,6 +1012,7 @@ function admin() {
   if (tab === 'audit' && !auditLoading && !auditLoaded && !auditError) loadAuditEvents();
   $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
     tab === 'stats' ? stats() :
+    tab === 'charts' ? chartsUI() :
     tab === 'depts_perf' ? deptsPerfUI() :
     tab === 'feedbacks' ? feedbacksUI() :
     tab === 'export' ? exportUI() :
@@ -822,18 +1067,18 @@ function userManagementUI() {
   const refresh = `<button class="adm-btn" onclick="loadUserManagement()"><i class='bx bx-refresh'></i> Refresh</button>`;
   const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
     activeUsers.length
-      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">Active</span></article>`).join('')}</div>`
+      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role status-approved approved"><i class='bx bx-check-circle'></i> Active</span></article>`).join('')}</div>`
       : '<p class="hint">There are no approved users to display.</p>'
   }</section>`;
   const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
     adminDirectory.length
-      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role">${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
+      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
       : '<p class="hint">There are no administrators to display.</p>'
   }</section>`;
   if (!adminSession.isSupremeAdmin) {
     const accounts = managedUsers.map((user) => `<tr>
       <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
-      <td><span class="user-role">${esc(user.status)}</span></td>
+      <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
       <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
     </tr>`).join('');
     const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${
@@ -869,7 +1114,7 @@ function userManagementUI() {
             : ''
         }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
       : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
-    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role ${user.status === 'deactivated' ? 'danger' : ''}">${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
+    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
   }).join('');
   const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
     managedUsers.length
@@ -1069,9 +1314,41 @@ async function setUserRole(userId, role, enabled) {
   }
 }
 
+let pendingDeleteUserId = null;
+let pendingDeleteUsername = '';
+
 async function deleteUser(userId, username) {
+  const dialog = $('user-delete-dialog');
+  if (dialog && typeof dialog.showModal === 'function') {
+    pendingDeleteUserId = userId;
+    pendingDeleteUsername = username;
+    const desc = $('user-delete-description');
+    if (desc) desc.textContent = `Are you sure you want to permanently delete the account @${username || userId}? This action cannot be undone.`;
+    dialog.showModal();
+    return;
+  }
   const label = username ? `@${username}` : 'this user';
   if (!confirm(`Are you sure you want to permanently delete the account ${label}? This cannot be undone.`)) return;
+  await executeDeleteUser(userId);
+}
+
+async function confirmUserDelete() {
+  const dialog = $('user-delete-dialog');
+  if (dialog && typeof dialog.close === 'function') dialog.close();
+  if (pendingDeleteUserId) {
+    const id = pendingDeleteUserId;
+    pendingDeleteUserId = null;
+    await executeDeleteUser(id);
+  }
+}
+
+function cancelUserDelete() {
+  const dialog = $('user-delete-dialog');
+  if (dialog && typeof dialog.close === 'function') dialog.close();
+  pendingDeleteUserId = null;
+}
+
+async function executeDeleteUser(userId) {
   userManagementLoading = true;
   userManagementError = '';
   admin();
@@ -1649,6 +1926,17 @@ function stats() {
 
   const cm = R.flatMap((r) => [r.a?.q10, r.a?.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
 
+  const visualChartsBanner = `<div class="visual-charts-banner card">
+    <div class="vcb-content">
+      <div>
+        <span class="vcb-badge"><i class='bx bx-pie-chart-alt-2'></i> Dedicated Visual Analytics</span>
+        <h4>Looking for larger visual charts & graphs?</h4>
+        <p class="hint">Visit the dedicated <b>Statistics & Visual Charts</b> tab for oversized high-resolution interactive donut charts, expanded legends, and proportional bar analytics.</p>
+      </div>
+      <button class="adm-btn primary" onclick="tab='charts';admin()"><i class='bx bx-pie-chart-alt-2'></i> Open Statistics & Charts</button>
+    </div>
+  </div>`;
+
   return dateBarHtml +
     filterBarHtml +
     `<div class=kpis>
@@ -1657,6 +1945,7 @@ function stats() {
       <div class=kpi><b>${pos}%</b>Satisfied (4–5★)</div>
       <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
     </div>` +
+    visualChartsBanner +
     `<div class="donut-charts-grid">
       ${donutSatisfaction}
       ${donutCohorts}
