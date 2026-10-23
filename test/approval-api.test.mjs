@@ -21,9 +21,48 @@ class ApprovalPool {
       { user_id: 'regular-admin', name: 'Regular Admin', username: 'regular_admin', created_at: '2026-10-20T10:00:00Z' },
       { user_id: 'sandra-user', name: 'Sandra Admin', username: 'sandra', created_at: '2026-10-20T10:00:00Z' }
     ];
+    this.auditEvents = [];
   }
 
   async query(sql, values = []) {
+    if (sql.startsWith('with approval as')) {
+      if (this.approvals.has(values[0])) return { rowCount: 0, rows: [] };
+      this.approvals.set(values[0], {
+        user_id: values[0],
+        status: 'pending',
+        created_at: new Date().toISOString()
+      });
+      this.auditEvents.push({
+        actorId: values[0],
+        action: 'account.created',
+        summary: 'Account created and submitted for approval.',
+        targetId: values[0]
+      });
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes('insert into public.feedback_audit_events')) {
+      this.auditEvents.push({
+        actorId: values[0] || null,
+        action: values[1] || 'account.created',
+        summary: values[2] || 'Account created and submitted for approval.',
+        targetId: values[4] || values[0] || null
+      });
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes("select auth_user.id, 'pending'")) {
+      let inserted = 0;
+      for (const user of this.users) {
+        if (!this.admins.has(user.user_id) && !this.approvals.has(user.user_id)) {
+          this.approvals.set(user.user_id, {
+            user_id: user.user_id,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          });
+          inserted += 1;
+        }
+      }
+      return { rowCount: inserted, rows: [] };
+    }
     if (sql.startsWith('select 1 from public.feedback_supreme_admins where user_id')) {
       const isSupreme = this.supremeAdmins.has(values[0]);
       return { rowCount: isSupreme ? 1 : 0, rows: isSupreme ? [{ '?column?': 1 }] : [] };
@@ -67,7 +106,7 @@ class ApprovalPool {
           user_id: user.user_id,
           name: user.name,
           username: user.username,
-          status: this.approvals.get(user.user_id)?.status || 'approved',
+          status: this.approvals.get(user.user_id)?.status || (this.admins.has(user.user_id) ? 'approved' : 'pending'),
           created_at: user.created_at,
           is_admin: this.admins.has(user.user_id),
           is_supreme_admin: this.supremeAdmins.has(user.user_id)
@@ -184,11 +223,25 @@ test('account creation hook records new accounts as pending without overriding e
   const pool = new ApprovalPool();
   await createPendingApproval(pool, 'new-signup');
   assert.equal(pool.approvals.get('new-signup').status, 'pending');
+  assert.equal(pool.auditEvents.at(-1).action, 'account.created');
+  assert.equal(pool.auditEvents.at(-1).targetId, 'new-signup');
   await createPendingApproval(pool, 'other-user');
   assert.equal(pool.approvals.get('other-user').status, 'approved');
+
+  pool.users.push({
+    user_id: 'new-signup',
+    name: 'New Signup',
+    username: 'new_signup',
+    created_at: '2026-10-21T12:00:00Z'
+  });
+  const visibleToSupremeAdmin = await call(pool, 'GET', '/api/admin/users', 'sandra-user');
+  assert.equal(
+    visibleToSupremeAdmin.data.users.find((user) => user.user_id === 'new-signup').status,
+    'pending'
+  );
 });
 
-test('pending approval list requires admin authorization and only returns pending accounts', async () => {
+test('pending approval list requires supreme-admin authorization and only returns pending accounts', async () => {
   const pool = new ApprovalPool();
   const loggedOut = await call(pool, 'GET', '/api/admin/users/pending');
   assert.equal(loggedOut.response.status, 401);
@@ -207,15 +260,65 @@ test('pending approval list requires admin authorization and only returns pendin
   assert.equal('email' in admin.data.users[0], false);
 });
 
-test('admin directory is available to admins while the full account list requires supreme access', async () => {
+test('signup without an approval row is repaired and can be approved or declined', async () => {
+  const pool = new ApprovalPool();
+  pool.users.push(
+    { user_id: 'untracked-signup', name: 'Untracked Signup', username: 'untracked_signup' },
+    { user_id: 'untracked-decline', name: 'Untracked Decline', username: 'untracked_decline' }
+  );
+  assert.equal(pool.approvals.has('untracked-signup'), false);
+  assert.equal(pool.approvals.has('untracked-decline'), false);
+
+  const accounts = await call(pool, 'GET', '/api/admin/users', 'sandra-user');
+  assert.equal(accounts.response.status, 200);
+  assert.equal(
+    accounts.data.users.find((user) => user.user_id === 'untracked-signup').status,
+    'pending'
+  );
+
+  const pending = await call(pool, 'GET', '/api/admin/users/pending', 'sandra-user');
+  assert.equal(pending.response.status, 200);
+  assert.deepEqual(
+    pending.data.users.map((user) => user.user_id),
+    ['pending-user', 'reject-user', 'untracked-signup', 'untracked-decline']
+  );
+  assert.equal(pool.approvals.get('untracked-signup').status, 'pending');
+  assert.equal(pool.approvals.get('untracked-decline').status, 'pending');
+
+  const approved = await call(
+    pool,
+    'PATCH',
+    '/api/admin/users/untracked-signup/approval',
+    'sandra-user',
+    { status: 'approved' }
+  );
+  assert.equal(approved.response.status, 200);
+  assert.equal(pool.approvals.get('untracked-signup').status, 'approved');
+
+  const declined = await call(
+    pool,
+    'PATCH',
+    '/api/admin/users/untracked-decline/approval',
+    'sandra-user',
+    { status: 'rejected' }
+  );
+  assert.equal(declined.response.status, 200);
+  assert.equal(pool.approvals.get('untracked-decline').status, 'rejected');
+});
+
+test('user-management account and directory endpoints require supreme-admin access', async () => {
   const pool = new ApprovalPool();
   const directory = await call(pool, 'GET', '/api/admin/directory', 'regular-admin');
-  assert.equal(directory.response.status, 200);
-  assert.equal(directory.data.admins.length, 2);
-  assert.equal(directory.data.admins.some((admin) => admin.is_supreme_admin), true);
+  assert.equal(directory.response.status, 403);
+  assert.deepEqual(directory.data, { error: 'supreme_admin_access_required' });
 
   const denied = await call(pool, 'GET', '/api/admin/users', 'regular-admin');
   assert.equal(denied.response.status, 403);
+
+  const supremeDirectory = await call(pool, 'GET', '/api/admin/directory', 'sandra-user');
+  assert.equal(supremeDirectory.response.status, 200);
+  assert.equal(supremeDirectory.data.admins.length, 2);
+  assert.equal(supremeDirectory.data.admins.some((admin) => admin.is_supreme_admin), true);
 
   const users = await call(pool, 'GET', '/api/admin/users', 'sandra-user');
   assert.equal(users.response.status, 200);
@@ -223,14 +326,32 @@ test('admin directory is available to admins while the full account list require
   assert.equal(users.data.users.find((user) => user.user_id === 'regular-admin').is_admin, true);
 });
 
-test('approved account list is available to admins and excludes pending accounts', async () => {
+test('approved account list requires supreme-admin access and excludes pending accounts', async () => {
   const pool = new ApprovalPool();
   const unauthorized = await call(pool, 'GET', '/api/admin/active-users', 'pending-user');
   assert.equal(unauthorized.response.status, 403);
 
   const activeUsers = await call(pool, 'GET', '/api/admin/active-users', 'regular-admin');
-  assert.equal(activeUsers.response.status, 200);
-  assert.deepEqual(activeUsers.data.users.map((user) => user.username), ['regular_admin', 'sandra']);
+  assert.equal(activeUsers.response.status, 403);
+  assert.deepEqual(activeUsers.data, { error: 'supreme_admin_access_required' });
+
+  const supremeActiveUsers = await call(pool, 'GET', '/api/admin/active-users', 'sandra-user');
+  assert.equal(supremeActiveUsers.response.status, 200);
+  assert.deepEqual(supremeActiveUsers.data.users.map((user) => user.username), ['regular_admin', 'sandra']);
+});
+
+test('regular admins cannot review pending accounts', async () => {
+  const pool = new ApprovalPool();
+  const result = await call(
+    pool,
+    'PATCH',
+    '/api/admin/users/pending-user/approval',
+    'regular-admin',
+    { status: 'approved' }
+  );
+  assert.equal(result.response.status, 403);
+  assert.deepEqual(result.data, { error: 'supreme_admin_access_required' });
+  assert.equal(pool.approvals.get('pending-user').status, 'pending');
 });
 
 test('supreme admins can grant dashboard access and set supreme role only for admins', async () => {
@@ -245,6 +366,9 @@ test('supreme admins can grant dashboard access and set supreme role only for ad
   assert.equal(promoted.response.status, 200);
   assert.equal(pool.admins.has('pending-user'), true);
   assert.equal(pool.approvals.get('pending-user').status, 'approved');
+  assert.equal(pool.auditEvents.some((event) =>
+    event.action === 'account.admin_granted' && event.targetId === 'pending-user'
+  ), true);
 
   const madeSupreme = await call(
     pool,
@@ -343,6 +467,9 @@ test('admin can approve or reject a pending account exactly once', async () => {
     reviewed_at: '2026-10-21T11:00:00Z'
   });
   assert.equal(pool.approvals.get('pending-user').reviewed_by, 'sandra-user');
+  assert.equal(pool.auditEvents.some((event) =>
+    event.action === 'account.approved' && event.targetId === 'pending-user'
+  ), true);
 
   const repeated = await call(
     pool,

@@ -10,6 +10,7 @@ const frontendPath = (...parts) => path.join(__dirname, '..', 'frontend', ...par
 const backendPath = (...parts) => path.join(__dirname, '..', 'backend', ...parts);
 const script = fs.readFileSync(frontendPath('script.js'), 'utf8');
 const styles = fs.readFileSync(frontendPath('styles.css'), 'utf8');
+const html = fs.readFileSync(frontendPath('index.html'), 'utf8');
 
 class FakeClassList {
   constructor(classes = []) {
@@ -63,6 +64,10 @@ class FakeElement {
   remove() {
     this.removed = true;
   }
+
+  click() {
+    this.clicked = true;
+  }
 }
 
 function makeApiFetch(state) {
@@ -100,6 +105,12 @@ function makeApiFetch(state) {
       data = { admins: state.adminDirectory || [] };
     } else if (pathname === '/api/admin/active-users' && method === 'GET') {
       data = { users: state.activeUsers || [] };
+    } else if (pathname === '/api/admin/audit' && method === 'GET') {
+      data = state.auditEvents || [];
+    } else if (pathname === '/api/admin/audit' && method === 'POST') {
+      state.reportExports ||= [];
+      state.reportExports.push(JSON.parse(options.body));
+      data = { ok: true };
     } else if (pathname === '/api/admin/users' && method === 'GET') {
       if (state.isSupremeAdmin !== true) {
         status = 403;
@@ -170,6 +181,7 @@ function makeApiFetch(state) {
           is_demo: false,
           user_id: null
         });
+
         data = { ok: true };
         status = 201;
       }
@@ -226,11 +238,24 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
   let nextTimerId = 1;
   const splash = new FakeElement();
   const welcome = new FakeElement();
+  const feedbackDeleteDialog = new FakeElement();
+  const feedbackDeleteDialogElements = new Map([
+    ['feedback-delete-title', new FakeElement()],
+    ['feedback-delete-description', new FakeElement()],
+    ['feedback-delete-cancel', new FakeElement()],
+    ['feedback-delete-confirm', new FakeElement()]
+  ]);
+  feedbackDeleteDialog.showModal = function () { this.open = true; };
+  feedbackDeleteDialog.close = function () { this.open = false; };
   const document = {
+    baseURI: 'https://dmc.example/',
+    body: { appendChild(node) { app.append(node); } },
     getElementById(id) {
       if (id === 'app') return app;
       if (id === 'splash') return splash.removed ? null : splash;
       if (id === 'wl') return welcome;
+      if (id === 'feedback-delete-dialog') return feedbackDeleteDialog;
+      if (feedbackDeleteDialogElements.has(id)) return feedbackDeleteDialogElements.get(id);
       return app.elements.get(id) || null;
     },
     querySelectorAll(selector) {
@@ -287,12 +312,23 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
     console: { error() {}, log() {} },
     alert() {},
     confirm() { return true; },
-    URL: { createObjectURL() { return ''; } },
-    Blob: class {}
+    URL: Object.assign(class extends URL {}, {
+      createObjectURL(blob) {
+        backendState.downloadedBlob = blob;
+        return 'blob:dmc-report';
+      },
+      revokeObjectURL() {}
+    }),
+    Blob: class {
+      constructor(parts, options) {
+        this.parts = parts;
+        this.options = options;
+      }
+    }
   });
   vm.runInContext(script, context);
 
-  return { app, context, options, storage, timers, backendState };
+  return { app, context, options, storage, timers, backendState, feedbackDeleteDialog, feedbackDeleteDialogElements };
 }
 
 test('single-choice selection updates in place and advances only once', () => {
@@ -333,7 +369,7 @@ test('survey asks for visit time before Visited Services', () => {
   const { app, context } = makeContext();
   vm.runInContext("S={lang:'en',dept:null,a:{}}; i=0; render(false)", context);
 
-  assert.match(app.innerHTML, /Visit Time/);
+  assert.match(app.innerHTML, /Visit time/);
   assert.equal(vm.runInContext("flow().indexOf('time') < flow().indexOf('dept')", context), true);
   assert.doesNotMatch(app.innerHTML, /Are you an inpatient or outpatient/);
 });
@@ -457,6 +493,25 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   assert.match(app.innerHTML, /Supreme admin/);
 });
 
+test('regular admins cannot access or load User Management', () => {
+  const backendState = {
+    session: { user: { id: 'regular-admin', name: 'Regular Admin', username: 'regular_admin' } },
+    isSupremeAdmin: false
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'regular-admin',name:'Regular Admin',username:'regular_admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='users';admin()",
+    context
+  );
+
+  assert.equal(vm.runInContext('tab', context), 'stats');
+  assert.doesNotMatch(app.innerHTML, />User Management</);
+  assert.doesNotMatch(app.innerHTML, /Admin directory|Active users|Accounts &amp; permissions/);
+  assert.equal(backendState.calls.some((call) =>
+    ['/api/admin/directory', '/api/admin/active-users', '/api/admin/users'].includes(call.url)
+  ), false);
+});
+
 test('dashboard feedback refreshes automatically and individual records can be deleted', async () => {
   const feedback = {
     id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
@@ -473,7 +528,7 @@ test('dashboard feedback refreshes automatically and individual records can be d
     session: { user: { id: 'sandra-user', name: 'Sandra', username: 'sandra' } },
     responses: []
   };
-  const { app, context, timers } = makeContext(undefined, new Map(), backendState);
+  const { app, context, timers, feedbackDeleteDialog, feedbackDeleteDialogElements } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
     "location.hash='#admin';adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isSupremeAdmin:true};adminDataLoaded=true;tab='feedbacks';admin();startDashboardFeedbackRefresh()",
     context
@@ -487,10 +542,80 @@ test('dashboard feedback refreshes automatically and individual records can be d
   assert.match(app.innerHTML, /General medicine/);
   assert.equal(vm.runInContext('feedbackResponses.length', context), 1);
 
+  vm.runInContext("S.lang='fr'", context);
   await vm.runInContext(`deleteFeedback('${feedback.id}')`, context);
+  assert.equal(feedbackDeleteDialog.open, true);
+  assert.equal(feedbackDeleteDialogElements.get('feedback-delete-title').textContent, 'Supprimer cet avis ?');
+  assert.equal(feedbackDeleteDialogElements.get('feedback-delete-cancel').textContent, 'Annuler');
+  assert.equal(backendState.deletedResponses, undefined);
+
+  vm.runInContext('cancelFeedbackDelete()', context);
+  assert.equal(feedbackDeleteDialog.open, false);
+  assert.equal(vm.runInContext('feedbackResponses.length', context), 1);
+
+  await vm.runInContext(`deleteFeedback('${feedback.id}')`, context);
+  await vm.runInContext('confirmFeedbackDelete()', context);
   assert.deepEqual(backendState.deletedResponses, [feedback.id]);
   assert.equal(vm.runInContext('feedbackResponses.length', context), 0);
   assert.match(backendState.calls.find((call) => call.url === `/api/responses/${feedback.id}`).options.method, /DELETE/);
+});
+
+test('feedback deletion uses one accessible custom dialog', () => {
+  assert.equal((html.match(/id="feedback-delete-dialog"/g) || []).length, 1);
+  assert.match(html, /<dialog[^>]*aria-labelledby="feedback-delete-title"[^>]*aria-describedby="feedback-delete-description"/);
+  assert.equal((styles.match(/\.feedback-delete-dialog\s*\{/g) || []).length, 1);
+});
+
+test('admins can view a refreshed activity log and report exports contain feedback data', async () => {
+  const backendState = {
+    routeHash: '#admin',
+    session: { user: { id: 'regular-admin', name: 'Regular Admin', username: 'regular_admin' } },
+    auditEvents: [{
+      id: 1,
+      created_at: '2026-10-23T07:00:00.000Z',
+      action: 'feedback.submitted',
+      summary: 'Feedback submitted for General medicine.',
+      actor: 'Anonymous patient'
+    }],
+    responses: [{
+      id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      submitted_at: '2026-10-23T07:00:00.000Z',
+      language: 'en',
+      department_id: 'o0',
+      department_name: 'General medicine',
+      answers: { cat: 0, q8: 1, q10: '=HYPERLINK("https://example.invalid")' },
+      is_demo: false,
+      user_id: null
+    }]
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  const workbookInputs = [];
+  context.DMCExcelExport = {
+    async downloadWorkbook(options) { workbookInputs.push(options); }
+  };
+  vm.runInContext(
+    "location.hash='#admin';adminSession={user:{id:'regular-admin',name:'Regular Admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='audit';admin()",
+    context
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(app.innerHTML, /Activity Log/);
+  assert.match(app.innerHTML, /Feedback submitted for General medicine/);
+  assert.match(app.innerHTML, /Anonymous patient/);
+
+  await vm.runInContext('loadAdminData()', context);
+  await vm.runInContext("exportExcel('full')", context);
+  assert.equal(workbookInputs.length, 1);
+  assert.equal(workbookInputs[0].rows.length, 1);
+  assert.equal(workbookInputs[0].rows[0][0], 'f47ac10b-58cc-4372-a567-0e02b2c3d479');
+  assert.equal(workbookInputs[0].rows[0][4], 'General medicine');
+  assert.equal(workbookInputs[0].rows[0][17], '=HYPERLINK("https://example.invalid")');
+  assert.equal(backendState.reportExports[0].format, 'xlsx');
+
+  vm.runInContext("exportCSV('full')", context);
+  const csv = backendState.downloadedBlob.parts[0];
+  assert.match(csv, /General medicine/);
+  assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.invalid""\)"/);
+  assert.equal(backendState.downloadedBlob.options.type, 'text/csv;charset=utf-8');
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {
@@ -502,12 +627,12 @@ test('intro language changes in place and loads departments from the Node API', 
 
   vm.runInContext("S.lang='fr'", context);
   assert.equal(app.renderCount, rendersBeforeLanguageChange);
-  assert.match(vm.runInContext('g(U.introTitle)', context), /QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES/);
+  assert.match(vm.runInContext('g(U.introTitle)', context), /QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES/);
 
   await vm.runInContext('startSurvey()', context);
 
   assert.equal(vm.runInContext('i', context), 0);
-  assert.match(app.innerHTML, /Heure de la Visite/);
+  assert.match(app.innerHTML, /Heure de la visite/);
   assert.equal(storage.has('dmc_storage_check'), false);
   assert.equal(storage.has('dmc_device_id'), true);
   assert.equal(backendState.calls.filter((call) => call.url === '/api/check').length, 1);
@@ -524,11 +649,11 @@ test('language selection shows the translated intro heading and subtitle before 
       'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu.'
     ],
     en: [
-      'OUT PATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
+      'OUTPATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
       'Your feedback is important to us and will help improve our services.'
     ],
     fr: [
-      'QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
+      'QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
       'Votre avis nous aidera à améliorer nos services.'
     ]
   };
@@ -555,7 +680,7 @@ test('a device with a recent response cannot start another survey', async () => 
 
   await vm.runInContext('startSurvey()', context);
 
-  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING/);
+  assert.match(app.innerHTML, /Thank you for choosing/);
   assert.equal(storage.has('dmc_completed'), true);
   assert.equal(storage.has('dmc_device_id'), true);
 });
@@ -585,7 +710,7 @@ test('a local submission within 24 hours restores the completion screen without 
 
   vm.runInContext('startSurvey()', context);
 
-  assert.match(app.innerHTML, /MERCI D(&#39;|')AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!/);
+  assert.match(app.innerHTML, /Merci d’avoir choisi Dream Medical Center Hospital !/);
   assert.doesNotMatch(app.innerHTML, /Bienvenue à DMC Hospital/);
   assert.match(app.innerHTML, /Envoyé/);
   assert.equal(fetchCalls, 0);
@@ -602,7 +727,7 @@ test('successful feedback submission stores the response and restores completion
   assert.match(app.innerHTML, /submit-progress/);
   await submission;
   assert.equal(backendState.calls.filter((call) => call.url === '/api/submit').length, 1);
-  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
+  assert.match(app.innerHTML, /Thank you for choosing Dream Medical Center Hospital!/);
   assert.doesNotMatch(app.innerHTML, /Welcome to DMC Hospital/);
   assert.match(app.innerHTML, /Submitted/);
   assert.equal(backendState.responses.length, 1);
@@ -613,7 +738,7 @@ test('successful feedback submission stores the response and restores completion
   assert.equal(JSON.parse(storage.get('dmc_completed')).lang, 'en');
 
   const refreshed = makeContext(null, storage);
-  assert.match(refreshed.app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
+  assert.match(refreshed.app.innerHTML, /Thank you for choosing Dream Medical Center Hospital!/);
   assert.equal(refreshed.timers.size, 0);
 });
 
@@ -633,5 +758,5 @@ test('failed feedback save keeps answers and offers a successful retry', async (
   await vm.runInContext('submit()', context);
 
   assert.equal(backendState.responses.length, 1);
-  assert.match(app.innerHTML, /THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!/);
+  assert.match(app.innerHTML, /Thank you for choosing Dream Medical Center Hospital!/);
 });

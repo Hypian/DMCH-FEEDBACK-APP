@@ -36,6 +36,15 @@
     </div>
   </div>
   <div id="app"></div>
+  <dialog class="feedback-delete-dialog" id="feedback-delete-dialog" aria-labelledby="feedback-delete-title" aria-describedby="feedback-delete-description">
+    <div class="approval-dialog-mark" aria-hidden="true"><i class="bx bx-trash"></i></div>
+    <h2 id="feedback-delete-title">Delete this feedback?</h2>
+    <p class="intro-copy" id="feedback-delete-description">This feedback record will be permanently deleted. This action cannot be undone.</p>
+    <div class="feedback-delete-actions">
+      <button class="adm-btn" id="feedback-delete-cancel" type="button" onclick="cancelFeedbackDelete()">Cancel</button>
+      <button class="adm-btn danger" id="feedback-delete-confirm" type="button" onclick="confirmFeedbackDelete()">Delete feedback</button>
+    </div>
+  </dialog>
   <script src="api-config.js"></script>
   <script src="xlsx-export.js"></script>
   <script src="script.js"></script>

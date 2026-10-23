@@ -6,9 +6,10 @@
 2. Set `BETTER_AUTH_URL` to the origin that serves this app. Locally, with the default port, use `http://localhost:5173`. Configure the production URL before deployment.
 3. Install dependencies with `npm install`. If the existing Better Auth `user` table has the legacy required `phone` column, run [`backend/neon/phone-optional-migration.sql`](./backend/neon/phone-optional-migration.sql) in the Neon SQL editor first. It preserves existing phone values while allowing new accounts that no longer collect phone numbers.
 4. Create/update Better Auth's tables with `npm run auth:migrate`. The username plugin adds the username field.
-5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, and device-lock tables.
+5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, device-lock, and audit tables.
 6. If you already have Better Auth accounts, run [`backend/neon/username-auth-migration.sql`](./backend/neon/username-auth-migration.sql). It safely ensures the username column and unique index exist, then assigns stable usernames without changing account IDs or password hashes. Query `select id, name, username from public."user";` and securely tell each existing user their assigned username. Review the migration before running it.
 7. Run [`backend/neon/supreme-admin-migration.sql`](./backend/neon/supreme-admin-migration.sql) to create the separate supreme-admin role table before using user management.
+8. For an existing installation, run [`backend/neon/audit-log-migration.sql`](./backend/neon/audit-log-migration.sql) once to create the application audit table.
 8. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
 
 ## Project layout
@@ -37,7 +38,7 @@ Do not copy local `.env` files into GitHub, commit them, or put database credent
 
 ## Account approval and first administrator
 
-New signups are recorded as `pending`. Users sign up and log in with full name, username, and password, then wait for an administrator's approval before accessing protected account features. To promote Sandra, retrieve her Better Auth user ID in Neon and promote her once:
+New signups are recorded as `pending`. Users sign up and log in with full name, username, and password, then wait for a supreme administrator's approval before accessing protected account features. To promote Sandra, retrieve her Better Auth user ID in Neon and promote her once:
 
 ```sql
 select id, name, username from public."user" where username = 'SANDRA_USERNAME';
@@ -56,7 +57,7 @@ insert into public.feedback_supreme_admins (user_id)
 values ('SANDRA_BETTER_AUTH_USER_ID');
 ```
 
-The dashboard's **User Management** tab lists approved accounts and lets a supreme admin approve or decline pending accounts, grant or remove admin access, and grant or remove supreme-admin access. Regular admins can see approved accounts and the admin directory but cannot manage roles or approve accounts. The app prevents removing the last admin or last supreme admin. **Feedback Records** updates automatically while the dashboard is open and lets admins delete individual feedback records; the existing clear-all control remains available. Applying the schema and supreme-admin migration is required before using user-management features.
+The dashboard's **User Management** tab is available only to supreme admins. It lists approved accounts and lets a supreme admin approve or decline pending accounts, grant or remove admin access, and grant or remove supreme-admin access. Regular admins do not see the tab, and the backend denies them access to its account and admin-directory endpoints. The app prevents removing the last admin or last supreme admin. **Feedback Records** updates automatically while the dashboard is open and lets admins delete individual feedback records; the existing clear-all control remains available. **Activity Log** is available to every admin and records successful sign-ins, account approvals and role changes, feedback submissions and deletions, service changes, demo-data actions, and report exports. **Export Center** downloads formatted Excel workbooks with the DMC logo and Excel-friendly CSV files. Applying the schema and supreme-admin migration is required before using user-management features; existing installations must also apply the audit-log migration before deploying this version.
 
 Better Auth's underlying user model requires an email-shaped identifier. The app generates it server-side from the username using the reserved `accounts.dmc.invalid` domain; users do not provide or use email addresses, and no verification or recovery email is sent. Existing email values remain in their existing account rows but are not used for login or shown in the UI. Password recovery is not available; users must keep their password safe.
 

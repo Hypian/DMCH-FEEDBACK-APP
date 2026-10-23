@@ -4,6 +4,7 @@ import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { username } from 'better-auth/plugins';
 import 'dotenv/config';
 import { createPendingApproval } from './approval-api.mjs';
+import { recordAuditEvent } from './audit-log.mjs';
 
 const databaseUrl = process.env.NEON_DATABASE_URL;
 const authSecret = process.env.BETTER_AUTH_SECRET;
@@ -47,6 +48,18 @@ export const auth = betterAuth({
         },
         after: async (user) => {
           await createPendingApproval(pool, user.id);
+        }
+      }
+    },
+    session: {
+      create: {
+        after: async (session) => {
+          await recordAuditEvent(pool, {
+            actorId: session.userId,
+            action: 'auth.login',
+            summary: 'Signed in successfully.',
+            targetType: 'session'
+          });
         }
       }
     }

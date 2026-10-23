@@ -35,6 +35,18 @@ create table if not exists public.device_submissions (
   submitted_at timestamptz not null
 );
 
+create table if not exists public.feedback_audit_events (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  actor_user_id text,
+  action text not null,
+  summary text not null,
+  target_type text,
+  target_id text,
+  metadata jsonb not null default '{}'::jsonb
+    check (jsonb_typeof(metadata) = 'object')
+);
+
 create index if not exists feedback_responses_submitted_at_idx
   on public.feedback_responses (submitted_at desc);
 create index if not exists feedback_responses_department_id_idx
@@ -44,6 +56,10 @@ create index if not exists feedback_responses_user_id_idx
 create index if not exists feedback_account_approvals_pending_idx
   on public.feedback_account_approvals (created_at)
   where status = 'pending';
+create index if not exists feedback_audit_events_created_at_idx
+  on public.feedback_audit_events (created_at desc);
+create index if not exists feedback_audit_events_actor_user_id_idx
+  on public.feedback_audit_events (actor_user_id, created_at desc);
 
 insert into public.feedback_departments (id, labels, sort_order) values
   ('o0', '["Gynecology & Obs", "Gynécologie - Obstétrique", "Ubuvuzi bw’ababyeyi"]'::jsonb, 0),

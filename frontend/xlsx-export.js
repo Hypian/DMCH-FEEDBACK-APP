@@ -36,11 +36,13 @@
 
   function worksheetXml({ headers, rows, title, subtitle, generatedAt, widths }) {
     const lastColumn = columnName(headers.length - 1);
+    const metadataEndColumn = headers.length >= 4 ? lastColumn : 'D';
+    const dimensionEndColumn = headers.length >= 4 ? lastColumn : 'D';
     const lastRow = rows.length + 5;
     const outputRows = [
-      `<row r="1" ht="32" customHeight="1">${cellXml('C1', title, 1)}</row>`,
-      `<row r="2" ht="24" customHeight="1">${cellXml('C2', subtitle, 2)}</row>`,
-      `<row r="3" ht="18" customHeight="1">${cellXml('C3', generatedAt, 2)}</row>`,
+      `<row r="1" ht="40" customHeight="1">${cellXml('D1', title, 1)}</row>`,
+      `<row r="2" ht="24" customHeight="1">${cellXml('D2', subtitle, 2)}</row>`,
+      `<row r="3" ht="18" customHeight="1">${cellXml('D3', generatedAt, 2)}</row>`,
       '<row r="4" ht="8" customHeight="1"/>',
       `<row r="5" ht="34" customHeight="1">${headers.map((header, index) => cellXml(`${columnName(index)}5`, header, 3)).join('')}</row>`
     ];
@@ -48,19 +50,24 @@
     rows.forEach((row, rowIndex) => {
       const excelRow = rowIndex + 6;
       const style = rowIndex % 2 === 0 ? 4 : 5;
-      outputRows.push(`<row r="${excelRow}">${headers.map((_header, columnIndex) =>
+      const wrappedLines = row.reduce((maxLines, value, columnIndex) =>
+        Math.max(maxLines, Math.ceil(String(value ?? '').length / Math.max(12, widths[columnIndex] * 1.15))), 1);
+      const height = Math.min(120, Math.max(22, 15 * wrappedLines + 7));
+      outputRows.push(`<row r="${excelRow}" ht="${height}" customHeight="1">${headers.map((_header, columnIndex) =>
         cellXml(`${columnName(columnIndex)}${excelRow}`, row[columnIndex], style)
       ).join('')}</row>`);
     });
 
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="${spreadsheetNamespace}" xmlns:r="${relationshipNamespace}">
+  <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
+  <dimension ref="A1:${dimensionEndColumn}${lastRow}"/>
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
-  <sheetFormatPr defaultRowHeight="20"/>
+  <sheetFormatPr defaultRowHeight="18"/>
   <cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>
   <sheetData>${outputRows.join('')}</sheetData>
-  <mergeCells count="2"><mergeCell ref="C1:${lastColumn}1"/><mergeCell ref="C2:${lastColumn}2"/></mergeCells>
   <autoFilter ref="A5:${lastColumn}${lastRow}"/>
+  ${headers.length >= 4 ? `<mergeCells count="2"><mergeCell ref="D1:${metadataEndColumn}1"/><mergeCell ref="D2:${metadataEndColumn}2"/></mergeCells>` : ''}
   <pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
   <drawing r:id="rId1"/>
@@ -72,16 +79,17 @@
 <styleSheet xmlns="${spreadsheetNamespace}">
   <fonts count="4">
     <font><sz val="10"/><name val="Aptos"/></font>
-    <font><b/><sz val="18"/><color rgb="FFE54B2B"/><name val="Aptos Display"/></font>
+    <font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Aptos Display"/></font>
     <font><sz val="10"/><color rgb="FF78655D"/><name val="Aptos"/></font>
     <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FF1C1410"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFFDF1EE"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE54B2B"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="2">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -90,7 +98,7 @@
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="6">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1"><alignment vertical="top" wrapText="1"/></xf>
@@ -192,11 +200,11 @@
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${relationshipNamespace}">
   <xdr:oneCellAnchor>
     <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:ext cx="1809750" cy="523875"/>
+    <xdr:ext cx="1463040" cy="425580"/>
     <xdr:pic>
       <xdr:nvPicPr><xdr:cNvPr id="2" name="DMC Hospital Logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>
       <xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
-      <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1809750" cy="523875"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+      <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1463040" cy="425580"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
   </xdr:oneCellAnchor>

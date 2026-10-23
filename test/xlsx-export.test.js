@@ -47,8 +47,8 @@ function crc32(bytes) {
 
 test('creates a branded Excel workbook with readable, safely encoded report cells', () => {
   const workbook = createWorkbook({
-    headers: ['Department', 'Reviews', 'Comment'],
-    rows: [['General & Family Care', 12, '=HYPERLINK("https://example.com")']],
+    headers: ['Department', 'Reviews', 'Comment', 'Language', 'Cohort'],
+    rows: [['General & Family Care', 12, '=HYPERLINK("https://example.com")', 'en', 'New']],
     title: 'DMC Hospital — Department Report',
     subtitle: 'Confidential quality report',
     generatedAt: 'Generated 2026-10-21',
@@ -65,7 +65,11 @@ test('creates a branded Excel workbook with readable, safely encoded report cell
   assert.match(sheet, /t="inlineStr"><is><t xml:space="preserve">=HYPERLINK/);
   assert.doesNotMatch(sheet, /<f>/);
   assert.match(sheet, /state="frozen"/);
-  assert.match(sheet, /autoFilter ref="A5:C6"/);
+  assert.match(sheet, /dimension ref="A1:E6"/);
+  assert.match(sheet, /<c r="D1" s="1"/);
+  assert.ok(sheet.indexOf('<autoFilter') < sheet.indexOf('<mergeCells'));
+  assert.match(sheet, /mergeCell ref="D1:E1"/);
+  assert.match(sheet, /autoFilter ref="A5:E6"/);
   assert.match(drawing, /DMC Hospital Logo/);
 
   for (const { checksum, data } of entries.values()) {
@@ -90,5 +94,9 @@ test('wires all admin export actions to Excel workbooks', () => {
   assert.match(appScript, /onclick="exportExcel\('full'\)"/);
   assert.match(appScript, /onclick="exportExcel\('departments'\)"/);
   assert.match(appScript, /onclick="exportExcel\('patients'\)"/);
-  assert.doesNotMatch(appScript, /exportCSV|\.csv/);
+  assert.match(appScript, /onclick="exportCSV\('full'\)"/);
+  assert.match(appScript, /function exportCSV\(type = 'full'\)/);
+  assert.match(appScript, /downloadWorkbook\(\{/);
+  assert.match(appScript, /logoUrl: new URL\('logo-optimized\.jpg', document\.baseURI\)\.href/);
+  assert.match(appScript, /rows = R\.map\(\(r\) =>/);
 });

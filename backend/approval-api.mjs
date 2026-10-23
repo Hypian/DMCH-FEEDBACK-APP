@@ -1,3 +1,5 @@
+import { recordAuditEvent } from './audit-log.mjs';
+
 function sendJson(response, status, body) {
   response.writeHead(status, {
     'Cache-Control': 'no-store',
@@ -69,9 +71,33 @@ async function requireSupremeAdmin(request, response, pool, getAuthSession) {
 
 export async function createPendingApproval(pool, userId) {
   await pool.query(
-    `insert into public.feedback_account_approvals (user_id, status)
-     values ($1, 'pending') on conflict (user_id) do nothing`,
+    `with approval as (
+       insert into public.feedback_account_approvals (user_id, status)
+       values ($1, 'pending') on conflict (user_id) do nothing
+       returning user_id
+     )
+     insert into public.feedback_audit_events
+       (actor_user_id, action, summary, target_type, target_id, metadata)
+     select user_id, 'account.created', 'Account created and submitted for approval.',
+            'account', user_id, '{}'::jsonb
+     from approval`,
     [userId]
+  );
+}
+
+async function ensurePendingApprovals(pool) {
+  await pool.query(
+    `insert into public.feedback_account_approvals (user_id, status)
+     select auth_user.id, 'pending'
+     from public."user" as auth_user
+     left join public.feedback_admins as admin on admin.user_id = auth_user.id
+     where admin.user_id is null
+       and not exists (
+         select 1
+         from public.feedback_account_approvals as approval
+         where approval.user_id = auth_user.id
+       )
+     on conflict (user_id) do nothing`
   );
 }
 
@@ -114,7 +140,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
+    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select auth_user.name, auth_user.username, supreme.user_id is not null as is_supreme_admin
        from public.feedback_admins as admin
@@ -132,7 +158,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
+    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select auth_user.name, auth_user.username
        from public."user" as auth_user
@@ -151,9 +177,12 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       return true;
     }
     if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
+    await ensurePendingApprovals(pool);
     const result = await pool.query(
       `select auth_user.id as user_id, auth_user.name, auth_user.username,
-              coalesce(approval.status, 'approved') as status,
+              case when admin.user_id is not null then 'approved'
+                   else coalesce(approval.status, 'pending')
+              end as status,
               approval.created_at,
               admin.user_id is not null as is_admin,
               supreme.user_id is not null as is_supreme_admin
@@ -175,6 +204,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     }
     const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
     if (!adminSession) return true;
+    await ensurePendingApprovals(pool);
     const result = await pool.query(
       `select approval.user_id, auth_user.name, auth_user.username, approval.created_at
        from public.feedback_account_approvals as approval
@@ -306,6 +336,14 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
           );
         }
       }
+      await recordAuditEvent(client, {
+        actorId: adminSession.user.id,
+        action: `account.${roleMatch[2]}_${body.enabled ? 'granted' : 'revoked'}`,
+        summary: `${body.enabled ? 'Granted' : 'Revoked'} ${roleMatch[2]} access for account ${roleMatch[1]}.`,
+        targetType: 'account',
+        targetId: roleMatch[1],
+        metadata: { role: roleMatch[2], enabled: body.enabled }
+      });
       await client.query('commit');
       transactionStarted = false;
     } catch (error) {
@@ -328,17 +366,36 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     return true;
   }
 
-  const result = await pool.query(
-    `update public.feedback_account_approvals
-     set status = $2, reviewed_at = now(), reviewed_by = $3
-     where user_id = $1 and status = 'pending'
-     returning user_id, status, reviewed_at`,
-    [approvalMatch[1], body.status, adminSession.user.id]
-  );
-  if (result.rowCount === 0) {
-    sendJson(response, 404, { error: 'pending_user_not_found' });
-    return true;
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const result = await client.query(
+      `update public.feedback_account_approvals
+       set status = $2, reviewed_at = now(), reviewed_by = $3
+       where user_id = $1 and status = 'pending'
+       returning user_id, status, reviewed_at`,
+      [approvalMatch[1], body.status, adminSession.user.id]
+    );
+    if (result.rowCount === 0) {
+      await client.query('rollback');
+      sendJson(response, 404, { error: 'pending_user_not_found' });
+      return true;
+    }
+    await recordAuditEvent(client, {
+      actorId: adminSession.user.id,
+      action: `account.${body.status}`,
+      summary: `${body.status === 'approved' ? 'Approved' : 'Declined'} account ${approvalMatch[1]}.`,
+      targetType: 'account',
+      targetId: approvalMatch[1],
+      metadata: { status: body.status }
+    });
+    await client.query('commit');
+    sendJson(response, 200, { user: result.rows[0] });
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
   }
-  sendJson(response, 200, { user: result.rows[0] });
   return true;
 }

@@ -31,9 +31,15 @@ let adminError = '';
 let adminDirectory = [];
 let activeUsers = [];
 let managedUsers = [];
+let pendingFeedbackDeleteId = null;
 let userManagementLoading = false;
 let userManagementLoaded = false;
 let userManagementError = '';
+let auditEntries = [];
+let auditLoading = false;
+let auditLoaded = false;
+let auditError = '';
+let auditRefreshInProgress = false;
 const g = (a) => a[IX[S.lang]] || a[0];
 const API_ORIGIN = typeof window === 'undefined'
   ? ''
@@ -59,13 +65,13 @@ const U = {
   welcome: ['Welcome to DMC Hospital', 'Bienvenue à DMC Hospital', 'Murakaza neza kuri DMC Hospital'],
   pick: ['Choose your language', 'Choisissez votre langue', 'Hitamo ururimi'],
   introTitle: [
-    'OUT PATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
-    'QUESTIONNAIRE SUR LA SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
+    'OUTPATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
+    'QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
     'GUKUSANYA IBITEKEREZO BY\'ABARWAYI BAJE KWIVUZA BATAHA (OPD)'
   ],
   introBody: [
     'Your feedback is important to us and will help improve our services. Please complete this short survey. Responses are confidential; if you are signed in, your response is linked to your account, otherwise it is anonymous.',
-    'Votre avis nous aidera à améliorer nos services. Merci de répondre à ce court questionnaire. Les réponses sont confidentielles; si vous êtes connecté, votre réponse est associée à votre compte, sinon elle est anonyme.',
+    'Votre avis nous aidera à améliorer nos services. Merci de répondre à ce court questionnaire. Les réponses sont confidentielles ; si vous êtes connecté(e), votre réponse sera associée à votre compte ; sinon, elle restera anonyme.',
     'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu. Turabasaba kuzuza aka kabazo gato. Ibitekerezo bibikwa mu ibanga; niba winjiye muri konti, igitekerezo cyawe gihuzwa na konti yawe, bitabaye ibyo kikaguma kitagaragaza umwirondoro.'
   ],
   startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira ibibazo'],
@@ -75,8 +81,8 @@ const U = {
   savingAnswers: ['Saving your answers securely…', 'Enregistrement sécurisé de vos réponses…', 'Turimo kubika ibisubizo byawe mu mutekano…'],
   submitting: ['Sending your survey securely…', 'Envoi sécurisé de votre questionnaire…', 'Turimo kohereza ibisubizo byawe mu mutekano…'],
   completionTitle: [
-    'THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!',
-    'MERCI D\'AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!',
+    'Thank you for choosing Dream Medical Center Hospital!',
+    'Merci d’avoir choisi Dream Medical Center Hospital !',
     'MURAKOZE GUHITAMO DREAM MEDICAL CENTER HOSPITAL!'
   ],
   completionBody: [
@@ -106,7 +112,7 @@ const U = {
     'Ibisubizo byawe biracyahari. Reba umurongo wa interineti wongere ugerageze.'
   ],
   retrySubmit: ['Try saving again', 'Réessayer l’enregistrement', 'Ongera ugerageze kubika'],
-  dept: ['Visited Services', 'Services Visités', 'Serivisi Yasuwe'],
+  dept: ['Visited services', 'Services visités', 'Serivisi Yasuwe'],
   all: [
     'Please select all that apply',
     'Cochez toutes les réponses applicables',
@@ -116,11 +122,14 @@ const U = {
   next: ['Next', 'Suivant', 'Komeza'],
   back: ['Back', 'Retour', 'Subira inyuma'],
   send: ['Submit', 'Envoyer', 'Ohereza'],
-  thanks: [
-    'THANK YOU FOR CHOOSING DREAM MEDICAL CENTER HOSPITAL!!!!!!!',
-    'MERCI D\'AVOIR CHOISI DREAM MEDICAL CENTER HOSPITAL!',
-    'MURAKOZE GUHITAMO DREAM MEDICAL CENTER HOSPITAL!'
-  ]
+  feedbackDeleteTitle: ['Delete this feedback?', 'Supprimer cet avis ?', 'Gusiba iki gitekerezo?'],
+  feedbackDeleteDescription: [
+    'This feedback record will be permanently deleted. This action cannot be undone.',
+    'Cet avis sera supprimé définitivement. Cette action est irréversible.',
+    'Iki gitekerezo kizasibwa burundu. Iki gikorwa ntigishobora gusubizwa inyuma.'
+  ],
+  feedbackDeleteCancel: ['Cancel', 'Annuler', 'Hagarika'],
+  feedbackDeleteConfirm: ['Delete feedback', 'Supprimer l’avis', 'Siba igitekerezo'],
 };
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 let welcomeTimer = null;
@@ -128,50 +137,50 @@ let welcomeTimer = null;
 const RATE = P('Excellent~Excellente~Byiza cyane|Good~Bonne~Byiza|Fair~Moyenne~Mu rugero|Poor~Mauvaise~Bibi|Very poor~Très mauvaise~Bibi cyane');
 const AREA = P("Reception desk~Réception~Aho bakirira abagana ivuriro|Cashier’s desk~Caisse~Aho abagana ivuriro bishyurira|Triage~Triage~Isuzuniro ry’ibanze|Consultation~Consultation~Kubonana n'umuganga|Emergency~Urgences~Aho bakirira indembe n’inkomere|Laboratory~Laboratoire~Aho batangira ibizamini|Radiology/imaging~Radiologie/Imagerie~Guca mucyuma|Minor surgery~Petite chirurgie~Kubagwa byoroheje|Physiotherapy service~Service de physiothérapie~Aho bagorora ingingo|Vaccination~Vaccination~Aho batangira inkingo|Restaurant~Restaurant~Aho batangira amafunguro");
 const Q = {
-  dept: { t: 'd', q: T3('Visited Services~Services Visités~Serivisi Yasuwe') },
+  dept: { t: 'd', q: T3('Visited services~Services visités~Serivisi Yasuwe') },
   cat: {
     t: 's',
-    q: T3('Patient Category~Catégorie de Patient~Umurwayi'),
-    o: P('New Patient~Nouveau patient(e)~Uje bwa mbere.|Returning Patient~Patient déjà venu~Usanzwe y’ivuriza hano.')
+    q: T3('Patient category~Catégorie de patient~Umurwayi'),
+    o: P('New patient~Nouveau patient ou nouvelle patiente~Uje bwa mbere.|Returning patient~Patient de retour~Usanzwe y’ivuriza hano.')
   },
   time: {
     t: 's',
-    q: T3('Visit Time~Heure de la Visite~Igihe waziye'),
+    q: T3('Visit time~Heure de la visite~Igihe waziye'),
     o: P('8:00 AM – 5:00 PM~8h00 – 17h00~8h00 – 17h00|5:00 PM – 9:00 PM~17h00 – 21h00~17h00 – 21h00|9:00 PM – 8:00 AM~21h00 – 8h00~21h00 – 8h00')
   },
   q1: {
     t: 's',
-    q: T3("1. How was your experience at the reception/registration desk?~1. Comment évaluez-vous votre expérience à la réception/l’enregistrement?~1. Wakiriwe ute n’abashinzwe kwakira abatugana (reception desk)?"),
+    q: T3("1. How was your experience at the reception and registration desk?~1. Comment évaluez-vous votre expérience à l’accueil et au guichet d’enregistrement ?~1. Wakiriwe ute n’abashinzwe kwakira abatugana (reception desk)?"),
     o: RATE
   },
   q2: {
     t: 's',
-    q: T3("2. How was your experience at the cashier’s desk?~2. Comment évaluez-vous votre expérience à la caisse?~2. Wakiriwe ute n’abashinzwe kwishyuza abatugana (cash desk)?"),
+    q: T3("2. How was your experience at the cashier’s desk?~2. Comment évaluez-vous votre expérience à la caisse ?~2. Wakiriwe ute n’abashinzwe kwishyuza abatugana (cash desk)?"),
     o: RATE
   },
   q3: {
     t: 's',
-    q: T3('3. How long did you wait before seeing the Doctor?~3. Combien de temps avez-vous attendu avant de voir le prestataire de soins (médecin)?~3. Wategereje b’ingana iki mbere yo kubonana n\'umuganga?'),
-    o: P('Less than 15 minute’s~Moins de 15 minutes~Munsi y\'iminota 15|15–30 minutes~15–30 minutes~Iminota 15–30|30–60 minutes~30–60 minutes~Iminota 30–60|1-2 hour~1–2 heures~Isaha 1–2|More than 2 hour~Plus de 2 heures~Birenze amasaha 2')
+    q: T3('3. How long did you wait before seeing the doctor?~3. Combien de temps avez-vous attendu avant de consulter le médecin ?~3. Wategereje b’ingana iki mbere yo kubonana n\'umuganga?'),
+    o: P('Less than 15 minutes~Moins de 15 minutes~Munsi y\'iminota 15|15–30 minutes~15–30 minutes~Iminota 15–30|30–60 minutes~30–60 minutes~Iminota 30–60|1–2 hours~1–2 heures~Isaha 1–2|More than 2 hours~Plus de 2 heures~Birenze amasaha 2')
   },
   q4: {
     t: 'm',
-    q: T3("4. Where did you experience a delay? Please select all that apply.~4. Où avez-vous rencontré un retard? Cochez toutes les réponses applicables.~4. Ni hehe wagize ubukererwe? Hitamo ibihuye byose."),
+    q: T3("4. Where did you experience a delay? Please select all that apply.~4. À quel endroit avez-vous rencontré un retard ? Cochez toutes les réponses applicables.~4. Ni hehe wagize ubukererwe? Hitamo ibihuye byose."),
     o: AREA.concat(P("I did not experience any delay~Je n'ai rencontré aucun retard~Sinigeze ngira ubukererwe"))
   },
   q5: {
     t: 's',
-    q: T3('5. Did the doctor listen carefully and address your concerns during consultation time?~5. Le prestataire de soins vous a-t-il écouté attentivement et pris en compte vos préoccupations pendant la consultation?~5. Umuganga wakwakiriye yaguteze amatwi bikunyuze mu gihe mwaganiraga ku burwayi bwawe?'),
+    q: T3('5. Did the doctor listen carefully and address your concerns during the consultation?~5. Le prestataire de soins vous a-t-il écouté attentivement et a-t-il pris en compte vos préoccupations pendant la consultation ?~5. Umuganga wakwakiriye yaguteze amatwi bikunyuze mu gihe mwaganiraga ku burwayi bwawe?'),
     o: P('Yes~Oui~Yego|Partly~Partiellement~Mu rugero|No~Non~Oya')
   },
   q6: {
     t: 'm',
-    q: T3('6. Among the following OPD areas, where did you have an unpleasant experience?~6. Parmi les zones suivantes de l’OPD, dans lesquelles avez-vous constaté une expérience désagréable?~6. Ni hehe mwahuye n’ikibazo cyangwa serivisi idashimishije muri izi serivisi z’abivuza bataha ?'),
-    o: AREA.concat(P('None~Je n\'ai rencontré aucun retard~Sinigeze ngira ubukererwe'))
+    q: T3('6. In which of the following OPD areas did you have an unpleasant experience?~6. Dans les services suivants, où avez-vous vécu une expérience désagréable ?~6. Ni hehe mwahuye n’ikibazo cyangwa serivisi idashimishije muri izi serivisi z’abivuza bataha ?'),
+    o: AREA.concat(P('None~Aucun problème~Nta kibazo'))
   },
   q7: {
     t: 's',
-    q: T3('7. How do you rate the cleanliness of the OPD area?~7. Comment évaluez-vous la propreté de la zone OPD?~7. Mwabonye mute isuku y’aho abivuza bakirirwa?'),
+    q: T3('7. How do you rate the cleanliness of the OPD area?~7. Comment évaluez-vous la propreté des locaux du service des consultations externes ?~7. Mwabonye mute isuku y’aho abivuza bakirirwa?'),
     o: RATE
   },
   q8: {
@@ -185,11 +194,11 @@ const Q = {
   },
   q10: {
     t: 'x',
-    q: T3('10. Please tell us where we can improve, any additional comments or suggestions.~10. Merci de nous indiquer où nous pouvons nous améliorer, ainsi que tout autre commentaire ou suggestion.~10. Turabasaba ibitekerezo by’ibyo twanoza, n’Ikindi cyose mwifuza kutubwira muhawe ikaze.')
+    q: T3('10. Please tell us how we can improve. Add any other comments or suggestions.~10. Merci de nous indiquer comment nous améliorer. Vous pouvez également ajouter tout autre commentaire ou suggestion.~10. Turabasaba ibitekerezo by’ibyo twanoza, n’Ikindi cyose mwifuza kutubwira muhawe ikaze.')
   }
 };
 
-const OPD = P("Gynecology & Obs~Gynécologie - Obstétrique~Ubuvuzi bw’ababyeyi|Internal medicine~Médecine interne~Ubuvuzi bw’imbere mu Mubiri|Orthopedic~Orthopédie~Ubuvuzi bw’indwara z’amagufa|Pediatrics~Pédiatrie~Ubuvuzi bw'Abana|General surgery~Chirurgie générale~Imbagwa|Physiotherapy & rehabilitation~Physiothérapie & Réeducation~kugorora ingingo|General medicine~Médecine générale~Ubuvuzi Rusange|ENT~ORL~Ubuvuzi bw’indwara z’amatwi, Izuru n'Umuhogo|Urology~Urologie~Ubuvuzi bw’umuyoboro w'Inkari|Ophthalmology~Ophtalmologie~Ubuvuzi bw’amaso|Dental~Dentaire~Ubuvuzi bw’amenyo|Emergency & observation~Urgences & Observation~Aho bakirira indembe n’inkomere|Radiology /Imaging~Radiologie/Imagerie~Guca mu cyuma|Vaccination~Vaccination~Aho batangira Inkingo|Laboratory~Laboratoire~Aho batangira ibizamini|Minor surgery~Petite chirurgie~Kubagwa Byoroheje");
+const OPD = P("Gynecology & Obstetrics~Gynécologie-obstétrique~Ubuvuzi bw’ababyeyi|Internal medicine~Médecine interne~Ubuvuzi bw’imbere mu Mubiri|Orthopedics~Orthopédie~Ubuvuzi bw’indwara z’amagufa|Pediatrics~Pédiatrie~Ubuvuzi bw'Abana|General surgery~Chirurgie générale~Imbagwa|Physiotherapy & rehabilitation~Physiothérapie et rééducation~kugorora ingingo|General medicine~Médecine générale~Ubuvuzi Rusange|ENT~ORL~Ubuvuzi bw’indwara z’amatwi, Izuru n'Umuhogo|Urology~Urologie~Ubuvuzi bw’umuyoboro w'Inkari|Ophthalmology~Ophtalmologie~Ubuvuzi bw’amaso|Dental~Dentaire~Ubuvuzi bw’amenyo|Emergency & observation~Urgences et observation~Aho bakirira indembe n’inkomere|Radiology / Imaging~Radiologie / imagerie~Guca mu cyuma|Vaccination~Vaccination~Aho batangira Inkingo|Laboratory~Laboratoire~Aho batangira ibizamini|Minor surgery~Petite chirurgie~Kubagwa Byoroheje");
 
 let cfg = ld('dmc_c', null);
 if (!cfg || !cfg.v || cfg.v < 2) {
@@ -211,14 +220,17 @@ async function loadDepartments(includeInactive = false) {
 }
 
 function toFeedbackResponse(row) {
+  const submittedAt = Date.parse(row.submitted_at);
+  if (!Number.isFinite(submittedAt)) {
+    throw new Error(`Feedback record ${row.id || '(unknown)'} has an invalid submission time.`);
+  }
   return {
     id: row.id,
-    t: Date.parse(row.submitted_at),
+    t: submittedAt,
     l: row.language,
     d: row.department_id,
     dn: row.department_name,
-    a: row.answers,
-    demo: row.is_demo ? 1 : 0
+    a: row.answers
   };
 }
 
@@ -266,6 +278,7 @@ async function refreshDashboardFeedback() {
   } finally {
     dashboardFeedbackRefreshInProgress = false;
   }
+  if (tab === 'audit') await loadAuditEvents(false);
 }
 
 function startDashboardFeedbackRefresh() {
@@ -528,7 +541,6 @@ async function submit() {
 }
 
 /* ---------- Admin (#admin) ---------- */
-/* ---------- Admin (#admin) ---------- */
 let cohortFilter = 'all';
 
 function admin() {
@@ -562,22 +574,28 @@ function admin() {
     return;
   }
 
+  if (tab === 'users' && !adminSession.isSupremeAdmin) tab = 'stats';
   const tabs = [
     ['stats', `<i class='bx bx-bar-chart-alt-2'></i> Analytics & Cohorts`],
     ['depts_perf', `<i class='bx bx-buildings'></i> Department Matrix`],
     ['feedbacks', `<i class='bx bx-message-square-detail'></i> Feedback Records`],
     ['export', `<i class='bx bx-cloud-download'></i> Export Center`],
     ['depts', `<i class='bx bx-cog'></i> Manage Services`],
-    ['users', `<i class='bx bx-user-check'></i> User Management`]
+    ['audit', `<i class='bx bx-history'></i> Activity Log`]
   ];
+  if (adminSession.isSupremeAdmin) {
+    tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
+  }
   if (tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
     loadUserManagement();
   }
+  if (tab === 'audit' && !auditLoading && !auditLoaded && !auditError) loadAuditEvents();
   $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
     tab === 'stats' ? stats() :
     tab === 'depts_perf' ? deptsPerfUI() :
     tab === 'feedbacks' ? feedbacksUI() :
     tab === 'export' ? exportUI() :
+    tab === 'audit' ? auditUI() :
     tab === 'users' ? userManagementUI() :
     deptUI()
   }</div>`;
@@ -623,6 +641,63 @@ function userManagementUI() {
       : '<p class="hint">There are no accounts to display.</p>'
   }</section>`;
   return approvedUsers + directory + accounts;
+}
+
+function auditUI() {
+  if (auditLoading) return `<section class="card" role="status"><p>Loading the activity log…</p></section>`;
+  if (auditError) {
+    return `<section class="card" role="alert"><p class="error">${esc(auditError)}</p><button class="adm-btn" onclick="loadAuditEvents()">Try again</button></section>`;
+  }
+  const rows = auditEntries.map((event) => {
+    const occurredAt = new Date(event.created_at);
+    const time = Number.isNaN(occurredAt.getTime()) ? 'Unknown time' : occurredAt.toLocaleString();
+    return `<tr>
+      <td><time datetime="${esc(event.created_at)}">${esc(time)}</time></td>
+      <td>${esc(event.actor || 'Unknown')}</td>
+      <td><span class="audit-action">${esc(event.action.replaceAll('.', ' '))}</span></td>
+      <td>${esc(event.summary)}</td>
+    </tr>`;
+  }).join('');
+  return `<section class="card audit-card">
+    <div class="user-management-heading">
+      <div><p class="eyebrow">Application history</p><h3>Activity Log</h3>
+        <p class="hint">Latest ${auditEntries.length} recorded events. New activity refreshes automatically while this tab is open.</p>
+      </div>
+      <button class="adm-btn" onclick="loadAuditEvents()">Refresh</button>
+    </div>
+    ${auditEntries.length
+      ? `<div class="admin-user-table-wrap"><table class="admin-user-table audit-table">
+          <thead><tr><th>Time</th><th>Account</th><th>Action</th><th>Details</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`
+      : '<p class="hint">No activity has been recorded yet.</p>'}
+  </section>`;
+}
+
+async function loadAuditEvents(showLoading = true) {
+  if (auditRefreshInProgress) return;
+  auditRefreshInProgress = true;
+  if (showLoading) {
+    auditLoading = true;
+    auditError = '';
+    admin();
+  }
+  try {
+    auditEntries = await apiRequest('/api/admin/audit');
+    auditLoaded = true;
+    auditError = '';
+  } catch (error) {
+    console.error('Could not load the activity log:', error);
+    if (showLoading) auditError = 'The activity log could not be loaded. Please try again.';
+  } finally {
+    auditRefreshInProgress = false;
+    if (showLoading) {
+      auditLoading = false;
+      admin();
+    } else if (tab === 'audit') {
+      admin();
+    }
+  }
 }
 
 async function loadUserManagement() {
@@ -760,7 +835,32 @@ async function deleteFeedback(id) {
     admin();
     return;
   }
-  if (!confirm('Delete this feedback record permanently? This cannot be undone.')) return;
+  const dialog = $('feedback-delete-dialog');
+  if (!dialog || typeof dialog.showModal !== 'function') {
+    adminError = 'The feedback deletion dialog is unavailable. Reload the page and try again.';
+    admin();
+    return;
+  }
+  pendingFeedbackDeleteId = id;
+  $('feedback-delete-title').textContent = g(U.feedbackDeleteTitle);
+  $('feedback-delete-description').textContent = g(U.feedbackDeleteDescription);
+  $('feedback-delete-cancel').textContent = g(U.feedbackDeleteCancel);
+  $('feedback-delete-confirm').textContent = g(U.feedbackDeleteConfirm);
+  dialog.showModal();
+}
+
+function cancelFeedbackDelete() {
+  pendingFeedbackDeleteId = null;
+  const dialog = $('feedback-delete-dialog');
+  if (dialog?.open) dialog.close();
+}
+
+async function confirmFeedbackDelete() {
+  const id = pendingFeedbackDeleteId;
+  if (!id) return;
+  pendingFeedbackDeleteId = null;
+  const dialog = $('feedback-delete-dialog');
+  if (dialog?.open) dialog.close();
   try {
     await apiRequest(`/api/responses/${encodeURIComponent(id)}`, 'DELETE');
     feedbackResponses = feedbackResponses.filter((response) => response.id !== id);
@@ -889,7 +989,7 @@ function exportUI() {
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
       <div>
         <h3>DMC Hospital — Data Export Center</h3>
-        <p>Download polished Excel workbooks with DMC branding, a clear report header, and formatted data tables.</p>
+        <p>Download formatted Excel workbooks with the DMC logo, or Excel-friendly CSV files for each report.</p>
       </div>
     </div>
     <div class="export-grid">
@@ -899,7 +999,7 @@ function exportUI() {
           <h4>Complete Survey Dataset</h4>
           <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments.</p>
         </div>
-        <button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Download Full Dataset (${allR.length} Records)</button>
+        <div class="report-actions"><button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Excel (${allR.length})</button><button class="adm-btn" onclick="exportCSV('full')"><i class='bx bx-download'></i> CSV</button></div>
       </div>
       <div class="export-card">
         <div>
@@ -907,7 +1007,7 @@ function exportUI() {
           <h4>Department Performance Report</h4>
           <p>Aggregated department statistics: review counts, patient split (new vs returning), average satisfaction rating, satisfaction rate, and delay frequency.</p>
         </div>
-        <button class="btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Download Department Matrix</button>
+        <div class="report-actions"><button class="btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Excel</button><button class="adm-btn" onclick="exportCSV('departments')"><i class='bx bx-download'></i> CSV</button></div>
       </div>
       <div class="export-card">
         <div>
@@ -915,7 +1015,7 @@ function exportUI() {
           <h4>Patient Cohort Summary</h4>
           <p>Comparative analytics and loyalty breakdown comparing First-Time / New Patients versus Returning Patients across satisfaction, delays, and care quality.</p>
         </div>
-        <button class="btn" onclick="exportExcel('patients')"><i class='bx bx-download'></i> Download Cohort Summary</button>
+        <div class="report-actions"><button class="btn" onclick="exportExcel('patients')"><i class='bx bx-download'></i> Excel</button><button class="adm-btn" onclick="exportCSV('patients')"><i class='bx bx-download'></i> CSV</button></div>
       </div>
     </div>
   </div>`;
@@ -1103,17 +1203,7 @@ async function clearResponses() {
   }
 }
 
-async function exportExcel(type = 'full') {
-  if (!['full', 'departments', 'patients'].includes(type)) {
-    alert('The selected Excel report is not supported.');
-    return;
-  }
-  const R = feedbackResponses;
-  if (!R.length) {
-    alert('No feedback records available to export.');
-    return;
-  }
-  const dateStr = new Date().toISOString().slice(0, 10);
+function buildReportData(type, R, dateStr) {
   let headers = [];
   let rows = [];
   let title = 'DMC Hospital — Patient Feedback';
@@ -1142,7 +1232,7 @@ async function exportExcel(type = 'full') {
       '10. Suggestions & Comments'
     ];
     headers = fullHeaders;
-    rows = R.map((r, idx) => {
+    rows = R.map((r) => {
       const sScore = r.a?.q8 != null ? 5 - r.a.q8 : '';
       const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
       const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] || '' : '';
@@ -1157,7 +1247,7 @@ async function exportExcel(type = 'full') {
       const q9 = (r.a?.q9 || '').replace(/\r?\n/g, ' ');
       const q10 = (r.a?.q10 || '').replace(/\r?\n/g, ' ');
       return [
-        `#${idx + 1}`,
+        r.id || '',
         new Date(r.t).toISOString(),
         new Date(r.t).toLocaleString(),
         r.l || 'en',
@@ -1277,18 +1367,81 @@ async function exportExcel(type = 'full') {
     });
   }
 
+  return {
+    headers,
+    rows,
+    title,
+    filename,
+    subtitle: `Confidential quality-improvement report | Generated ${dateStr} | ${R.length} feedback submissions`
+  };
+}
+
+function getReportData(type) {
+  if (!['full', 'departments', 'patients'].includes(type)) {
+    alert('The selected report is not supported.');
+    return null;
+  }
+  if (!feedbackResponses.length) {
+    alert('No feedback records available to export.');
+    return null;
+  }
+  return buildReportData(type, feedbackResponses, new Date().toISOString().slice(0, 10));
+}
+
+function csvField(value) {
+  let text = String(value ?? '');
+  if (/^[\t\r ]*[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(report, format = 'csv') {
+  const contents = `\uFEFF${report.headers.map(csvField).join(',')}\r\n${report.rows
+    .map((row) => row.map(csvField).join(','))
+    .join('\r\n')}`;
+  const url = URL.createObjectURL(new Blob([contents], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = report.filename.replace(/\.xlsx$/i, '.csv');
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function recordReportExport(type, format) {
+  try {
+    await apiRequest('/api/admin/audit', 'POST', { type, format });
+  } catch (error) {
+    console.error('Could not record the report export:', error);
+    adminError = 'The report was downloaded, but its export could not be recorded in the activity log.';
+    admin();
+  }
+}
+
+async function exportExcel(type = 'full') {
+  const report = getReportData(type);
+  if (!report) return;
   try {
     await DMCExcelExport.downloadWorkbook({
-      headers,
-      rows,
-      title,
-      subtitle: `Confidential quality-improvement report | Generated ${dateStr} | ${R.length} feedback submissions`,
-      filename,
+      ...report,
       logoUrl: new URL('logo-optimized.jpg', document.baseURI).href
     });
+    await recordReportExport(type, 'xlsx');
   } catch (error) {
     console.error('Could not create Excel export:', error);
     alert('The Excel workbook could not be created. Check your connection and try again.');
+  }
+}
+
+function exportCSV(type = 'full') {
+  const report = getReportData(type);
+  if (!report) return;
+  try {
+    downloadCsv(report);
+    void recordReportExport(type, 'csv');
+  } catch (error) {
+    console.error('Could not create CSV export:', error);
+    alert('The CSV report could not be created. Please try again.');
   }
 }
 

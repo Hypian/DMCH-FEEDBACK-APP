@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
 import { getAccountApproval, handleApprovalApi } from './approval-api.mjs';
+import { recordAuditEvent } from './audit-log.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -143,12 +144,21 @@ async function saveFeedback(body) {
       return { status: 400, body: { error: 'invalid_department' } };
     }
     const labels = department.rows[0].labels;
-    await client.query(
+    const inserted = await client.query(
       `insert into public.feedback_responses
         (language, department_id, department_name, answers, user_id)
-       values ($1, $2, $3, $4::jsonb, $5)`,
+       values ($1, $2, $3, $4::jsonb, $5)
+       returning id`,
       [body.language, body.departmentId, labels[0], JSON.stringify(body.answers), session?.user?.id || null]
     );
+    await recordAuditEvent(client, {
+      actorId: session?.user?.id || null,
+      action: 'feedback.submitted',
+      summary: `Feedback submitted for ${labels[0]}.`,
+      targetType: 'feedback',
+      targetId: inserted.rows[0]?.id || null,
+      metadata: { departmentId: body.departmentId, language: body.language }
+    });
     await client.query('commit');
     return { status: 201, body: { ok: true } };
   } catch (error) {
@@ -217,6 +227,52 @@ export async function handleNeonApi(request, response, url) {
     return true;
   }
 
+  if (pathname === '/api/admin/audit') {
+    if (request.method === 'POST') {
+      if (!validateAdminMethod(request, response)) return true;
+      const session = await getAdminSession(request, response);
+      if (!session) return true;
+      if (!requireJson(request, response)) return true;
+      const body = await readJson(request);
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !['full', 'departments', 'patients'].includes(body.type)
+        || !['csv', 'xlsx'].includes(body.format)) {
+        sendJson(response, 400, { error: 'invalid_report_export' });
+        return true;
+      }
+      await recordAuditEvent(pool, {
+        actorId: session.user.id,
+        action: 'report.exported',
+        summary: `Exported the ${body.type} report as ${body.format.toUpperCase()}.`,
+        targetType: 'report',
+        targetId: body.type,
+        metadata: { format: body.format }
+      });
+      sendJson(response, 201, { ok: true });
+      return true;
+    }
+    if (request.method !== 'GET') {
+      response.setHeader('Allow', 'GET, POST');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    if (!await getAdminSession(request, response)) return true;
+    const result = await pool.query(
+      `select audit_entry.id, audit_entry.created_at, audit_entry.action, audit_entry.summary,
+              audit_entry.target_type, audit_entry.target_id, audit_entry.metadata,
+              case
+                when audit_entry.actor_user_id is null then 'Anonymous patient'
+                else coalesce(auth_user.name, auth_user.username, 'Former account')
+              end as actor
+       from public.feedback_audit_events as audit_entry
+       left join public."user" as auth_user on auth_user.id = audit_entry.actor_user_id
+       order by audit_entry.created_at desc, audit_entry.id desc
+       limit 500`
+    );
+    sendJson(response, 200, result.rows);
+    return true;
+  }
+
   if (pathname === '/api/departments' && request.method === 'GET') {
     const includeInactive = url.searchParams.get('all') === '1';
     if (includeInactive && !await getAdminSession(request, response)) return true;
@@ -233,25 +289,65 @@ export async function handleNeonApi(request, response, url) {
   const responseMatch = pathname.match(/^\/api\/responses\/([0-9a-f-]+)$/i);
   if (responseMatch && request.method === 'DELETE') {
     if (!validateAdminMethod(request, response)) return true;
-    if (!await getAdminSession(request, response)) return true;
+    const session = await getAdminSession(request, response);
+    if (!session) return true;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseMatch[1])) {
       sendJson(response, 400, { error: 'invalid_response_id' });
       return true;
     }
-    const result = await pool.query(
-      'delete from public.feedback_responses where id = $1 returning id',
-      [responseMatch[1]]
-    );
-    if (result.rowCount === 0) sendJson(response, 404, { error: 'response_not_found' });
-    else sendJson(response, 200, { ok: true, id: result.rows[0].id });
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        'delete from public.feedback_responses where id = $1 returning id',
+        [responseMatch[1]]
+      );
+      if (result.rowCount === 0) {
+        await client.query('rollback');
+        sendJson(response, 404, { error: 'response_not_found' });
+        return true;
+      }
+      await recordAuditEvent(client, {
+        actorId: session.user.id,
+        action: 'feedback.deleted',
+        summary: 'Deleted a feedback submission.',
+        targetType: 'feedback',
+        targetId: result.rows[0].id
+      });
+      await client.query('commit');
+      sendJson(response, 200, { ok: true, id: result.rows[0].id });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return true;
   }
 
   if (pathname === '/api/responses' && request.method === 'DELETE') {
     if (!validateAdminMethod(request, response)) return true;
-    if (!await getAdminSession(request, response)) return true;
-    await pool.query('delete from public.feedback_responses');
-    sendJson(response, 200, { ok: true });
+    const session = await getAdminSession(request, response);
+    if (!session) return true;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query('delete from public.feedback_responses');
+      await recordAuditEvent(client, {
+        actorId: session.user.id,
+        action: 'feedback.cleared',
+        summary: `Cleared ${result.rowCount} feedback submissions.`,
+        targetType: 'feedback',
+        metadata: { count: result.rowCount }
+      });
+      await client.query('commit');
+      sendJson(response, 200, { ok: true, deleted: result.rowCount });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return true;
   }
 
@@ -287,7 +383,8 @@ export async function handleNeonApi(request, response, url) {
 
   if (pathname.startsWith('/api/admin/')) {
     if (!validateAdminMethod(request, response)) return true;
-    if (!await getAdminSession(request, response)) return true;
+    const adminSession = await getAdminSession(request, response);
+    if (!adminSession) return true;
     if (request.method !== 'DELETE' && !requireJson(request, response)) return true;
     const body = request.method === 'DELETE' ? {} : await readJson(request);
 
@@ -298,12 +395,30 @@ export async function handleNeonApi(request, response, url) {
         return true;
       }
       const id = `x${crypto.randomUUID().replace(/-/g, '')}`;
-      const result = await pool.query(
-        `insert into public.feedback_departments (id, labels, sort_order)
-         values ($1, $2::jsonb, coalesce((select max(sort_order) + 1 from public.feedback_departments), 0))
-         returning id, labels, is_active, sort_order`,
-        [id, JSON.stringify([name, name, name])]
-      );
+      const client = await pool.connect();
+      let result;
+      try {
+        await client.query('begin');
+        result = await client.query(
+          `insert into public.feedback_departments (id, labels, sort_order)
+           values ($1, $2::jsonb, coalesce((select max(sort_order) + 1 from public.feedback_departments), 0))
+           returning id, labels, is_active, sort_order`,
+          [id, JSON.stringify([name, name, name])]
+        );
+        await recordAuditEvent(client, {
+          actorId: adminSession.user.id,
+          action: 'department.created',
+          summary: `Added the ${name} service.`,
+          targetType: 'department',
+          targetId: id
+        });
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
       sendJson(response, 201, result.rows[0]);
       return true;
     }
@@ -314,13 +429,35 @@ export async function handleNeonApi(request, response, url) {
         sendJson(response, 400, { error: 'invalid_department_status' });
         return true;
       }
-      const result = await pool.query(
-        `update public.feedback_departments set is_active = $2 where id = $1
-         returning id, labels, is_active, sort_order`,
-        [departmentMatch[1], body.active]
-      );
-      if (result.rowCount === 0) sendJson(response, 404, { error: 'department_not_found' });
-      else sendJson(response, 200, result.rows[0]);
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const result = await client.query(
+          `update public.feedback_departments set is_active = $2 where id = $1
+           returning id, labels, is_active, sort_order`,
+          [departmentMatch[1], body.active]
+        );
+        if (result.rowCount === 0) {
+          await client.query('rollback');
+          sendJson(response, 404, { error: 'department_not_found' });
+          return true;
+        }
+        const label = result.rows[0].labels[0];
+        await recordAuditEvent(client, {
+          actorId: adminSession.user.id,
+          action: body.active ? 'department.activated' : 'department.deactivated',
+          summary: `${body.active ? 'Restored' : 'Deactivated'} the ${label} service.`,
+          targetType: 'department',
+          targetId: departmentMatch[1]
+        });
+        await client.query('commit');
+        sendJson(response, 200, result.rows[0]);
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
       return true;
     }
 
@@ -357,6 +494,13 @@ export async function handleNeonApi(request, response, url) {
             [Math.random() * 2_592_000_000, ['rw', 'en', 'fr'][pick(3)], department.id, department.labels[0], JSON.stringify(answers)]
           );
         }
+        await recordAuditEvent(client, {
+          actorId: adminSession.user.id,
+          action: 'feedback.demo_added',
+          summary: 'Added 60 demo feedback submissions.',
+          targetType: 'feedback',
+          metadata: { count: 60 }
+        });
         await client.query('commit');
       } catch (error) {
         await client.query('rollback');
@@ -369,8 +513,25 @@ export async function handleNeonApi(request, response, url) {
     }
 
     if (pathname === '/api/admin/demo' && request.method === 'DELETE') {
-      await pool.query('delete from public.feedback_responses where is_demo = true');
-      sendJson(response, 200, { ok: true });
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const result = await client.query('delete from public.feedback_responses where is_demo = true');
+        await recordAuditEvent(client, {
+          actorId: adminSession.user.id,
+          action: 'feedback.demo_removed',
+          summary: `Removed ${result.rowCount} demo feedback submissions.`,
+          targetType: 'feedback',
+          metadata: { count: result.rowCount }
+        });
+        await client.query('commit');
+        sendJson(response, 200, { ok: true, deleted: result.rowCount });
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
       return true;
     }
 
