@@ -554,7 +554,7 @@ function admin() {
     </div>
     <div class="adm-actions">
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
-      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Quick Export Excel</button>` : ''}
+      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Quick Export CSV</button>` : ''}
     </div>
   </div>`;
   if (!adminSession) {
@@ -958,7 +958,7 @@ function deptsPerfUI() {
         <h3 style="margin:0"><i class='bx bx-buildings'></i> Department Performance Matrix (${list.length} Services)</h3>
         <p class="hint" style="margin:2px 0 0">Comparative volume, patient cohort splits, satisfaction ratings, and delay incidence.</p>
       </div>
-      <button class="adm-btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Export Matrix Excel</button>
+      <button class="adm-btn primary" onclick="exportCSV('departments')"><i class='bx bx-download'></i> Export Matrix CSV</button>
     </div>
     <div class="dept-table-wrap">
       <table class="dept-table">
@@ -989,7 +989,7 @@ function exportUI() {
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
       <div>
         <h3>DMC Hospital — Data Export Center</h3>
-        <p>Download formatted Excel workbooks with the DMC logo, or Excel-friendly CSV files for each report.</p>
+        <p>Download CSV files for each report.</p>
       </div>
     </div>
     <div class="export-grid">
@@ -999,7 +999,7 @@ function exportUI() {
           <h4>Complete Survey Dataset</h4>
           <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Excel (${allR.length})</button><button class="adm-btn" onclick="exportCSV('full')"><i class='bx bx-download'></i> CSV</button></div>
+        <div class="report-actions"><button class="btn" onclick="exportCSV('full')"><i class='bx bx-download'></i> CSV (${allR.length})</button></div>
       </div>
       <div class="export-card">
         <div>
@@ -1007,7 +1007,7 @@ function exportUI() {
           <h4>Department Performance Report</h4>
           <p>Aggregated department statistics: review counts, patient split (new vs returning), average satisfaction rating, satisfaction rate, and delay frequency.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Excel</button><button class="adm-btn" onclick="exportCSV('departments')"><i class='bx bx-download'></i> CSV</button></div>
+        <div class="report-actions"><button class="btn" onclick="exportCSV('departments')"><i class='bx bx-download'></i> CSV</button></div>
       </div>
       <div class="export-card">
         <div>
@@ -1015,7 +1015,7 @@ function exportUI() {
           <h4>Patient Cohort Summary</h4>
           <p>Comparative analytics and loyalty breakdown comparing First-Time / New Patients versus Returning Patients across satisfaction, delays, and care quality.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('patients')"><i class='bx bx-download'></i> Excel</button><button class="adm-btn" onclick="exportCSV('patients')"><i class='bx bx-download'></i> CSV</button></div>
+        <div class="report-actions"><button class="btn" onclick="exportCSV('patients')"><i class='bx bx-download'></i> CSV</button></div>
       </div>
     </div>
   </div>`;
@@ -1023,7 +1023,7 @@ function exportUI() {
 
 function stats() {
   const allR = feedbackResponses;
-  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Excel Workbook</button><button onclick="clearResponses()"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
+  const tools = `<div class=card><h3>Management Tools</h3><div class=tools><button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button><button class="adm-btn primary" onclick="exportCSV('full')"><i class='bx bx-download'></i> Export Full Dataset CSV</button><button onclick="clearResponses()"><i class='bx bx-trash'></i> Clear all</button></div></div>`;
   if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
 
   const newCount = allR.filter((r) => r.a?.cat === 0).length;
@@ -1207,7 +1207,7 @@ function buildReportData(type, R, dateStr) {
   let headers = [];
   let rows = [];
   let title = 'DMC Hospital — Patient Feedback';
-  let filename = `DMC-Patient-Feedback-${type}-${dateStr}.xlsx`;
+  let filename = `DMC-Patient-Feedback-${type}-${dateStr}.csv`;
 
   if (type === 'full') {
     title = 'DMC Hospital — Complete Survey Dataset';
@@ -1269,7 +1269,7 @@ function buildReportData(type, R, dateStr) {
     });
   } else if (type === 'departments') {
     title = 'DMC Hospital — Department Performance';
-    filename = `DMC-Department-Performance-${dateStr}.xlsx`;
+    filename = `DMC-Department-Performance-${dateStr}.csv`;
     headers = [
       'Department / Service',
       'Total Reviews',
@@ -1323,7 +1323,7 @@ function buildReportData(type, R, dateStr) {
     }).sort((a, b) => b[1] - a[1]);
   } else if (type === 'patients') {
     title = 'DMC Hospital — Patient Cohort Analytics';
-    filename = `DMC-Patient-Cohort-Analytics-${dateStr}.xlsx`;
+    filename = `DMC-Patient-Cohort-Analytics-${dateStr}.csv`;
     headers = [
       'Patient Cohort',
       'Total Reviews',
@@ -1394,14 +1394,14 @@ function csvField(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function downloadCsv(report, format = 'csv') {
+function downloadCsv(report) {
   const contents = `\uFEFF${report.headers.map(csvField).join(',')}\r\n${report.rows
     .map((row) => row.map(csvField).join(','))
     .join('\r\n')}`;
   const url = URL.createObjectURL(new Blob([contents], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;
-  link.download = report.filename.replace(/\.xlsx$/i, '.csv');
+  link.download = report.filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -1415,21 +1415,6 @@ async function recordReportExport(type, format) {
     console.error('Could not record the report export:', error);
     adminError = 'The report was downloaded, but its export could not be recorded in the activity log.';
     admin();
-  }
-}
-
-async function exportExcel(type = 'full') {
-  const report = getReportData(type);
-  if (!report) return;
-  try {
-    await DMCExcelExport.downloadWorkbook({
-      ...report,
-      logoUrl: new URL('logo-optimized.jpg', document.baseURI).href
-    });
-    await recordReportExport(type, 'xlsx');
-  } catch (error) {
-    console.error('Could not create Excel export:', error);
-    alert('The Excel workbook could not be created. Check your connection and try again.');
   }
 }
 

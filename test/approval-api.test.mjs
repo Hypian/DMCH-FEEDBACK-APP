@@ -306,11 +306,15 @@ test('signup without an approval row is repaired and can be approved or declined
   assert.equal(pool.approvals.get('untracked-decline').status, 'rejected');
 });
 
-test('user-management account and directory endpoints require supreme-admin access', async () => {
+test('admin directory reads are available to admins while account management requires supreme-admin access', async () => {
   const pool = new ApprovalPool();
+  const unauthorizedDirectory = await call(pool, 'GET', '/api/admin/directory', 'pending-user');
+  assert.equal(unauthorizedDirectory.response.status, 403);
+  assert.deepEqual(unauthorizedDirectory.data, { error: 'admin_access_required' });
+
   const directory = await call(pool, 'GET', '/api/admin/directory', 'regular-admin');
-  assert.equal(directory.response.status, 403);
-  assert.deepEqual(directory.data, { error: 'supreme_admin_access_required' });
+  assert.equal(directory.response.status, 200);
+  assert.equal(directory.data.admins.length, 2);
 
   const denied = await call(pool, 'GET', '/api/admin/users', 'regular-admin');
   assert.equal(denied.response.status, 403);
@@ -326,14 +330,15 @@ test('user-management account and directory endpoints require supreme-admin acce
   assert.equal(users.data.users.find((user) => user.user_id === 'regular-admin').is_admin, true);
 });
 
-test('approved account list requires supreme-admin access and excludes pending accounts', async () => {
+test('approved account list is available to admins and excludes pending accounts', async () => {
   const pool = new ApprovalPool();
   const unauthorized = await call(pool, 'GET', '/api/admin/active-users', 'pending-user');
   assert.equal(unauthorized.response.status, 403);
+  assert.deepEqual(unauthorized.data, { error: 'admin_access_required' });
 
   const activeUsers = await call(pool, 'GET', '/api/admin/active-users', 'regular-admin');
-  assert.equal(activeUsers.response.status, 403);
-  assert.deepEqual(activeUsers.data, { error: 'supreme_admin_access_required' });
+  assert.equal(activeUsers.response.status, 200);
+  assert.deepEqual(activeUsers.data.users.map((user) => user.username), ['regular_admin', 'sandra']);
 
   const supremeActiveUsers = await call(pool, 'GET', '/api/admin/active-users', 'sandra-user');
   assert.equal(supremeActiveUsers.response.status, 200);

@@ -140,7 +140,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
+    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select auth_user.name, auth_user.username, supreme.user_id is not null as is_supreme_admin
        from public.feedback_admins as admin
@@ -158,7 +158,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 405, { error: 'method_not_allowed' });
       return true;
     }
-    if (!await requireSupremeAdmin(request, response, pool, getAuthSession)) return true;
+    if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
       `select auth_user.name, auth_user.username
        from public."user" as auth_user

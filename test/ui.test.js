@@ -594,10 +594,6 @@ test('admins can view a refreshed activity log and report exports contain feedba
     }]
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
-  const workbookInputs = [];
-  context.DMCExcelExport = {
-    async downloadWorkbook(options) { workbookInputs.push(options); }
-  };
   vm.runInContext(
     "location.hash='#admin';adminSession={user:{id:'regular-admin',name:'Regular Admin'},isSupremeAdmin:false};adminDataLoaded=true;tab='audit';admin()",
     context
@@ -612,19 +608,13 @@ test('admins can view a refreshed activity log and report exports contain feedba
   assert.equal(app.renderCount, rendersBeforeUnchangedRefresh);
 
   await vm.runInContext('loadAdminData()', context);
-  await vm.runInContext("exportExcel('full')", context);
-  assert.equal(workbookInputs.length, 1);
-  assert.equal(workbookInputs[0].rows.length, 1);
-  assert.equal(workbookInputs[0].rows[0][0], 'f47ac10b-58cc-4372-a567-0e02b2c3d479');
-  assert.equal(workbookInputs[0].rows[0][4], 'General medicine');
-  assert.equal(workbookInputs[0].rows[0][17], '=HYPERLINK("https://example.invalid")');
-  assert.equal(backendState.reportExports[0].format, 'xlsx');
-
   vm.runInContext("exportCSV('full')", context);
   const csv = backendState.downloadedBlob.parts[0];
   assert.match(csv, /General medicine/);
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.invalid""\)"/);
   assert.equal(backendState.downloadedBlob.options.type, 'text/csv;charset=utf-8');
+  assert.equal(backendState.reportExports[0].format, 'csv');
+  assert.equal(app.children.at(-1).download, 'DMC-Patient-Feedback-full-2026-10-23.csv');
 });
 
 test('intro language changes in place and loads departments from the Node API', async () => {

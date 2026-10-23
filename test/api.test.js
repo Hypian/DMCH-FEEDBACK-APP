@@ -109,12 +109,6 @@ test('Static file serving', async t => {
       assert.match(r.headers.get('content-type'), /javascript/);
     });
 
-    await t.test('GET /xlsx-export.js returns 200 javascript', async () => {
-      const r = await fetch(`${base}/xlsx-export.js`);
-      assert.equal(r.status, 200);
-      assert.match(r.headers.get('content-type'), /javascript/);
-    });
-
     await t.test('GET /logo-optimized.jpg returns 200 image/jpeg', async () => {
       const r = await fetch(`${base}/logo-optimized.jpg`);
       assert.equal(r.status, 200);
