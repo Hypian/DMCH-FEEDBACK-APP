@@ -728,29 +728,39 @@ test('intro language changes in place and loads departments from the Node API', 
   assert.equal(vm.runInContext("flow().includes('phone')", context), false);
 });
 
-test('language selection shows the translated intro heading and subtitle before the survey', () => {
+test('language selection shows the translated intro heading, subtitle, and N.B. caution notice before the survey', () => {
   const expectedIntro = {
     rw: [
       'GUKUSANYA IBITEKEREZO BY&#39;ABARWAYI BAJE KWIVUZA BATAHA (OPD)',
-      'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu.'
+      'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu.',
+      'Icyitonderwa:',
+      'Ibitekerezo byanyu n’ibanga kandi ntankurikizi cyangwa ingaruka bibagiraho'
     ],
     en: [
       'OUTPATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
-      'Your feedback is important to us and will help us improve the quality of our services.'
+      'Your feedback is important to us and will help us improve the quality of our services.',
+      'N.B.:',
+      'Your responses are anonymous and confidential'
     ],
     fr: [
       'QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
-      'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services.'
+      'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services.',
+      'N.B. :',
+      'Vos réponses sont anonymes et confidentielles'
     ]
   };
 
-  for (const [language, [heading, subtitle]] of Object.entries(expectedIntro)) {
+  for (const [language, [heading, subtitle, noticePrefix, noticeBody]] of Object.entries(expectedIntro)) {
     const { app, context } = makeContext();
     vm.runInContext(`selectSplashLang('${language}')`, context);
 
     assert.equal(vm.runInContext('S.lang', context), language);
     assert.ok(app.innerHTML.includes(heading), `${language} heading should be translated`);
     assert.ok(app.innerHTML.includes(subtitle), `${language} subtitle should be translated`);
+    assert.match(app.innerHTML, /id="intro-notice"/);
+    assert.match(app.innerHTML, /bx-error-circle/);
+    assert.ok(app.innerHTML.includes(noticePrefix), `${language} notice prefix should match`);
+    assert.ok(app.innerHTML.includes(noticeBody), `${language} notice body should match`);
     assert.match(app.innerHTML, /id="start-survey"/);
     if (language === 'rw') {
       assert.match(app.innerHTML, /Tangira/);

@@ -70,9 +70,20 @@ const U = {
     'GUKUSANYA IBITEKEREZO BY\'ABARWAYI BAJE KWIVUZA BATAHA (OPD)'
   ],
   introBody: [
-    'Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey. Your responses are anonymous and confidential.',
-    'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services. Merci de prendre un instant pour répondre à ce court questionnaire. Vos réponses sont anonymes et confidentielles.',
+    'Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey.',
+    'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services. Merci de prendre un instant pour répondre à ce court questionnaire.',
     'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu. Turabasaba ngo muduhe akanya gato mu kuzuza uru rupapuro rwikusanyabitekerezo kuri serivise dutanga.'
+  ],
+  introNoticePrefix: ['N.B.:', 'N.B. :', 'Icyitonderwa:'],
+  introNoticeBody: [
+    'Your responses are anonymous and confidential',
+    'Vos réponses sont anonymes et confidentielles',
+    'Ibitekerezo byanyu n’ibanga kandi ntankurikizi cyangwa ingaruka bibagiraho'
+  ],
+  introNotice: [
+    'N.B.: Your responses are anonymous and confidential',
+    'N.B. : Vos réponses sont anonymes et confidentielles',
+    'Icyitonderwa: Ibitekerezo byanyu n’ibanga kandi ntankurikizi cyangwa ingaruka bibagiraho'
   ],
   startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira'],
   surveyProgress: ['Survey progress', 'Progression du questionnaire', 'Aho ugeze mu bibazo'],
@@ -345,7 +356,7 @@ const up_ = () => {
 };
 
 function renderIntro(animate = true) {
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
