@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server/server.js",
     "test": "node --test",
-    "auth:migrate": "auth migrate --config ./backend/neon-auth.mjs"
+    "auth:migrate": "auth migrate --config ./backend/neon-auth.mjs",
+    "db:migrate": "node backend/run-migrations.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

@@ -130,6 +130,13 @@ async function ensurePendingApprovals(pool) {
 }
 
 export async function getAccountApproval(pool, userId) {
+  const existing = await pool.query(
+    'select status from public.feedback_account_approvals where user_id = $1',
+    [userId]
+  );
+  if (existing.rows[0]?.status === 'deactivated') {
+    return 'deactivated';
+  }
   const admin = await pool.query(
     'select 1 from public.feedback_admins where user_id = $1',
     [userId]
@@ -230,7 +237,8 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     await ensurePendingApprovals(pool);
     const result = await pool.query(
       `select auth_user.id as user_id, auth_user.name, auth_user.username,
-              case when admin.user_id is not null then 'approved'
+              case when approval.status = 'deactivated' then 'deactivated'
+                   when admin.user_id is not null then 'approved'
                    else coalesce(approval.status, 'pending')
               end as status,
               approval.created_at,
@@ -268,7 +276,9 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
 
   const roleMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/(admin|supreme)$/);
   const approvalMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/approval$/);
-  if (!approvalMatch && !roleMatch) return false;
+  const statusMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/status$/);
+  const deactivateMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/deactivate$/);
+  if (!approvalMatch && !roleMatch && !statusMatch && !deactivateMatch) return false;
   if (request.method !== 'PATCH') {
     response.setHeader('Allow', 'PATCH');
     sendJson(response, 405, { error: 'method_not_allowed' });
@@ -288,6 +298,98 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     if (error.status !== 413) throw error;
     sendJson(response, 413, { error: 'request_body_too_large' });
     return true;
+  }
+  if (statusMatch || deactivateMatch) {
+    const targetUserId = (statusMatch || deactivateMatch)[1];
+    let targetStatus = null;
+    if (statusMatch) {
+      if (body?.status === 'approved' || body?.status === 'deactivated') {
+        targetStatus = body.status;
+      }
+    } else if (deactivateMatch) {
+      if (typeof body?.deactivated === 'boolean') {
+        targetStatus = body.deactivated ? 'deactivated' : 'approved';
+      }
+    }
+    if (!targetStatus) {
+      sendJson(response, 400, { error: 'invalid_status' });
+      return true;
+    }
+    if (targetUserId === adminSession.user.id && targetStatus === 'deactivated') {
+      sendJson(response, 400, { error: 'cannot_deactivate_own_account' });
+      return true;
+    }
+    const client = await pool.connect();
+    let transactionStarted = false;
+    try {
+      await client.query('begin');
+      transactionStarted = true;
+      await client.query('select pg_advisory_xact_lock($1)', [74192831]);
+      const targetUser = await client.query(
+        'select 1 from public."user" where id = $1',
+        [targetUserId]
+      );
+      if (targetUser.rowCount === 0) {
+        await client.query('rollback');
+        sendJson(response, 404, { error: 'user_not_found' });
+        return true;
+      }
+      if (targetStatus === 'deactivated') {
+        const targetSupreme = await client.query(
+          'select 1 from public.feedback_supreme_admins where user_id = $1',
+          [targetUserId]
+        );
+        if (targetSupreme.rowCount > 0) {
+          await client.query('rollback');
+          sendJson(response, 409, { error: 'supreme_admin_must_be_demoted_first' });
+          return true;
+        }
+        const targetAdmin = await client.query(
+          'select 1 from public.feedback_admins where user_id = $1',
+          [targetUserId]
+        );
+        if (targetAdmin.rowCount > 0) {
+          const count = await client.query(
+            'select count(*)::int as total from public.feedback_admins'
+          );
+          if (count.rows[0].total <= 1) {
+            await client.query('rollback');
+            sendJson(response, 409, { error: 'last_admin_cannot_be_removed' });
+            return true;
+          }
+          await client.query(
+            'delete from public.feedback_admins where user_id = $1',
+            [targetUserId]
+          );
+        }
+      }
+      const result = await client.query(
+        `insert into public.feedback_account_approvals
+           (user_id, status, reviewed_at, reviewed_by)
+         values ($1, $2, now(), $3)
+         on conflict (user_id) do update
+           set status = $2, reviewed_at = now(), reviewed_by = $3
+         returning user_id, status, reviewed_at`,
+        [targetUserId, targetStatus, adminSession.user.id]
+      );
+      await recordAuditEvent(client, {
+        actorId: adminSession.user.id,
+        action: `account.${targetStatus === 'deactivated' ? 'deactivated' : 'reactivated'}`,
+        summary: `${targetStatus === 'deactivated' ? 'Deactivated' : 'Reactivated'} account ${targetUserId}.`,
+        targetType: 'account',
+        targetId: targetUserId,
+        metadata: { status: targetStatus }
+      });
+      await client.query('commit');
+      transactionStarted = false;
+      sendJson(response, 200, { user: result.rows[0] });
+      return true;
+    } catch (error) {
+      if (transactionStarted) await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
   if (roleMatch) {
     if (typeof body?.enabled !== 'boolean') {

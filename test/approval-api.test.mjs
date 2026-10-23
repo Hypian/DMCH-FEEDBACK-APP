@@ -45,7 +45,8 @@ class ApprovalPool {
         actorId: values[0] || null,
         action: values[1] || 'account.created',
         summary: values[2] || 'Account created and submitted for approval.',
-        targetId: values[4] || values[0] || null
+        targetId: values[4] || values[0] || null,
+        target_id: values[4] || values[0] || null
       });
       return { rowCount: 1, rows: [] };
     }
@@ -132,13 +133,15 @@ class ApprovalPool {
     }
     if (sql.includes('insert into public.feedback_account_approvals')) {
       if (sql.includes('reviewed_at')) {
+        const status = values[1] === 'approved' || values[1] === 'deactivated' ? values[1] : 'approved';
+        const reviewer = values[2] || values[1];
         this.approvals.set(values[0], {
           user_id: values[0],
-          status: 'approved',
-          reviewed_by: values[1],
+          status,
+          reviewed_by: reviewer,
           created_at: new Date().toISOString()
         });
-        return { rowCount: 1, rows: [] };
+        return { rowCount: 1, rows: [{ user_id: values[0], status, reviewed_at: new Date().toISOString() }] };
       }
       if (!this.approvals.has(values[0])) {
         this.approvals.set(values[0], { user_id: values[0], status: 'pending', created_at: new Date().toISOString() });
@@ -593,3 +596,52 @@ test('approval API ignores unrelated routes', async () => {
   const result = await call(new ApprovalPool(), 'GET', '/api/not-an-approval-route');
   assert.equal(result.handled, false);
 });
+
+test('supreme admin can deactivate and reactivate accounts with audit logs and access blocking', async () => {
+  const pool = new ApprovalPool();
+  pool.users.push({ user_id: 'regular-user', name: 'Regular User', username: 'regular_user', created_at: '2026-10-20T10:00:00Z' });
+  pool.approvals.set('regular-user', { user_id: 'regular-user', status: 'approved', created_at: '2026-10-20T10:00:00Z' });
+
+  // 1. Regular admin cannot deactivate accounts
+  const unauth = await call(pool, 'PATCH', '/api/admin/users/regular-user/status', 'regular-admin', { status: 'deactivated' });
+  assert.equal(unauth.response.status, 403);
+  assert.deepEqual(unauth.data, { error: 'supreme_admin_access_required' });
+
+  // 2. Supreme admin cannot deactivate their own account
+  const selfDeactivate = await call(pool, 'PATCH', '/api/admin/users/sandra-user/status', 'sandra-user', { status: 'deactivated' });
+  assert.equal(selfDeactivate.response.status, 400);
+  assert.deepEqual(selfDeactivate.data, { error: 'cannot_deactivate_own_account' });
+
+  // 3. Supreme admin deactivates an approved user
+  const deactivateRes = await call(pool, 'PATCH', '/api/admin/users/regular-user/status', 'sandra-user', { status: 'deactivated' });
+  assert.equal(deactivateRes.response.status, 200);
+  assert.equal(deactivateRes.data.user.status, 'deactivated');
+  assert.equal(pool.approvals.get('regular-user').status, 'deactivated');
+
+  // 4. Deactivated user cannot access dashboard
+  const sessionCheck = await call(pool, 'GET', '/api/dashboard/session', 'regular-user');
+  assert.equal(sessionCheck.response.status, 403);
+  assert.deepEqual(sessionCheck.data, { error: 'account_approval_required', status: 'deactivated' });
+
+  // 5. Deactivated user is excluded from active users
+  const activeRes = await call(pool, 'GET', '/api/admin/active-users', 'sandra-user');
+  assert.equal(activeRes.data.users.some((u) => u.username === 'regular_user'), false);
+
+  // 6. Audit event was recorded
+  assert.equal(pool.auditEvents.some((e) => e.action === 'account.deactivated' && e.target_id === 'regular-user'), true);
+
+  // 7. Supreme admin reactivates the account
+  const reactivateRes = await call(pool, 'PATCH', '/api/admin/users/regular-user/status', 'sandra-user', { status: 'approved' });
+  assert.equal(reactivateRes.response.status, 200);
+  assert.equal(reactivateRes.data.user.status, 'approved');
+  assert.equal(pool.approvals.get('regular-user').status, 'approved');
+
+  // 8. Reactivated user can now access dashboard
+  const restoredSession = await call(pool, 'GET', '/api/dashboard/session', 'regular-user');
+  assert.equal(restoredSession.response.status, 200);
+  assert.equal(restoredSession.data.user.id, 'regular-user');
+
+  // 9. Audit event recorded for reactivation
+  assert.equal(pool.auditEvents.some((e) => e.action === 'account.reactivated' && e.target_id === 'regular-user'), true);
+});
+

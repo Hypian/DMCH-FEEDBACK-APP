@@ -21,10 +21,15 @@ create table if not exists public.feedback_admins (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.feedback_supreme_admins (
+  user_id text primary key references public.feedback_admins(user_id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.feedback_account_approvals (
   user_id text primary key references public."user"(id) on delete cascade,
   status text not null default 'pending'
-    check (status in ('pending', 'approved', 'rejected')),
+    check (status in ('pending', 'approved', 'rejected', 'deactivated')),
   created_at timestamptz not null default now(),
   reviewed_at timestamptz,
   reviewed_by text references public."user"(id) on delete set null

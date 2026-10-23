@@ -8,8 +8,7 @@
 4. Create/update Better Auth's tables with `npm run auth:migrate`. The username plugin adds the username field.
 5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, device-lock, and audit tables.
 6. If you already have Better Auth accounts, run [`backend/neon/username-auth-migration.sql`](./backend/neon/username-auth-migration.sql). It safely ensures the username column and unique index exist, then assigns stable usernames without changing account IDs or password hashes. Query `select id, name, username from public."user";` and securely tell each existing user their assigned username. Review the migration before running it.
-7. Run [`backend/neon/supreme-admin-migration.sql`](./backend/neon/supreme-admin-migration.sql) to create the separate supreme-admin role table before using user management.
-8. For an existing installation, run [`backend/neon/audit-log-migration.sql`](./backend/neon/audit-log-migration.sql) once to create the application audit table.
+7. Run `npm run db:migrate` (or execute [`backend/neon/all-migrations.sql`](./backend/neon/all-migrations.sql) in the Neon SQL editor). This automatically and safely applies all role tables, audit log tables, and account deactivation constraint updates.
 8. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
 
 ## Project layout

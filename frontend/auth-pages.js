@@ -27,7 +27,9 @@ function showApprovalDialog(status = 'pending', registration = false) {
       ? 'Account created. Please wait for admin approval.'
       : status === 'rejected'
         ? 'This account request was declined. Contact the hospital administrator.'
-        : 'Account created. Please wait for admin approval.', 'success');
+        : status === 'deactivated'
+          ? 'This account has been deactivated. Contact the hospital administrator.'
+          : 'Account created. Please wait for admin approval.', 'success');
     return;
   }
   const title = dialog.querySelector('[data-dialog-title]');
@@ -35,6 +37,9 @@ function showApprovalDialog(status = 'pending', registration = false) {
   if (status === 'rejected') {
     title.textContent = 'Account request declined';
     body.textContent = 'This account request was declined. Please contact the hospital administrator if you think this is a mistake.';
+  } else if (status === 'deactivated') {
+    title.textContent = 'Account deactivated';
+    body.textContent = 'This account has been deactivated. Please contact the hospital administrator if you require access.';
   } else {
     title.textContent = registration ? 'Account created' : 'Approval pending';
     body.textContent = registration

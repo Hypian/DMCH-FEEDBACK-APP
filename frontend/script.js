@@ -70,11 +70,11 @@ const U = {
     'GUKUSANYA IBITEKEREZO BY\'ABARWAYI BAJE KWIVUZA BATAHA (OPD)'
   ],
   introBody: [
-    'Your feedback is important to us and will help improve our services. Please complete this short survey. Responses are confidential; if you are signed in, your response is linked to your account, otherwise it is anonymous.',
-    'Votre avis nous aidera à améliorer nos services. Merci de répondre à ce court questionnaire. Les réponses sont confidentielles ; si vous êtes connecté(e), votre réponse sera associée à votre compte ; sinon, elle restera anonyme.',
-    'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu. Turabasaba kuzuza aka kabazo gato. Ibitekerezo bibikwa mu ibanga; niba winjiye muri konti, igitekerezo cyawe gihuzwa na konti yawe, bitabaye ibyo kikaguma kitagaragaza umwirondoro.'
+    'Your feedback is important to us and will help us improve the quality of our services. Please take a moment to complete this short survey. Your responses are anonymous and confidential.',
+    'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services. Merci de prendre un instant pour répondre à ce court questionnaire. Vos réponses sont anonymes et confidentielles.',
+    'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu. Turabasaba ngo muduhe akanya gato mu kuzuza uru rupapuro rwikusanyabitekerezo kuri serivise dutanga.'
   ],
-  startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira ibibazo'],
+  startSurvey: ['Start survey', 'Commencer le questionnaire', 'Tangira'],
   surveyProgress: ['Survey progress', 'Progression du questionnaire', 'Aho ugeze mu bibazo'],
   submittingTitle: ['Saving your survey', 'Enregistrement de votre questionnaire', 'Turimo kubika ibisubizo byawe'],
   submittingStep: ['Preparing your answers', 'Préparation de vos réponses', 'Gutegura ibisubizo byawe'],
@@ -190,7 +190,7 @@ const Q = {
   },
   q9: {
     t: 'x',
-    q: T3("9. What additional services would you like Dream Medical Center to offer?~9. Quels services supplémentaires souhaiteriez-vous que Dream Medical Center propose?~9. Ni izihe serivisi z'inyongera wifuza ko ibitaro bya Dream Medical Center (DMC) byatanga?")
+    q: T3("9. What additional services would you like Dream Medical Center to offer?~9. Quels services supplémentaires souhaiteriez-vous que Dream Medical Center propose ?~9. Ni izihe serivisi z'inyongera wifuza ko ibitaro bya Dream Medical Center (DMC) byatanga?")
   },
   q10: {
     t: 'x',
@@ -542,6 +542,7 @@ async function submit() {
 
 /* ---------- Admin (#admin) ---------- */
 let cohortFilter = 'all';
+let adminSigningOut = false;
 
 function admin() {
   const h = `<div class="wrap adm"><div class="adm-header">
@@ -554,7 +555,7 @@ function admin() {
     </div>
     <div class="adm-actions">
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
-      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()"><i class='bx bx-log-out'></i> Sign out</button><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Quick Export XLSX</button>` : ''}
+      ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()" ${adminSigningOut ? 'disabled' : ''}>${adminSigningOut ? "<i class='bx bx-loader-alt bx-spin'></i> Signing out…" : "<i class='bx bx-log-out'></i> Sign out"}</button><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Quick Export XLSX</button>` : ''}
     </div>
   </div>`;
   if (!adminSession) {
@@ -630,27 +631,41 @@ function userManagementUI() {
     }</section>`;
     return approvedUsers + directory + accountList;
   }
+  const pendingUsers = managedUsers.filter((u) => u.status === 'pending');
+  const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${
+    pendingUsers.length
+      ? `<div class="pending-user-list">${pendingUsers.map((user) => {
+          const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+          return `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')">Decline</button>` : ''}</div></article>`;
+        }).join('')}</div>`
+      : '<p class="hint">There are no pending accounts awaiting review.</p>'
+  }</section>`;
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
     const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
     const supremeAction = user.is_admin
       ? `<button class="adm-btn" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`
       : '';
+    const statusAction = user.status === 'deactivated'
+      ? `<button class="adm-btn primary" onclick="setUserStatus('${safeId}','approved')">Reactivate</button>`
+      : user.status === 'approved'
+        ? `<button class="adm-btn danger" onclick="setUserStatus('${safeId}','deactivated')">Deactivate</button>`
+        : '';
     const actions = safeId && user.user_id !== adminSession.user.id
       ? `<div class="user-role-actions">${
           user.status === 'pending'
             ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')">Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')">Decline</button>`
             : ''
-        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}</div>`
+        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}</div>`
       : '<span class="hint">Current account</span>';
-    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role">${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
+    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role ${user.status === 'deactivated' ? 'danger' : ''}">${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
   }).join('');
   const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
     managedUsers.length
       ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<p class="hint">There are no accounts to display.</p>'
   }</section>`;
-  return approvedUsers + directory + accounts;
+  return pendingSection + approvedUsers + directory + accounts;
 }
 
 function auditUI() {
@@ -758,6 +773,34 @@ async function reviewUser(userId, status) {
   }
 }
 
+async function setUserStatus(userId, status) {
+  const isDeactivate = status === 'deactivated';
+  const confirmMsg = isDeactivate
+    ? 'Are you sure you want to deactivate this account? The user will immediately lose access.'
+    : 'Reactivate this account and restore access?';
+  if (!confirm(confirmMsg)) return;
+  userManagementLoading = true;
+  userManagementError = '';
+  admin();
+  try {
+    await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/status`, 'PATCH', { status });
+    userManagementLoaded = false;
+    await loadUserManagement();
+  } catch (error) {
+    console.error(`Could not set status to ${status}:`, error);
+    userManagementError = error.details?.error === 'last_admin_cannot_be_removed'
+      ? 'The last admin cannot be deactivated.'
+      : error.details?.error === 'supreme_admin_must_be_demoted_first'
+        ? 'Remove the supreme-admin role before deactivating this account.'
+        : error.details?.error === 'cannot_deactivate_own_account'
+          ? 'You cannot deactivate your own account.'
+          : 'The account status could not be updated. Refresh and try again.';
+  } finally {
+    userManagementLoading = false;
+    admin();
+  }
+}
+
 async function setUserRole(userId, role, enabled) {
   const action = enabled ? 'grant' : 'remove';
   if (!enabled && !confirm(`Are you sure you want to ${action} this ${role === 'supreme' ? 'supreme-admin' : 'administrator'} role?`)) return;
@@ -784,6 +827,9 @@ async function setUserRole(userId, role, enabled) {
 }
 
 async function signOutAdmin() {
+  if (adminSigningOut) return;
+  adminSigningOut = true;
+  admin();
   try {
     await apiRequest('/api/auth/sign-out', 'POST', {});
     stopDashboardFeedbackRefresh();
@@ -791,8 +837,10 @@ async function signOutAdmin() {
     feedbackResponses = [];
     adminDataLoaded = false;
     adminError = '';
+    adminSigningOut = false;
     location.assign('login.html');
   } catch (error) {
+    adminSigningOut = false;
     console.error('Admin sign-out failed:', error);
     adminError = 'Sign-out failed. Please try again.';
     admin();

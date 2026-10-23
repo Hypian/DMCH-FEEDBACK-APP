@@ -146,6 +146,14 @@ function makeApiFetch(state) {
         state.reviewedUsers.push({ user_id: userId, status: body.status });
         data = { user: { user_id: userId, status: body.status } };
       }
+    } else if (/^\/api\/admin\/users\/[^/]+\/status$/.test(pathname) && method === 'PATCH') {
+      const userId = decodeURIComponent(pathname.split('/')[4]);
+      const body = JSON.parse(options.body);
+      const user = (state.managedUsers || []).find((item) => item.user_id === userId);
+      if (user) user.status = body.status;
+      state.statusChanges ||= [];
+      state.statusChanges.push({ user_id: userId, status: body.status });
+      data = { user: { user_id: userId, status: body.status } };
     } else if (/^\/api\/admin\/users\/[^/]+\/(admin|supreme)$/.test(pathname) && method === 'PATCH') {
       const userId = decodeURIComponent(pathname.split('/')[4]);
       const role = pathname.split('/')[5] === 'admin' ? 'is_admin' : 'is_supreme_admin';
@@ -493,6 +501,15 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   await vm.runInContext("setUserRole('new-user','supreme',true)", context);
   assert.equal(backendState.managedUsers[0].is_supreme_admin, true);
   assert.match(app.innerHTML, /Supreme admin/);
+
+  await vm.runInContext("setUserRole('new-user','supreme',false)", context);
+  await vm.runInContext("setUserRole('new-user','admin',false)", context);
+  assert.match(app.innerHTML, /Deactivate/);
+  await vm.runInContext("setUserStatus('new-user','deactivated')", context);
+  assert.equal(backendState.managedUsers[0].status, 'deactivated');
+  assert.match(app.innerHTML, /Reactivate/);
+  await vm.runInContext("setUserStatus('new-user','approved')", context);
+  assert.equal(backendState.managedUsers[0].status, 'approved');
 });
 
 test('regular admins can open User Management without supreme-admin controls', async () => {
@@ -705,15 +722,15 @@ test('language selection shows the translated intro heading and subtitle before 
   const expectedIntro = {
     rw: [
       'GUKUSANYA IBITEKEREZO BY&#39;ABARWAYI BAJE KWIVUZA BATAHA (OPD)',
-      'Ibitekerezo byanyu bizadufasha kunoza serivisi zacu.'
+      'Ibitekerezo byanyu n’ingirakamaro kuri twe kandi bizadufasha kunoza serivisi zacu.'
     ],
     en: [
       'OUTPATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE',
-      'Your feedback is important to us and will help improve our services.'
+      'Your feedback is important to us and will help us improve the quality of our services.'
     ],
     fr: [
       'QUESTIONNAIRE DE SATISFACTION DU SERVICE DES CONSULTATIONS EXTERNES (OPD)',
-      'Votre avis nous aidera à améliorer nos services.'
+      'Votre avis compte pour nous et nous aidera à améliorer la qualité de nos services.'
     ]
   };
 
@@ -725,6 +742,9 @@ test('language selection shows the translated intro heading and subtitle before 
     assert.ok(app.innerHTML.includes(heading), `${language} heading should be translated`);
     assert.ok(app.innerHTML.includes(subtitle), `${language} subtitle should be translated`);
     assert.match(app.innerHTML, /id="start-survey"/);
+    if (language === 'rw') {
+      assert.match(app.innerHTML, /Tangira/);
+    }
     assert.equal(vm.runInContext('i', context), 0);
   }
 });
