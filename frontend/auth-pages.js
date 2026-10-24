@@ -173,6 +173,8 @@ async function initialize() {
         delete window.DMC_ACCOUNT_APPROVAL_STATUS;
       } else if (page === 'login' && new URLSearchParams(window.location.search).get('approval') === 'pending') {
         showApprovalDialog('pending');
+      } else if (page === 'login' && new URLSearchParams(window.location.search).get('reason') === 'inactivity') {
+        showMessage('Your session expired after 1 hour of inactivity. Please sign in again.', 'info');
       }
     } catch (error) {
       showMessage(authErrorMessage(error, 'session'));

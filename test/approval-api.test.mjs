@@ -22,9 +22,29 @@ class ApprovalPool {
       { user_id: 'sandra-user', name: 'Sandra Admin', username: 'sandra', created_at: '2026-10-20T10:00:00Z' }
     ];
     this.auditEvents = [];
+    this.sessionActivity = new Map();
   }
 
   async query(sql, values = []) {
+    if (sql.includes('select') && sql.includes('from public.feedback_session_activity')) {
+      const act = this.sessionActivity.get(values[0]);
+      return {
+        rowCount: act ? 1 : 0,
+        rows: act ? [{ last_active_at: act.last_active_at }] : []
+      };
+    }
+    if (sql.includes('insert into public.feedback_session_activity')) {
+      this.sessionActivity.set(values[0], {
+        session_token: values[0],
+        user_id: values[1],
+        last_active_at: new Date().toISOString()
+      });
+      return { rowCount: 1, rows: [] };
+    }
+    if (sql.includes('delete from public.feedback_session_activity')) {
+      this.sessionActivity.delete(values[0]);
+      return { rowCount: 1, rows: [] };
+    }
     if (sql.startsWith('with approval as')) {
       if (this.approvals.has(values[0])) return { rowCount: 0, rows: [] };
       this.approvals.set(values[0], {
@@ -200,7 +220,8 @@ function makeRequest(method, path, userId = '', body, options = {}) {
   request.headers = {
     origin: options.origin ?? 'https://hypian.github.io',
     'x-test-user': userId,
-    ...(body === undefined || options.contentType === false ? {} : { 'content-type': 'application/json' })
+    ...(body === undefined || options.contentType === false ? {} : { 'content-type': 'application/json' }),
+    ...(options.headers || {})
   };
   return { request, url: new URL(path, 'http://localhost') };
 }
@@ -536,7 +557,9 @@ test('admin can approve or reject a pending account exactly once', async () => {
   });
   assert.equal(pool.approvals.get('pending-user').reviewed_by, 'sandra-user');
   assert.equal(pool.auditEvents.some((event) =>
-    event.action === 'account.approved' && event.targetId === 'pending-user'
+    event.action === 'account.approved' &&
+    event.targetId === 'pending-user' &&
+    event.summary === 'Approved account Pending Person.'
   ), true);
 
   const repeated = await call(
@@ -696,5 +719,46 @@ test('supreme admin can permanently delete accounts with safeguards and audit lo
   // 5. Audit event recorded for deletion
   assert.equal(pool.auditEvents.some((e) => e.action === 'account.deleted' && e.target_id === 'user-to-delete'), true);
 });
+
+test('session expires after 1 hour of inactivity on the backend with audit logging', async () => {
+  const pool = new ApprovalPool();
+
+  // 1. Initial active request succeeds and records session activity
+  const activeRes = await call(pool, 'GET', '/api/dashboard/session', 'sandra-user');
+  assert.equal(activeRes.response.status, 200);
+  assert.equal(pool.sessionActivity.has('sandra-user'), true);
+
+  // 2. Heartbeat activity endpoint touches the session
+  const heartbeat = await call(pool, 'POST', '/api/session/activity', 'sandra-user');
+  assert.equal(heartbeat.response.status, 200);
+  assert.equal(heartbeat.data.ok, true);
+  assert.equal(heartbeat.data.expiresInSeconds, 3600);
+
+  // 3. Background poll does not update last_active_at
+  const initialActiveAt = pool.sessionActivity.get('sandra-user').last_active_at;
+  const pollRes = await call(pool, 'GET', '/api/dashboard/session', 'sandra-user', null, {
+    headers: { 'x-background-poll': '1' }
+  });
+  assert.equal(pollRes.response.status, 200);
+  assert.equal(pool.sessionActivity.get('sandra-user').last_active_at, initialActiveAt);
+
+  // 4. Simulate 1 hour (3601 seconds) of inactivity on the backend
+  const expiredTime = new Date(Date.now() - 3601 * 1000).toISOString();
+  pool.sessionActivity.set('sandra-user', {
+    session_token: 'sandra-user',
+    user_id: 'sandra-user',
+    last_active_at: expiredTime
+  });
+
+  // 5. Next request from any tab is rejected by the backend with 401 session_expired_inactivity
+  const expiredRes = await call(pool, 'GET', '/api/dashboard/session', 'sandra-user');
+  assert.equal(expiredRes.response.status, 401);
+  assert.equal(expiredRes.data.error, 'session_expired_inactivity');
+
+  // 6. Session activity is cleaned up and audit event recorded
+  assert.equal(pool.sessionActivity.has('sandra-user'), false);
+  assert.equal(pool.auditEvents.some((e) => e.action === 'auth.session_timeout' && e.actorId === 'sandra-user'), true);
+});
+
 
 

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
-import { getAccountApproval, handleApprovalApi, requireApprovedAccount } from './approval-api.mjs';
+import { getAccountApproval, handleApprovalApi, requireApprovedAccount, validateSessionActivity } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +71,11 @@ async function getAdminSession(request, response) {
   const session = await getAuthSession(request.headers);
   if (!session?.user) {
     sendJson(response, 401, { error: 'authentication_required' });
+    return null;
+  }
+  const activity = await validateSessionActivity(session, request, pool);
+  if (!activity.valid) {
+    sendJson(response, 401, { error: activity.error, message: activity.message });
     return null;
   }
   const result = await pool.query(
@@ -244,9 +249,12 @@ export async function handleNeonApi(request, response, url) {
               case
                 when audit_entry.actor_user_id is null then 'Anonymous patient'
                 else coalesce(auth_user.name, auth_user.username, 'Former account')
-              end as actor
+              end as actor,
+              target_user.name as target_name,
+              target_user.username as target_username
        from public.feedback_audit_events as audit_entry
        left join public."user" as auth_user on auth_user.id = audit_entry.actor_user_id
+       left join public."user" as target_user on target_user.id = audit_entry.target_id and audit_entry.target_type = 'account'
        order by audit_entry.created_at desc, audit_entry.id desc
        limit 500`
     );

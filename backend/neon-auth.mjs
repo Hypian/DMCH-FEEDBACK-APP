@@ -25,6 +25,10 @@ export const auth = betterAuth({
   secret: authSecret,
   database: pool,
   trustedOrigins: [baseURL, frontendOrigin].filter(Boolean),
+  session: {
+    expiresIn: 3600,
+    updateAge: 300
+  },
   advanced: {
     defaultCookieAttributes: {
       sameSite: baseURL.startsWith('https://') && frontendOrigin ? 'none' : 'lax',
@@ -54,6 +58,13 @@ export const auth = betterAuth({
     session: {
       create: {
         after: async (session) => {
+          await pool.query(
+            `insert into public.feedback_session_activity (session_token, user_id, last_active_at)
+             values ($1, $2, now())
+             on conflict (session_token) do update
+               set last_active_at = excluded.last_active_at`,
+            [session.token || session.id, session.userId]
+          ).catch(() => {});
           await recordAuditEvent(pool, {
             actorId: session.userId,
             action: 'auth.login',

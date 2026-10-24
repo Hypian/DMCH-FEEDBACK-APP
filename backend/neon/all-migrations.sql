@@ -42,6 +42,9 @@ create index if not exists feedback_audit_events_created_at_idx
 create index if not exists feedback_audit_events_actor_user_id_idx
   on public.feedback_audit_events (actor_user_id, created_at desc);
 
+create index if not exists feedback_audit_events_target_idx
+  on public.feedback_audit_events (target_type, target_id);
+
 -- 4. Update feedback_account_approvals constraint to support 'deactivated'
 alter table public.feedback_account_approvals
   drop constraint if exists feedback_account_approvals_status_check;
@@ -60,4 +63,18 @@ select user_id from public.feedback_admins
 order by created_at asc
 limit 1
 on conflict (user_id) do nothing;
+
+-- 6. Session Inactivity Tracking table for 1-hour backend inactivity timeout
+create table if not exists public.feedback_session_activity (
+  session_token text primary key,
+  user_id text not null references public."user"(id) on delete cascade,
+  last_active_at timestamptz not null default now()
+);
+
+create index if not exists feedback_session_activity_user_id_idx
+  on public.feedback_session_activity (user_id);
+
+create index if not exists feedback_session_activity_last_active_idx
+  on public.feedback_session_activity (last_active_at desc);
+
 

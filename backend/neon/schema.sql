@@ -52,6 +52,12 @@ create table if not exists public.feedback_audit_events (
     check (jsonb_typeof(metadata) = 'object')
 );
 
+create table if not exists public.feedback_session_activity (
+  session_token text primary key,
+  user_id text not null references public."user"(id) on delete cascade,
+  last_active_at timestamptz not null default now()
+);
+
 create index if not exists feedback_responses_submitted_at_idx
   on public.feedback_responses (submitted_at desc);
 create index if not exists feedback_responses_department_id_idx
@@ -65,6 +71,13 @@ create index if not exists feedback_audit_events_created_at_idx
   on public.feedback_audit_events (created_at desc);
 create index if not exists feedback_audit_events_actor_user_id_idx
   on public.feedback_audit_events (actor_user_id, created_at desc);
+create index if not exists feedback_audit_events_target_idx
+  on public.feedback_audit_events (target_type, target_id);
+create index if not exists feedback_session_activity_user_id_idx
+  on public.feedback_session_activity (user_id);
+create index if not exists feedback_session_activity_last_active_idx
+  on public.feedback_session_activity (last_active_at desc);
+
 
 insert into public.feedback_departments (id, labels, sort_order) values
   ('o0', '["Gynecology & Obs", "Gynécologie - Obstétrique", "Ubuvuzi bw’ababyeyi"]'::jsonb, 0),

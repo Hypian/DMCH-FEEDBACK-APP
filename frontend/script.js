@@ -45,18 +45,40 @@ const API_ORIGIN = typeof window === 'undefined'
   ? ''
   : String(window.DMC_API_ORIGIN || '').replace(/\/+$/, '');
 
-async function apiRequest(path, method = 'GET', body) {
+async function apiRequest(path, method = 'GET', body, options = {}) {
+  const headers = {};
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
+  if (options.background) {
+    headers['x-background-poll'] = '1';
+  }
   const response = await fetch(`${API_ORIGIN}${path}`, {
     method,
     credentials: 'include',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || 'The server request failed.');
     error.status = response.status;
+    error.code = data?.error || '';
     error.details = data;
+    if (response.status === 401) {
+      const isExpired = data?.error === 'session_expired_inactivity';
+      if (typeof window !== 'undefined' && window.DMC_SESSION_SYNC) {
+        window.DMC_SESSION_SYNC.broadcast(isExpired ? 'SESSION_EXPIRED' : 'SESSION_LOGOUT', { reason: isExpired ? 'inactivity' : 'unauthorized' });
+      }
+      if (location.hash === '#admin' && isExpired) {
+        stopDashboardFeedbackRefresh();
+        adminSession = null;
+        location.assign(`login.html?reason=inactivity&next=${encodeURIComponent('index.html#admin')}`);
+      }
+    }
     throw error;
   }
   return data;
@@ -97,9 +119,9 @@ const U = {
     'MURAKOZE GUHITAMO DREAM MEDICAL CENTER HOSPITAL!'
   ],
   completionBody: [
-    'Your feedback has been received. Thank you for choosing Dream Medical Center Hospital.',
-    'Votre avis a bien été reçu. Merci d’avoir choisi Dream Medical Center Hospital.',
-    'Twakiriye ibitekerezo byanyu. Murakoze guhitamo Dream Medical Center Hospital.'
+    'Your feedback has been received.',
+    'Votre avis a bien été reçu.',
+    'Twakiriye ibitekerezo byanyu.'
   ],
   completedBadge: ['Submitted', 'Envoyé', 'Byoherejwe'],
   deviceStorageError: [
@@ -276,7 +298,7 @@ async function refreshDashboardFeedback() {
   if (!adminSession || location.hash !== '#admin' || !adminDataLoaded || adminLoading || dashboardFeedbackRefreshInProgress) return;
   dashboardFeedbackRefreshInProgress = true;
   try {
-    const responses = await apiRequest('/api/responses');
+    const responses = await apiRequest('/api/responses', 'GET', undefined, { background: true });
     const updatedResponses = responses.map(toFeedbackResponse);
     const previousIds = feedbackResponses.map(({ id, t }) => [id, t]);
     const updatedIds = updatedResponses.map(({ id, t }) => [id, t]);
@@ -286,10 +308,17 @@ async function refreshDashboardFeedback() {
     }
   } catch (error) {
     console.error('Could not refresh dashboard feedback:', error);
+    if (error.status === 401) {
+      stopDashboardFeedbackRefresh();
+      adminSession = null;
+      const isExpired = error.code === 'session_expired_inactivity' || error.details?.error === 'session_expired_inactivity';
+      const reasonParam = isExpired ? 'reason=inactivity&' : '';
+      location.assign(`login.html?${reasonParam}next=${encodeURIComponent('index.html#admin')}`);
+    }
   } finally {
     dashboardFeedbackRefreshInProgress = false;
   }
-  if (tab === 'audit') await loadAuditEvents(false);
+  if (tab === 'audit') await loadAuditEvents(false, true);
 }
 
 function startDashboardFeedbackRefresh() {
@@ -306,12 +335,18 @@ function stopDashboardFeedbackRefresh() {
 async function initializeAdmin() {
   try {
     adminSession = await apiRequest('/api/dashboard/session');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('dmc_has_active_session', '1');
+      localStorage.setItem('dmc_session_last_active', String(Date.now()));
+    }
     await loadAdminData();
   } catch (error) {
     console.error('Could not initialize the admin dashboard:', error);
     adminLoading = false;
     if (error.status === 401) {
-      location.assign(`login.html?next=${encodeURIComponent('index.html#admin')}`);
+      const isExpired = error.code === 'session_expired_inactivity' || error.details?.error === 'session_expired_inactivity';
+      const reasonParam = isExpired ? 'reason=inactivity&' : '';
+      location.assign(`login.html?${reasonParam}next=${encodeURIComponent('index.html#admin')}`);
       return;
     }
     adminError = error.status === 403
@@ -396,7 +431,7 @@ function getDeviceId() {
 function renderComplete() {
   clearInterval(progressTimer);
   progressTimer = null;
-  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div></main>`;
+  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy completion-body">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div></main>`;
 }
 
 function hideSplash(callback) {
@@ -1246,9 +1281,73 @@ function admin() {
   }</div>`;
 }
 
+function renderUserManagementContent() {
+  if (userManagementError) {
+    return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
+  }
+  const refresh = `<button class="adm-btn" onclick="loadUserManagement()"><i class='bx bx-refresh'></i> Refresh</button>`;
+  const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
+    activeUsers.length
+      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role status-approved approved"><i class='bx bx-check-circle'></i> Active</span></article>`).join('')}</div>`
+      : '<p class="hint">There are no approved users to display.</p>'
+  }</section>`;
+  const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
+    adminDirectory.length
+      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
+      : '<p class="hint">There are no administrators to display.</p>'
+  }</section>`;
+  if (!adminSession.isSupremeAdmin) {
+    const accounts = managedUsers.map((user) => `<tr id="user-row-${/^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : ''}">
+      <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
+      <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
+      <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
+    </tr>`).join('');
+    const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${
+      managedUsers.length
+        ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
+        : '<p class="hint">There are no accounts to display.</p>'
+    }</section>`;
+    return approvedUsers + directory + accountList;
+  }
+  const pendingUsers = managedUsers.filter((u) => u.status === 'pending');
+  const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${
+    pendingUsers.length
+      ? `<div class="pending-user-list">${pendingUsers.map((user) => {
+          const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+          return `<article class="pending-user" id="pending-user-${safeId}"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" id="pending-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="pending-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>` : ''}</div></article>`;
+        }).join('')}</div>`
+      : '<p class="hint">There are no pending accounts awaiting review.</p>'
+  }</section>`;
+  const rows = managedUsers.map((user) => {
+    const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+    const adminAction = `<button class="adm-btn" id="user-admin-btn-${safeId}" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
+    const supremeAction = `<button class="adm-btn" id="user-supreme-btn-${safeId}" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`;
+    const statusAction = user.status === 'deactivated'
+      ? `<button class="adm-btn primary" id="user-status-btn-${safeId}" onclick="setUserStatus('${safeId}','approved')"><i class='bx bx-check-shield'></i> Reactivate</button>`
+      : user.status === 'approved' || user.is_admin
+        ? `<button class="adm-btn danger" id="user-status-btn-${safeId}" onclick="setUserStatus('${safeId}','deactivated')"><i class='bx bx-block'></i> Deactivate</button>`
+        : '';
+    const deleteAction = `<button class="adm-btn danger" id="user-del-btn-${safeId}" onclick="deleteUser('${safeId}','${esc(user.username || user.name || '')}')"><i class='bx bx-trash'></i> Delete</button>`;
+    const actions = safeId && user.user_id !== adminSession.user.id
+      ? `<div class="user-role-actions">${
+          user.status === 'pending'
+            ? `<button class="adm-btn primary" id="user-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="user-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
+            : ''
+        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
+      : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
+    return `<tr id="user-row-${safeId}"><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
+  }).join('');
+  const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
+    managedUsers.length
+      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="hint">There are no accounts to display.</p>'
+  }</section>`;
+  return pendingSection + approvedUsers + directory + accounts;
+}
+
 function userManagementUI() {
   if (userManagementLoading) {
-    return `<section class="card user-management-loading" role="status" aria-live="polite">
+    return `<section class="card user-management-loading" id="user-management-view" role="status" aria-live="polite">
       <div class="um-loading-header">
         <div class="um-loading-title">
           <span class="um-pulse-dot"></span>
@@ -1285,67 +1384,49 @@ function userManagementUI() {
       <p class="um-status-note"><i class='bx bx-loader-alt bx-spin'></i> ${esc(userManagementStatusText)}</p>
     </section>`;
   }
-  if (userManagementError) {
-    return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
+  return `<div id="user-management-view" class="user-management-view">${renderUserManagementContent()}</div>`;
+}
+
+function updateUserManagementUI() {
+  const container = $('user-management-view');
+  if (container && typeof container.querySelector === 'function') {
+    container.innerHTML = renderUserManagementContent();
+  } else {
+    admin();
   }
-  const refresh = `<button class="adm-btn" onclick="loadUserManagement()"><i class='bx bx-refresh'></i> Refresh</button>`;
-  const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
-    activeUsers.length
-      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role status-approved approved"><i class='bx bx-check-circle'></i> Active</span></article>`).join('')}</div>`
-      : '<p class="hint">There are no approved users to display.</p>'
-  }</section>`;
-  const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
-    adminDirectory.length
-      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
-      : '<p class="hint">There are no administrators to display.</p>'
-  }</section>`;
-  if (!adminSession.isSupremeAdmin) {
-    const accounts = managedUsers.map((user) => `<tr>
-      <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
-      <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
-      <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
-    </tr>`).join('');
-    const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${
-      managedUsers.length
-        ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
-        : '<p class="hint">There are no accounts to display.</p>'
-    }</section>`;
-    return approvedUsers + directory + accountList;
+}
+
+function formatAuditSummary(event) {
+  if (!event || typeof event.summary !== 'string') return '';
+  let summary = event.summary;
+
+  const memUser = (Array.isArray(managedUsers) ? managedUsers.find((u) => u.user_id === event.target_id) : null)
+    || (Array.isArray(activeUsers) ? activeUsers.find((u) => u.user_id === event.target_id) : null)
+    || (Array.isArray(adminDirectory) ? adminDirectory.find((u) => u.user_id === event.target_id) : null);
+
+  const targetName = (event.target_name || event.metadata?.name || memUser?.name || '').trim();
+  const targetUsername = (event.target_username || event.metadata?.username || memUser?.username || '').trim();
+  const displayName = targetName || (targetUsername ? `@${targetUsername}` : '');
+
+  if (displayName && event.target_id && summary.includes(event.target_id)) {
+    summary = summary.split(event.target_id).join(displayName);
   }
-  const pendingUsers = managedUsers.filter((u) => u.status === 'pending');
-  const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${
-    pendingUsers.length
-      ? `<div class="pending-user-list">${pendingUsers.map((user) => {
-          const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
-          return `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>` : ''}</div></article>`;
-        }).join('')}</div>`
-      : '<p class="hint">There are no pending accounts awaiting review.</p>'
-  }</section>`;
-  const rows = managedUsers.map((user) => {
-    const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
-    const adminAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
-    const supremeAction = `<button class="adm-btn" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`;
-    const statusAction = user.status === 'deactivated'
-      ? `<button class="adm-btn primary" onclick="setUserStatus('${safeId}','approved')"><i class='bx bx-check-shield'></i> Reactivate</button>`
-      : user.status === 'approved' || user.is_admin
-        ? `<button class="adm-btn danger" onclick="setUserStatus('${safeId}','deactivated')"><i class='bx bx-block'></i> Deactivate</button>`
-        : '';
-    const deleteAction = `<button class="adm-btn danger" onclick="deleteUser('${safeId}','${esc(user.username || user.name || '')}')"><i class='bx bx-trash'></i> Delete</button>`;
-    const actions = safeId && user.user_id !== adminSession.user.id
-      ? `<div class="user-role-actions">${
-          user.status === 'pending'
-            ? `<button class="adm-btn primary" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
-            : ''
-        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
-      : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
-    return `<tr><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
-  }).join('');
-  const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
-    managedUsers.length
-      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : '<p class="hint">There are no accounts to display.</p>'
-  }</section>`;
-  return pendingSection + approvedUsers + directory + accounts;
+
+  const knownUsers = [
+    ...(Array.isArray(managedUsers) ? managedUsers : []),
+    ...(Array.isArray(activeUsers) ? activeUsers : []),
+    ...(Array.isArray(adminDirectory) ? adminDirectory : [])
+  ];
+  for (const u of knownUsers) {
+    if (u && u.user_id && summary.includes(u.user_id)) {
+      const uDisplayName = (u.name || (u.username ? `@${u.username}` : '') || '').trim();
+      if (uDisplayName) {
+        summary = summary.split(u.user_id).join(uDisplayName);
+      }
+    }
+  }
+
+  return summary;
 }
 
 function auditUI() {
@@ -1360,7 +1441,7 @@ function auditUI() {
       <td><time datetime="${esc(event.created_at)}">${esc(time)}</time></td>
       <td>${esc(event.actor || 'Unknown')}</td>
       <td><span class="audit-action">${esc(event.action.replaceAll('.', ' '))}</span></td>
-      <td>${esc(event.summary)}</td>
+      <td>${esc(formatAuditSummary(event))}</td>
     </tr>`;
   }).join('');
   return `<section class="card audit-card">
@@ -1379,7 +1460,7 @@ function auditUI() {
   </section>`;
 }
 
-async function loadAuditEvents(showLoading = true) {
+async function loadAuditEvents(showLoading = true, isBackground = false) {
   if (auditRefreshInProgress) return;
   auditRefreshInProgress = true;
   let auditChanged = false;
@@ -1389,7 +1470,7 @@ async function loadAuditEvents(showLoading = true) {
     admin();
   }
   try {
-    const updatedEntries = await apiRequest('/api/admin/audit');
+    const updatedEntries = await apiRequest('/api/admin/audit', 'GET', undefined, isBackground ? { background: true } : {});
     auditChanged = JSON.stringify(auditEntries) !== JSON.stringify(updatedEntries);
     auditEntries = updatedEntries;
     auditLoaded = true;
@@ -1412,35 +1493,43 @@ let userManagementStep = 1;
 let userManagementProgressPct = 25;
 let userManagementStatusText = 'Connecting to admin directory…';
 
-async function loadUserManagement() {
+async function loadUserManagement(silent = false) {
   if (!adminSession?.isAdmin) return;
-  userManagementLoading = true;
-  userManagementError = '';
-  userManagementStep = 1;
-  userManagementProgressPct = 20;
-  userManagementStatusText = 'Connecting to admin directory…';
-  admin();
+  if (!silent) {
+    userManagementLoading = true;
+    userManagementError = '';
+    userManagementStep = 1;
+    userManagementProgressPct = 20;
+    userManagementStatusText = 'Connecting to admin directory…';
+    admin();
+  }
   try {
     const dirPromise = apiRequest('/api/admin/directory').then((res) => {
-      userManagementStep = Math.max(userManagementStep, 2);
-      userManagementProgressPct = Math.max(userManagementProgressPct, 55);
-      userManagementStatusText = 'Fetching active accounts & approval roster…';
-      admin();
+      if (!silent) {
+        userManagementStep = Math.max(userManagementStep, 2);
+        userManagementProgressPct = Math.max(userManagementProgressPct, 55);
+        userManagementStatusText = 'Fetching active accounts & approval roster…';
+        admin();
+      }
       return res;
     });
 
     const activePromise = apiRequest('/api/admin/active-users').then((res) => {
-      userManagementStep = Math.max(userManagementStep, 3);
-      userManagementProgressPct = Math.max(userManagementProgressPct, 85);
-      userManagementStatusText = 'Compiling security roles & permissions matrix…';
-      admin();
+      if (!silent) {
+        userManagementStep = Math.max(userManagementStep, 3);
+        userManagementProgressPct = Math.max(userManagementProgressPct, 85);
+        userManagementStatusText = 'Compiling security roles & permissions matrix…';
+        admin();
+      }
       return res;
     });
 
     const usersPromise = adminSession.isAdmin
       ? apiRequest('/api/admin/users').then((res) => {
-          userManagementProgressPct = 95;
-          userManagementStatusText = 'Finalizing user accounts…';
+          if (!silent) {
+            userManagementProgressPct = 95;
+            userManagementStatusText = 'Finalizing user accounts…';
+          }
           return res;
         })
       : Promise.resolve({ users: [] });
@@ -1456,26 +1545,80 @@ async function loadUserManagement() {
     console.error('Could not load account management data:', error);
     userManagementError = 'Account management data could not be loaded. Check admin access and database setup.';
   } finally {
-    userManagementLoading = false;
-    admin();
+    if (!silent) {
+      userManagementLoading = false;
+      admin();
+    }
   }
 }
 
 async function reviewUser(userId, status) {
   if (status === 'rejected' && !confirm('Decline this account request?')) return;
-  userManagementLoading = true;
-  userManagementError = '';
-  admin();
+  const approveBtn = $(`pending-approve-btn-${userId}`) || $(`user-approve-btn-${userId}`);
+  const declineBtn = $(`pending-decline-btn-${userId}`) || $(`user-decline-btn-${userId}`);
+  const pendingCard = $(`pending-user-${userId}`);
+  const userRow = $(`user-row-${userId}`);
+
+  if (status === 'approved') {
+    if (approveBtn) {
+      approveBtn.disabled = true;
+      approveBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Approving…";
+    }
+    if (declineBtn) declineBtn.disabled = true;
+  } else {
+    if (declineBtn) {
+      declineBtn.disabled = true;
+      declineBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Declining…";
+    }
+    if (approveBtn) approveBtn.disabled = true;
+  }
+
+  if (pendingCard && typeof pendingCard.classList?.add === 'function') {
+    pendingCard.classList.add('is-updating');
+  }
+  if (userRow && typeof userRow.classList?.add === 'function') {
+    userRow.classList.add('is-updating');
+  }
+
   try {
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/approval`, 'PATCH', { status });
-    userManagementLoaded = false;
-    await loadUserManagement();
+    const target = managedUsers.find((u) => u.user_id === userId);
+    if (target) {
+      target.status = status;
+      if (status === 'approved') {
+        if (!activeUsers.some((u) => u.user_id === userId)) {
+          activeUsers.push({
+            user_id: target.user_id,
+            name: target.name,
+            username: target.username,
+            status: 'approved'
+          });
+        }
+      } else if (status === 'rejected') {
+        activeUsers = activeUsers.filter((u) => u.user_id !== userId);
+      }
+    }
+    updateUserManagementUI();
+    loadUserManagement(true).then(() => {
+      updateUserManagementUI();
+    }).catch(() => {});
   } catch (error) {
     console.error('Could not review account request:', error);
-    userManagementError = 'The account request could not be updated. Refresh and try again.';
-  } finally {
-    userManagementLoading = false;
-    admin();
+    if (pendingCard && typeof pendingCard.classList?.remove === 'function') {
+      pendingCard.classList.remove('is-updating');
+    }
+    if (userRow && typeof userRow.classList?.remove === 'function') {
+      userRow.classList.remove('is-updating');
+    }
+    if (approveBtn) {
+      approveBtn.disabled = false;
+      approveBtn.innerHTML = "<i class='bx bx-check'></i> Approve";
+    }
+    if (declineBtn) {
+      declineBtn.disabled = false;
+      declineBtn.innerHTML = "<i class='bx bx-x'></i> Decline";
+    }
+    alert('The account request could not be updated. Please try again.');
   }
 }
 
@@ -1485,13 +1628,33 @@ async function setUserStatus(userId, status) {
     ? 'Are you sure you want to deactivate this account? The user will immediately lose access.'
     : 'Reactivate this account and restore access?';
   if (!confirm(confirmMsg)) return;
-  userManagementLoading = true;
-  userManagementError = '';
-  admin();
+
+  const btn = $(`user-status-btn-${userId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> ${isDeactivate ? 'Deactivating…' : 'Reactivating…'}`;
+  }
+
   try {
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/status`, 'PATCH', { status });
-    userManagementLoaded = false;
-    await loadUserManagement();
+    const target = managedUsers.find((u) => u.user_id === userId);
+    if (target) {
+      target.status = status;
+      if (status === 'deactivated') {
+        activeUsers = activeUsers.filter((u) => u.user_id !== userId);
+      } else if (status === 'approved' && !activeUsers.some((u) => u.user_id === userId)) {
+        activeUsers.push({
+          user_id: target.user_id,
+          name: target.name,
+          username: target.username,
+          status: 'approved'
+        });
+      }
+    }
+    updateUserManagementUI();
+    loadUserManagement(true).then(() => {
+      updateUserManagementUI();
+    }).catch(() => {});
   } catch (error) {
     console.error(`Could not set status to ${status}:`, error);
     userManagementError = error.details?.error === 'last_admin_cannot_be_removed'
@@ -1501,9 +1664,7 @@ async function setUserStatus(userId, status) {
         : error.details?.error === 'cannot_deactivate_own_account'
           ? 'You cannot deactivate your own account.'
           : 'The account status could not be updated. Refresh and try again.';
-  } finally {
-    userManagementLoading = false;
-    admin();
+    updateUserManagementUI();
   }
 }
 
@@ -1511,16 +1672,27 @@ async function setUserRole(userId, role, enabled) {
   const targetUser = managedUsers.find((u) => u.user_id === userId);
   const action = enabled ? 'grant' : 'remove';
   if (!enabled && !confirm(`Are you sure you want to ${action} this ${role === 'supreme' ? 'supreme-admin' : 'administrator'} role?`)) return;
-  userManagementLoading = true;
-  userManagementError = '';
-  admin();
+
+  const btn = $(`user-${role}-btn-${userId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Updating…";
+  }
+
   try {
     if (role === 'supreme' && enabled && targetUser && !targetUser.is_admin) {
       await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/admin`, 'PATCH', { enabled: true });
+      if (targetUser) targetUser.is_admin = true;
     }
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/${role}`, 'PATCH', { enabled });
-    userManagementLoaded = false;
-    await loadUserManagement();
+    if (targetUser) {
+      if (role === 'admin') targetUser.is_admin = enabled;
+      if (role === 'supreme') targetUser.is_supreme_admin = enabled;
+    }
+    updateUserManagementUI();
+    loadUserManagement(true).then(() => {
+      updateUserManagementUI();
+    }).catch(() => {});
   } catch (error) {
     console.error(`Could not ${action} the ${role} role:`, error);
     userManagementError = error.details?.error === 'last_supreme_admin_cannot_be_removed'
@@ -1532,9 +1704,7 @@ async function setUserRole(userId, role, enabled) {
           : error.details?.error === 'supreme_admin_must_be_an_admin'
             ? 'The account must be an administrator before becoming a supreme admin.'
             : 'The account role could not be updated. Refresh and try again.';
-  } finally {
-    userManagementLoading = false;
-    admin();
+    updateUserManagementUI();
   }
 }
 
@@ -1558,11 +1728,32 @@ async function deleteUser(userId, username) {
 
 async function confirmUserDelete() {
   const dialog = $('user-delete-dialog');
-  if (dialog && typeof dialog.close === 'function') dialog.close();
-  if (pendingDeleteUserId) {
-    const id = pendingDeleteUserId;
-    pendingDeleteUserId = null;
+  const confirmBtn = $('user-delete-confirm');
+  const cancelBtn = $('user-delete-cancel');
+  const origBtnText = confirmBtn?.innerHTML;
+
+  const id = pendingDeleteUserId;
+  if (!id) {
+    if (dialog && typeof dialog.close === 'function') dialog.close();
+    return;
+  }
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Deleting…";
+  }
+  if (cancelBtn) cancelBtn.disabled = true;
+
+  try {
     await executeDeleteUser(id);
+    pendingDeleteUserId = null;
+    if (dialog && typeof dialog.close === 'function') dialog.close();
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      if (origBtnText) confirmBtn.innerHTML = origBtnText;
+    }
+    if (cancelBtn) cancelBtn.disabled = false;
   }
 }
 
@@ -1573,16 +1764,45 @@ function cancelUserDelete() {
 }
 
 async function executeDeleteUser(userId) {
-  userManagementLoading = true;
-  userManagementError = '';
-  admin();
+  const userRow = $(`user-row-${userId}`);
+  const delBtn = $(`user-del-btn-${userId}`);
+  if (delBtn) {
+    delBtn.disabled = true;
+    delBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Deleting…";
+  }
+  if (userRow && typeof userRow.classList?.add === 'function') {
+    userRow.classList.add('is-deleting');
+  }
+
   try {
     await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}`, 'DELETE');
-    userManagementLoaded = false;
-    await loadUserManagement();
+    managedUsers = managedUsers.filter((u) => u.user_id !== userId);
+    activeUsers = activeUsers.filter((u) => u.user_id !== userId);
+    adminDirectory = adminDirectory.filter((u) => u.user_id !== userId);
+
+    if (userRow && typeof userRow.classList?.add === 'function') {
+      userRow.classList.remove('is-deleting');
+      userRow.classList.add('is-deleted');
+      setTimeout(() => {
+        updateUserManagementUI();
+      }, 240);
+    } else {
+      updateUserManagementUI();
+    }
+
+    loadUserManagement(true).then(() => {
+      updateUserManagementUI();
+    }).catch(() => {});
   } catch (error) {
     console.error('Could not delete account:', error);
-    userManagementError = error.details?.error === 'cannot_delete_own_account'
+    if (userRow && typeof userRow.classList?.remove === 'function') {
+      userRow.classList.remove('is-deleting');
+    }
+    if (delBtn) {
+      delBtn.disabled = false;
+      delBtn.innerHTML = "<i class='bx bx-trash'></i> Delete";
+    }
+    const msg = error.details?.error === 'cannot_delete_own_account'
       ? 'You cannot delete your own account.'
       : error.details?.error === 'last_admin_cannot_be_removed'
         ? 'The last administrator account cannot be deleted.'
@@ -1591,9 +1811,7 @@ async function executeDeleteUser(userId) {
           : error.details?.error === 'supreme_admin_must_be_demoted_first'
             ? 'Remove the supreme-admin role before deleting this account.'
             : 'The account could not be deleted. Refresh and try again.';
-  } finally {
-    userManagementLoading = false;
-    admin();
+    alert(msg);
   }
 }
 
@@ -1602,6 +1820,9 @@ async function signOutAdmin() {
   adminSigningOut = true;
   admin();
   try {
+    if (typeof window !== 'undefined' && window.DMC_SESSION_SYNC) {
+      window.DMC_SESSION_SYNC.broadcast('SESSION_LOGOUT');
+    }
     await apiRequest('/api/auth/sign-out', 'POST', {});
     stopDashboardFeedbackRefresh();
     adminSession = null;

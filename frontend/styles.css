@@ -669,6 +669,14 @@ textarea { min-height: 150px; resize: vertical; }
 }
 .completion-check { font-size: 46px; animation: check-draw .45s .28s both; }
 
+.completion-body {
+  font-size: clamp(1.125rem, 1.05rem + 0.4vw, 1.3rem);
+  font-weight: 550;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin-bottom: 24px;
+}
+
 .completion-stamp {
   display: inline-flex; align-items: center; gap: 8px;
   margin-top: 6px;
@@ -1245,14 +1253,18 @@ textarea { min-height: 150px; resize: vertical; }
 .svc-row.is-inactive { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--border-hover), var(--shadow-xs); }
 .svc-row.is-inactive .svc-icon { background: #f1f5f9; color: #64748b; }
 .svc-row.is-inactive .svc-info h4 { color: var(--ink-3); }
-.svc-row.is-deleting {
+.svc-row.is-deleting,
+.pending-user.is-deleting,
+tr.is-deleting {
   opacity: 0.65;
   pointer-events: none;
   border-color: rgba(229, 75, 43, 0.4);
   box-shadow: inset 3px 0 0 var(--red);
   background: #FFF8F6;
 }
-.svc-row.is-deleted {
+.svc-row.is-deleted,
+.pending-user.is-deleted,
+tr.is-deleted {
   opacity: 0;
   transform: scale(0.96) translateY(-8px);
   max-height: 0;
@@ -1263,6 +1275,12 @@ textarea { min-height: 150px; resize: vertical; }
   border-width: 0;
   overflow: hidden;
   transition: opacity .26s ease, transform .26s ease, max-height .3s ease, margin .3s ease, padding .3s ease;
+}
+.pending-user.is-updating,
+tr.is-updating {
+  opacity: 0.65;
+  pointer-events: none;
+  transition: opacity .2s ease;
 }
 .svc-error-banner {
   margin: 0 0 12px;

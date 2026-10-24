@@ -16,5 +16,8 @@ create index if not exists feedback_audit_events_created_at_idx
 create index if not exists feedback_audit_events_actor_user_id_idx
   on public.feedback_audit_events (actor_user_id, created_at desc);
 
+create index if not exists feedback_audit_events_target_idx
+  on public.feedback_audit_events (target_type, target_id);
+
 comment on table public.feedback_audit_events is
   'Append-only application audit events visible to authorized admins.';

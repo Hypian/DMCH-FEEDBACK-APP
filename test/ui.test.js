@@ -704,6 +704,51 @@ test('admins can view a refreshed activity log and report exports contain feedba
   assert.equal(backendState.reportExports[0].format, 'xlsx');
 });
 
+test('activity log prints user full names on frontend while keeping account hashes in background', async () => {
+  const accountId = '0iIbRgTQOXUXxpbPi4e6VSNYWfluAnbY';
+  const backendState = {
+    routeHash: '#admin',
+    session: { user: { id: 'admin-1', name: 'Admin One', username: 'admin_one' } },
+    auditEvents: [
+      {
+        id: 1,
+        created_at: '2026-10-24T10:00:00.000Z',
+        action: 'account.approved',
+        summary: `Approved account ${accountId}.`,
+        target_type: 'account',
+        target_id: accountId,
+        target_name: 'Dr. Jane Smith',
+        target_username: 'jsmith',
+        actor: 'Admin One'
+      },
+      {
+        id: 2,
+        created_at: '2026-10-24T09:30:00.000Z',
+        action: 'account.deactivated',
+        summary: 'Deactivated account old_user_hash_123.',
+        target_type: 'account',
+        target_id: 'old_user_hash_123',
+        metadata: { name: 'John Miller', username: 'jmiller' },
+        actor: 'Admin One'
+      }
+    ]
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "location.hash='#admin';adminSession={user:{id:'admin-1',name:'Admin One'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;tab='audit';admin()",
+    context
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // Frontend displays the full names
+  assert.match(app.innerHTML, /Approved account Dr\. Jane Smith\./);
+  assert.match(app.innerHTML, /Deactivated account John Miller\./);
+
+  // Background hash is not printed in the user-visible details cell
+  assert.doesNotMatch(app.innerHTML, /Approved account 0iIbRgTQOXUXxpbPi4e6VSNYWfluAnbY/);
+  assert.doesNotMatch(app.innerHTML, /Deactivated account old_user_hash_123/);
+});
+
 test('intro language changes in place and loads departments from the Node API', async () => {
   const { app, context, storage, backendState } = makeContext();
   vm.runInContext('renderIntro(false)', context);
@@ -827,6 +872,8 @@ test('successful feedback submission stores the response and restores completion
   await submission;
   assert.equal(backendState.calls.filter((call) => call.url === '/api/submit').length, 1);
   assert.match(app.innerHTML, /Thank you for choosing Dream Medical Center Hospital!/);
+  assert.match(app.innerHTML, /<p class="intro-copy completion-body">Your feedback has been received\.<\/p>/);
+  assert.doesNotMatch(app.innerHTML, /Your feedback has been received\. Thank you for choosing/);
   assert.doesNotMatch(app.innerHTML, /Welcome to DMC Hospital/);
   assert.match(app.innerHTML, /Submitted/);
   assert.equal(backendState.responses.length, 1);

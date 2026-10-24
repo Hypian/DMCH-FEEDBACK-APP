@@ -38,10 +38,75 @@ async function readJson(request, response) {
   }
 }
 
+export const SESSION_INACTIVITY_TIMEOUT_SECONDS = 3600;
+
+export async function validateSessionActivity(session, request, pool) {
+  if (!session?.user) return { valid: false, error: 'authentication_required' };
+  const token = session.session?.token || session.session?.id || session.user.id;
+  const isBackgroundPoll = request?.headers && (
+    request.headers['x-background-poll'] === '1' ||
+    request.headers['x-background-poll'] === 'true'
+  );
+
+  let existing = null;
+  try {
+    const result = await pool.query(
+      'select last_active_at from public.feedback_session_activity where session_token = $1',
+      [token]
+    );
+    existing = result.rows?.[0];
+  } catch {
+    // Graceful fallback for mock tests or before table initialization
+  }
+
+  const now = Date.now();
+  if (existing?.last_active_at) {
+    const lastActive = new Date(existing.last_active_at).getTime();
+    const elapsedSeconds = (now - lastActive) / 1000;
+    if (elapsedSeconds >= SESSION_INACTIVITY_TIMEOUT_SECONDS) {
+      try {
+        await pool.query('delete from public.feedback_session_activity where session_token = $1', [token]);
+        await pool.query('delete from public."session" where token = $1 or id = $1', [token]);
+        await recordAuditEvent(pool, {
+          actorId: session.user.id,
+          action: 'auth.session_timeout',
+          summary: 'Session expired after 1 hour of inactivity.',
+          targetType: 'session',
+          targetId: token
+        });
+      } catch {}
+      return {
+        valid: false,
+        error: 'session_expired_inactivity',
+        message: 'Your session has expired after 1 hour of inactivity. Please sign in again.'
+      };
+    }
+  }
+
+  if (!isBackgroundPoll) {
+    try {
+      await pool.query(
+        `insert into public.feedback_session_activity (session_token, user_id, last_active_at)
+         values ($1, $2, now())
+         on conflict (session_token) do update
+           set last_active_at = excluded.last_active_at`,
+        [token, session.user.id]
+      );
+    } catch {}
+  }
+
+  return { valid: true };
+}
+
 async function requireAdmin(request, response, pool, getAuthSession) {
   const session = await getAuthSession(request.headers);
   if (!session?.user) {
     sendJson(response, 401, { error: 'authentication_required' });
+    return null;
+  }
+  const activity = await validateSessionActivity(session, request, pool);
+  if (!activity.valid) {
+    sendJson(response, 401, { error: activity.error, message: activity.message });
     return null;
   }
   const result = await pool.query(
@@ -93,6 +158,11 @@ export async function requireApprovedAccount(request, response, pool, getAuthSes
   const session = await getAuthSession(request.headers);
   if (!session?.user) {
     sendJson(response, 401, { error: 'authentication_required' });
+    return null;
+  }
+  const activity = await validateSessionActivity(session, request, pool);
+  if (!activity.valid) {
+    sendJson(response, 401, { error: activity.error, message: activity.message });
     return null;
   }
   const status = await getAccountApproval(pool, session.user.id);
@@ -174,6 +244,21 @@ export async function getAccountApproval(pool, userId) {
 
 export async function handleApprovalApi(request, response, url, { pool, getAuthSession }) {
   const { pathname } = url;
+  if (pathname === '/api/session/activity') {
+    if (request.method !== 'POST') {
+      response.setHeader('Allow', 'POST');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    const account = await requireApprovedAccount(request, response, pool, getAuthSession);
+    if (!account) return true;
+    sendJson(response, 200, {
+      ok: true,
+      expiresInSeconds: SESSION_INACTIVITY_TIMEOUT_SECONDS
+    });
+    return true;
+  }
+
   if (pathname === '/api/dashboard/session') {
     if (request.method !== 'GET') {
       response.setHeader('Allow', 'GET');
@@ -375,15 +460,16 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
         'delete from public."user" where id = $1',
         [targetUserId]
       );
+      const targetDisplayName = targetUser.rows[0]?.name || (targetUser.rows[0]?.username ? `@${targetUser.rows[0].username}` : '') || targetUserId;
       await recordAuditEvent(client, {
         actorId: adminSession.user.id,
         action: 'account.deleted',
-        summary: `Permanently deleted account ${targetUser.rows[0]?.username || targetUserId}.`,
+        summary: `Permanently deleted account ${targetDisplayName}.`,
         targetType: 'account',
         targetId: targetUserId,
         metadata: {
-          username: targetUser.rows[0]?.username,
-          name: targetUser.rows[0]?.name
+          username: targetUser.rows[0]?.username || null,
+          name: targetUser.rows[0]?.name || null
         }
       });
       await client.query('commit');
@@ -450,7 +536,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       transactionStarted = true;
       await client.query('select pg_advisory_xact_lock($1)', [74192831]);
       const targetUser = await client.query(
-        'select 1 from public."user" where id = $1',
+        'select id, name, username from public."user" where id = $1',
         [targetUserId]
       );
       if (targetUser.rowCount === 0) {
@@ -496,13 +582,19 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
          returning user_id, status, reviewed_at`,
         [targetUserId, targetStatus, adminSession.user.id]
       );
+      const targetProfile = targetUser.rows[0];
+      const targetDisplayName = targetProfile?.name || (targetProfile?.username ? `@${targetProfile.username}` : '') || targetUserId;
       await recordAuditEvent(client, {
         actorId: adminSession.user.id,
         action: `account.${targetStatus === 'deactivated' ? 'deactivated' : 'reactivated'}`,
-        summary: `${targetStatus === 'deactivated' ? 'Deactivated' : 'Reactivated'} account ${targetUserId}.`,
+        summary: `${targetStatus === 'deactivated' ? 'Deactivated' : 'Reactivated'} account ${targetDisplayName}.`,
         targetType: 'account',
         targetId: targetUserId,
-        metadata: { status: targetStatus }
+        metadata: {
+          status: targetStatus,
+          name: targetProfile?.name || null,
+          username: targetProfile?.username || null
+        }
       });
       await client.query('commit');
       transactionStarted = false;
@@ -527,7 +619,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       transactionStarted = true;
       await client.query('select pg_advisory_xact_lock($1)', [74192831]);
       const targetUser = await client.query(
-        'select 1 from public."user" where id = $1',
+        'select id, name, username from public."user" where id = $1',
         [roleMatch[1]]
       );
       if (targetUser.rowCount === 0) {
@@ -612,13 +704,20 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
           );
         }
       }
+      const targetProfile = targetUser.rows[0];
+      const targetDisplayName = targetProfile?.name || (targetProfile?.username ? `@${targetProfile.username}` : '') || roleMatch[1];
       await recordAuditEvent(client, {
         actorId: adminSession.user.id,
         action: `account.${roleMatch[2]}_${body.enabled ? 'granted' : 'revoked'}`,
-        summary: `${body.enabled ? 'Granted' : 'Revoked'} ${roleMatch[2]} access for account ${roleMatch[1]}.`,
+        summary: `${body.enabled ? 'Granted' : 'Revoked'} ${roleMatch[2]} access for account ${targetDisplayName}.`,
         targetType: 'account',
         targetId: roleMatch[1],
-        metadata: { role: roleMatch[2], enabled: body.enabled }
+        metadata: {
+          role: roleMatch[2],
+          enabled: body.enabled,
+          name: targetProfile?.name || null,
+          username: targetProfile?.username || null
+        }
       });
       await client.query('commit');
       transactionStarted = false;
@@ -645,6 +744,10 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
   const client = await pool.connect();
   try {
     await client.query('begin');
+    const targetUser = await client.query(
+      'select id, name, username from public."user" where id = $1',
+      [approvalMatch[1]]
+    );
     const result = await client.query(
       `update public.feedback_account_approvals
        set status = $2, reviewed_at = now(), reviewed_by = $3
@@ -657,13 +760,19 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 404, { error: 'pending_user_not_found' });
       return true;
     }
+    const targetProfile = targetUser.rows[0];
+    const targetDisplayName = targetProfile?.name || (targetProfile?.username ? `@${targetProfile.username}` : '') || approvalMatch[1];
     await recordAuditEvent(client, {
       actorId: adminSession.user.id,
       action: `account.${body.status}`,
-      summary: `${body.status === 'approved' ? 'Approved' : 'Declined'} account ${approvalMatch[1]}.`,
+      summary: `${body.status === 'approved' ? 'Approved' : 'Declined'} account ${targetDisplayName}.`,
       targetType: 'account',
       targetId: approvalMatch[1],
-      metadata: { status: body.status }
+      metadata: {
+        status: body.status,
+        name: targetProfile?.name || null,
+        username: targetProfile?.username || null
+      }
     });
     await client.query('commit');
     sendJson(response, 200, { user: result.rows[0] });
