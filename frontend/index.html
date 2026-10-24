@@ -79,6 +79,24 @@
       </div>
     </div>
   </dialog>
+  <dialog class="chart-detail-dialog feedback-detail-dialog" id="feedback-detail-dialog" aria-labelledby="feedback-detail-title" onclick="if(event.target===this)closeFeedbackDetail()">
+    <div class="chart-dialog-inner">
+      <div class="chart-dialog-header">
+        <div class="chart-dialog-title-wrap">
+          <span class="chart-dialog-badge">Feedback Submission</span>
+          <h2 id="feedback-detail-title">Submission Details</h2>
+          <p class="hint" id="feedback-detail-subtitle"></p>
+        </div>
+        <button class="dialog-close-btn" type="button" onclick="closeFeedbackDetail()" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="chart-dialog-stats" id="feedback-detail-stats"></div>
+      <div class="fbd-body" id="feedback-detail-body"></div>
+      <div class="chart-dialog-actions">
+        <button class="adm-btn danger" type="button" id="feedback-detail-delete" hidden><i class="bx bx-trash"></i> Delete feedback</button>
+        <button class="adm-btn primary" type="button" onclick="closeFeedbackDetail()"><i class="bx bx-x"></i> Close</button>
+      </div>
+    </div>
+  </dialog>
   <script src="api-config.js"></script>
   <script src="xlsx-export.js"></script>
   <script src="script.js"></script>

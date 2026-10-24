@@ -1706,10 +1706,11 @@ function feedbacksUI() {
       ? r.id
       : '';
     const globalIdx = totalItems - (startIndex + idx);
-    return `<div class="fb-item">
+    const respIdx = feedbackResponses.indexOf(r);
+    return `<div class="fb-item fb-item-clickable" role="button" tabindex="0" aria-label="View full details for submission #${globalIdx}" data-fb-idx="${respIdx}" data-fb-num="${globalIdx}" onclick="openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)" onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)}">
       <div class="fb-meta">
         <span><b>#${globalIdx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
-        <span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="deleteFeedback('${safeId}')">Delete feedback</button>` : ''}</span>
+        <span class="fb-meta-right"><span class="fb-view-hint"><i class='bx bx-expand-alt'></i> View details</span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="event.stopPropagation();deleteFeedback('${safeId}')" onkeydown="event.stopPropagation()">Delete feedback</button>` : ''}</span>
       </div>
       <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
       ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
@@ -1735,6 +1736,83 @@ function feedbacksUI() {
     ${itemsHtml}
     ${paginationHtml}
   </div>`;
+}
+
+function feedbackAnswerTone(key, idx) {
+  if (idx == null) return '';
+  if (key === 'q1' || key === 'q2' || key === 'q7') return idx <= 1 ? 'good' : idx === 2 ? 'mid' : 'bad';
+  if (key === 'q3') return idx <= 1 ? 'good' : idx === 2 ? 'mid' : 'bad';
+  if (key === 'q5') return idx === 0 ? 'good' : idx === 1 ? 'mid' : 'bad';
+  if (key === 'q8') return idx <= 1 ? 'good' : idx === 2 ? 'mid' : 'bad';
+  return '';
+}
+
+function openFeedbackDetail(respIdx, displayNum) {
+  const r = feedbackResponses[respIdx];
+  const dialog = $('feedback-detail-dialog');
+  if (!r || !dialog || typeof dialog.showModal !== 'function') return;
+  const a = r.a || {};
+  const opt = (k) => (a[k] != null ? Q[k].o[a[k]]?.[0] || '–' : null);
+  const multi = (k) => (Array.isArray(a[k]) ? a[k].map((i) => Q[k].o[i]?.[0]).filter(Boolean) : []);
+  const sScore = a.q8 != null ? 5 - a.q8 : null;
+  const scoreColor = sScore == null ? 'var(--ink-3)' : sScore >= 4 ? '#15803d' : sScore === 3 ? '#b45309' : '#b91c1c';
+  const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
+  const langNames = { en: 'English', fr: 'Français', rw: 'Kinyarwanda' };
+
+  $('feedback-detail-title').textContent = `#${displayNum} • ${r.dn || 'OPD Service'}`;
+  $('feedback-detail-subtitle').textContent = `Submitted ${timeStr}${r.id ? ` • ID ${r.id}` : ''}`;
+
+  const tile = (val, lbl, color = 'var(--navy)') => `<div class="chart-stat-tile"><span class="cst-num" style="color:${color};font-size:15px">${val}</span><span class="cst-lbl">${lbl}</span></div>`;
+  $('feedback-detail-stats').innerHTML = [
+    tile(sScore != null ? `${sScore}<small style="font-size:12px;font-weight:600"> / 5</small>` : '–', 'Overall Satisfaction', scoreColor),
+    tile(esc(opt('cat') || '–'), 'Patient Category'),
+    tile(esc(opt('time') || '–'), 'Visit Time'),
+    tile(esc(opt('q3') || '–'), 'Wait Before Doctor'),
+    tile(esc(langNames[r.l] || r.l || 'English'), 'Survey Language')
+  ].join('');
+
+  const singleRow = (k) => {
+    const v = opt(k);
+    const tone = feedbackAnswerTone(k, a[k]);
+    return `<div class="fbd-row"><div class="fbd-q">${esc(Q[k].q[0])}</div><div class="fbd-a">${v ? `<span class="fbd-pill ${tone}">${esc(v)}</span>` : '<span class="fbd-empty">Not answered</span>'}</div></div>`;
+  };
+  const multiRow = (k) => {
+    const vals = multi(k);
+    const noneIdx = Q[k].o.length - 1;
+    return `<div class="fbd-row"><div class="fbd-q">${esc(Q[k].q[0])}</div><div class="fbd-a">${vals.length ? a[k].map((i) => Q[k].o[i] ? `<span class="fbd-pill ${i === noneIdx ? 'good' : 'bad'}">${esc(Q[k].o[i][0])}</span>` : '').join('') : '<span class="fbd-empty">Not answered</span>'}</div></div>`;
+  };
+  const textRow = (k) => {
+    const v = (a[k] || '').trim();
+    return `<div class="fbd-row fbd-row-text"><div class="fbd-q">${esc(Q[k].q[0])}</div>${v ? `<div class="chart-record-comment"><i class='bx bxs-quote-left'></i><span>${esc(v)}</span></div>` : '<div class="fbd-a"><span class="fbd-empty">No comment provided</span></div>'}</div>`;
+  };
+
+  $('feedback-detail-body').innerHTML = `
+    <section class="fbd-section"><h4><i class='bx bx-list-check'></i> Survey Responses</h4>
+      ${['q1', 'q2', 'q3'].map(singleRow).join('')}
+      ${multiRow('q4')}
+      ${singleRow('q5')}
+      ${multiRow('q6')}
+      ${['q7', 'q8'].map(singleRow).join('')}
+    </section>
+    <section class="fbd-section"><h4><i class='bx bx-message-square-detail'></i> Written Feedback</h4>
+      ${textRow('q9')}
+      ${textRow('q10')}
+    </section>`;
+
+  const safeId = adminSession?.isAdmin && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(r.id) ? r.id : '';
+  const delBtn = $('feedback-detail-delete');
+  if (delBtn) {
+    delBtn.hidden = !safeId;
+    delBtn.onclick = safeId ? () => { closeFeedbackDetail(); deleteFeedback(safeId); } : null;
+  }
+  dialog.showModal();
+  const inner = dialog.querySelector('.chart-dialog-inner');
+  if (inner) inner.scrollTop = 0;
+}
+
+function closeFeedbackDetail() {
+  const dialog = $('feedback-detail-dialog');
+  if (dialog?.open) dialog.close();
 }
 
 async function deleteFeedback(id) {

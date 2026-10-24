@@ -1388,6 +1388,98 @@ textarea { min-height: 150px; resize: vertical; }
 .fb-meta b { color: var(--ink); font-size: var(--fs-sm); }
 .fb-meta .adm-btn { margin-left: 8px; padding: 6px 10px; font-size: var(--fs-xs); }
 
+/* ─── Clickable Feedback Items (same lift effect as .big-donut-card) ── */
+.fb-item-clickable {
+  position: relative;
+  cursor: pointer;
+  transition: transform .26s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow .26s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color .22s ease,
+              background .22s ease;
+}
+.fb-meta-right { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.fb-view-hint {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-right: 10px;
+  font-size: 11px; font-weight: 700;
+  color: var(--red);
+  background: rgba(229, 75, 43, 0.08);
+  border: 1px solid rgba(229, 75, 43, 0.22);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity .2s ease, transform .2s ease, background .2s ease, color .2s ease;
+}
+@media (hover: hover) {
+  .fb-item-clickable:hover {
+    transform: translateY(-4px);
+    border-color: rgba(229, 75, 43, 0.42);
+    background: linear-gradient(145deg, #FFFFFF 0%, #FFF5F2 100%);
+    box-shadow: inset 3px 0 0 var(--red), 0 16px 36px rgba(229, 75, 43, 0.12), 0 3px 10px rgba(23, 38, 60, 0.05);
+  }
+  .fb-item-clickable:hover .fb-view-hint {
+    opacity: 1; transform: none;
+    background: var(--red); color: #fff; border-color: var(--red);
+    box-shadow: 0 2px 8px rgba(229, 75, 43, 0.35);
+  }
+}
+@media (hover: none) {
+  .fb-view-hint { opacity: 1; transform: none; }
+}
+.fb-item-clickable:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+.fb-item-clickable:focus-visible .fb-view-hint { opacity: 1; transform: none; }
+.fb-item-clickable:active { transform: translateY(-1px); }
+
+/* ─── Feedback Detail Dialog ────────────────────────────────────────── */
+.feedback-detail-dialog .adm-btn[hidden] { display: none !important; }
+.fbd-body { display: flex; flex-direction: column; gap: 18px; }
+.fbd-section h4 {
+  margin: 0 0 8px;
+  font-size: 15px; color: var(--navy);
+  display: flex; align-items: center; gap: 7px;
+}
+.fbd-section h4 i { color: var(--red); }
+.fbd-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border-2);
+  border-radius: 8px;
+  transition: background-color .15s ease;
+}
+.fbd-row:last-child { border-bottom: 0; }
+.fbd-row:hover { background: #FFFAF8; }
+.fbd-row-text { grid-template-columns: 1fr; gap: 8px; }
+.fbd-q { font-size: 13px; color: var(--ink-2); font-weight: 600; line-height: 1.45; }
+.fbd-a { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.fbd-row-text .fbd-a { justify-content: flex-start; }
+.fbd-row-text .chart-record-comment { font-style: normal; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.fbd-pill {
+  display: inline-flex; align-items: center;
+  font-size: 12px; font-weight: 650;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+.fbd-pill.good { background: #dcfce7; color: #15803d; border-color: rgba(21,128,61,.2); }
+.fbd-pill.mid  { background: #fef9c3; color: #854d0e; border-color: rgba(133,77,14,.2); }
+.fbd-pill.bad  { background: #fee2e2; color: #b91c1c; border-color: rgba(185,28,28,.2); }
+.fbd-empty { font-size: 12.5px; color: var(--ink-3); font-style: italic; }
+@media (max-width: 640px) {
+  .fbd-row { grid-template-columns: 1fr; gap: 8px; }
+  .fbd-a { justify-content: flex-start; }
+  .fb-view-hint { display: none; }
+}
+
 /* ─── Rank Row ──────────────────────────────────────────────────────── */
 .rank-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
