@@ -317,6 +317,7 @@ test('/api/departments and admin routes blocked in TEST_MODE', async t => {
     { method: 'GET',    path: '/api/admin/session' },
     { method: 'GET',    path: '/api/responses' },
     { method: 'POST',   path: '/api/admin/departments' },
+    { method: 'DELETE', path: '/api/admin/departments/x123' },
     { method: 'POST',   path: '/api/admin/demo' },
     { method: 'DELETE', path: '/api/admin/demo' },
     { method: 'DELETE', path: '/api/responses' },

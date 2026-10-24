@@ -1863,12 +1863,107 @@ function deptUI() {
   if (!adminSession?.isAdmin) {
     return `<section class="card"><h3>Services</h3>${cfg.depts.map((d) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(d.n[0])}</h4></div><span class="user-role">${d.active ? 'Active' : 'Inactive'}</span></article>`).join('')}</section>`;
   }
-  return `<div class=card><h3>Add visited service</h3><input type=text id=nd placeholder="Service name"><button class=btn onclick="add()"><i class='bx bx-plus'></i> Add</button></div>` +
-    cfg.depts.map((d) => `<div class=card><b>${esc(d.n[0])}</b><button class=ghost onclick="setDepartmentActive('${d.id}',${!d.active})">${d.active ? 'Deactivate' : 'Restore'}</button></div>`).join('');
+  const activeCount = cfg.depts.filter((d) => d.active).length;
+  const rows = cfg.depts.length ? cfg.depts.map((d, i) => {
+    const safeId = /^[a-zA-Z0-9_-]+$/.test(d.id) ? d.id : '';
+    if (!safeId) return '';
+    return `<article class="svc-row ${d.active ? '' : 'is-inactive'}" style="--i:${i}">
+      <div class="svc-icon" aria-hidden="true"><i class='bx ${d.active ? 'bx-plus-medical' : 'bx-pause-circle'}'></i></div>
+      <div class="svc-info">
+        <h4>${esc(d.n[0])}</h4>
+        <span class="svc-status ${d.active ? 'on' : 'off'}"><span class="svc-dot"></span>${d.active ? 'Active in survey' : 'Hidden from survey'}</span>
+      </div>
+      <div class="svc-actions">
+        ${d.active
+          ? `<button class="adm-btn" type="button" onclick="setDepartmentActive('${safeId}',false)"><i class='bx bx-pause'></i> Deactivate</button>`
+          : `<button class="adm-btn" type="button" onclick="setDepartmentActive('${safeId}',true)"><i class='bx bx-revision'></i> Restore</button>`}
+        <button class="adm-btn danger" type="button" onclick="deleteDepartment('${safeId}')"><i class='bx bx-trash'></i> Delete</button>
+      </div>
+    </article>`;
+  }).join('') : `<p class="hint" style="text-align:center;padding:24px">No services yet. Add your first service to start collecting feedback.</p>`;
+
+  return `<section class="card svc-card">
+    <div class="svc-head">
+      <div>
+        <h3 style="margin:0">Visited Services</h3>
+        <p class="hint" style="margin:4px 0 0">${activeCount} active • ${cfg.depts.length - activeCount} inactive • ${cfg.depts.length} total</p>
+      </div>
+      <button class="adm-btn primary" type="button" id="add-service-btn" onclick="add()"><i class='bx bx-plus'></i> Add service</button>
+    </div>
+    <div class="svc-list">${rows}</div>
+  </section>`;
+}
+
+let actionDialogResolve = null;
+
+function showActionDialog({ icon = 'bx-help-circle', tone = 'neutral', title, description, confirmLabel = 'Confirm', confirmIcon = '', cancelLabel = 'Cancel', input = null }) {
+  const dialog = $('action-dialog');
+  if (!dialog || typeof dialog.showModal !== 'function') return Promise.resolve(null);
+  if (actionDialogResolve) actionDialogResolve(null);
+
+  dialog.className = `feedback-delete-dialog action-dialog tone-${tone}`;
+  $('action-dialog-icon').className = `bx ${icon}`;
+  $('action-dialog-title').textContent = title;
+  $('action-dialog-description').textContent = description;
+  $('action-dialog-cancel').textContent = cancelLabel;
+  const confirmBtn = $('action-dialog-confirm');
+  confirmBtn.innerHTML = `${confirmIcon ? `<i class='bx ${confirmIcon}'></i> ` : ''}${esc(confirmLabel)}`;
+  confirmBtn.className = `adm-btn ${tone === 'danger' ? 'danger' : 'primary'}`;
+
+  const field = $('action-dialog-field');
+  const inputEl = $('action-dialog-input');
+  const errorEl = $('action-dialog-error');
+  errorEl.textContent = '';
+  field.hidden = !input;
+  if (input) {
+    $('action-dialog-label').textContent = input.label || '';
+    inputEl.value = input.value || '';
+    inputEl.placeholder = input.placeholder || '';
+    inputEl.maxLength = input.maxLength || 120;
+  }
+
+  return new Promise((resolve) => {
+    actionDialogResolve = resolve;
+    dialog.showModal();
+    if (input) setTimeout(() => inputEl.focus(), 30);
+    else confirmBtn.focus();
+  });
+}
+
+function submitActionDialog(event) {
+  if (event) event.preventDefault();
+  const dialog = $('action-dialog');
+  const field = $('action-dialog-field');
+  let value = true;
+  if (!field.hidden) {
+    value = $('action-dialog-input').value.trim();
+    if (!value) {
+      $('action-dialog-error').textContent = 'Please enter a name.';
+      $('action-dialog-input').focus();
+      return;
+    }
+  }
+  const resolve = actionDialogResolve;
+  actionDialogResolve = null;
+  if (dialog?.open) dialog.close();
+  if (resolve) resolve(value);
+}
+
+function cancelActionDialog() {
+  const dialog = $('action-dialog');
+  const resolve = actionDialogResolve;
+  actionDialogResolve = null;
+  if (dialog?.open) dialog.close();
+  if (resolve) resolve(null);
 }
 
 async function setDepartmentActive(id, active) {
-  if (!active && !confirm('Deactivate this service? It will no longer appear in the survey.')) return;
+  const dept = cfg.depts.find((d) => d.id === id);
+  const name = dept?.n?.[0] || 'this service';
+  const ok = await showActionDialog(active
+    ? { icon: 'bx-revision', tone: 'success', title: 'Restore service?', description: `“${name}” will appear in the patient survey again.`, confirmLabel: 'Restore service', confirmIcon: 'bx-revision' }
+    : { icon: 'bx-pause-circle', tone: 'warning', title: 'Deactivate service?', description: `“${name}” will be hidden from the patient survey. Existing feedback is kept and you can restore it at any time.`, confirmLabel: 'Deactivate', confirmIcon: 'bx-pause' });
+  if (!ok) return;
   adminLoading = true;
   admin();
   try {
@@ -1882,8 +1977,37 @@ async function setDepartmentActive(id, active) {
   }
 }
 
+async function deleteDepartment(id) {
+  const dept = cfg.depts.find((d) => d.id === id);
+  const name = dept?.n?.[0] || 'this service';
+  const ok = await showActionDialog({
+    icon: 'bx-trash', tone: 'danger',
+    title: 'Delete service?',
+    description: `“${name}” will be permanently removed from the services list. Past feedback for this service is kept. This action cannot be undone.`,
+    confirmLabel: 'Delete service', confirmIcon: 'bx-trash'
+  });
+  if (!ok) return;
+  adminLoading = true;
+  admin();
+  try {
+    await apiRequest(`/api/admin/departments/${encodeURIComponent(id)}`, 'DELETE');
+    await loadAdminData();
+  } catch (error) {
+    console.error('Could not delete the service:', error);
+    adminLoading = false;
+    adminError = 'The service could not be deleted. Please try again.';
+    admin();
+  }
+}
+
 async function add() {
-  const n = $('nd').value.trim();
+  const n = await showActionDialog({
+    icon: 'bx-plus-medical', tone: 'neutral',
+    title: 'Add visited service',
+    description: 'The new service will immediately appear as an option in the patient survey.',
+    confirmLabel: 'Add service', confirmIcon: 'bx-plus',
+    input: { label: 'Service name', placeholder: 'e.g. Cardiology', maxLength: 120 }
+  });
   if (!n) return;
   adminLoading = true;
   admin();

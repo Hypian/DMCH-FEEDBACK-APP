@@ -442,6 +442,38 @@ export async function handleNeonApi(request, response, url) {
       return true;
     }
 
+    if (departmentMatch && request.method === 'DELETE') {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const result = await client.query(
+          'delete from public.feedback_departments where id = $1 returning id, labels',
+          [departmentMatch[1]]
+        );
+        if (result.rowCount === 0) {
+          await client.query('rollback');
+          sendJson(response, 404, { error: 'department_not_found' });
+          return true;
+        }
+        const label = result.rows[0].labels[0];
+        await recordAuditEvent(client, {
+          actorId: adminSession.user.id,
+          action: 'department.deleted',
+          summary: `Deleted the ${label} service.`,
+          targetType: 'department',
+          targetId: departmentMatch[1]
+        });
+        await client.query('commit');
+        sendJson(response, 200, { deleted: true, id: departmentMatch[1] });
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+      return true;
+    }
+
     if (pathname === '/api/admin/demo' && request.method === 'POST') {
       const result = await pool.query('select id, labels from public.feedback_departments where is_active = true');
       if (!result.rows.length) {
