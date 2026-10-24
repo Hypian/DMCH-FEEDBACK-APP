@@ -1245,6 +1245,35 @@ textarea { min-height: 150px; resize: vertical; }
 .svc-row.is-inactive { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--border-hover), var(--shadow-xs); }
 .svc-row.is-inactive .svc-icon { background: #f1f5f9; color: #64748b; }
 .svc-row.is-inactive .svc-info h4 { color: var(--ink-3); }
+.svc-row.is-deleting {
+  opacity: 0.65;
+  pointer-events: none;
+  border-color: rgba(229, 75, 43, 0.4);
+  box-shadow: inset 3px 0 0 var(--red);
+  background: #FFF8F6;
+}
+.svc-row.is-deleted {
+  opacity: 0;
+  transform: scale(0.96) translateY(-8px);
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+  transition: opacity .26s ease, transform .26s ease, max-height .3s ease, margin .3s ease, padding .3s ease;
+}
+.svc-error-banner {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(185, 28, 28, 0.2);
+}
 @media (max-width: 560px) {
   .svc-row { flex-wrap: wrap; }
   .svc-actions { width: 100%; justify-content: flex-start; }

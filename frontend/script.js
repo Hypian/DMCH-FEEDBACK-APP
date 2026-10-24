@@ -1859,15 +1859,14 @@ async function confirmFeedbackDelete() {
   }
 }
 
-function deptUI() {
-  if (!adminSession?.isAdmin) {
-    return `<section class="card"><h3>Services</h3>${cfg.depts.map((d) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(d.n[0])}</h4></div><span class="user-role">${d.active ? 'Active' : 'Inactive'}</span></article>`).join('')}</section>`;
+function renderDeptRows() {
+  if (!cfg.depts.length) {
+    return `<p class="hint" style="text-align:center;padding:24px">No services yet. Add your first service to start collecting feedback.</p>`;
   }
-  const activeCount = cfg.depts.filter((d) => d.active).length;
-  const rows = cfg.depts.length ? cfg.depts.map((d, i) => {
+  return cfg.depts.map((d, i) => {
     const safeId = /^[a-zA-Z0-9_-]+$/.test(d.id) ? d.id : '';
     if (!safeId) return '';
-    return `<article class="svc-row ${d.active ? '' : 'is-inactive'}" style="--i:${i}">
+    return `<article class="svc-row ${d.active ? '' : 'is-inactive'}" id="svc-row-${safeId}" style="--i:${i}">
       <div class="svc-icon" aria-hidden="true"><i class='bx ${d.active ? 'bx-plus-medical' : 'bx-pause-circle'}'></i></div>
       <div class="svc-info">
         <h4>${esc(d.n[0])}</h4>
@@ -1875,22 +1874,42 @@ function deptUI() {
       </div>
       <div class="svc-actions">
         ${d.active
-          ? `<button class="adm-btn" type="button" onclick="setDepartmentActive('${safeId}',false)"><i class='bx bx-pause'></i> Deactivate</button>`
-          : `<button class="adm-btn" type="button" onclick="setDepartmentActive('${safeId}',true)"><i class='bx bx-revision'></i> Restore</button>`}
-        <button class="adm-btn danger" type="button" onclick="deleteDepartment('${safeId}')"><i class='bx bx-trash'></i> Delete</button>
+          ? `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',false)"><i class='bx bx-pause'></i> Deactivate</button>`
+          : `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',true)"><i class='bx bx-revision'></i> Restore</button>`}
+        <button class="adm-btn danger" type="button" id="svc-del-btn-${safeId}" onclick="deleteDepartment('${safeId}')"><i class='bx bx-trash'></i> Delete</button>
       </div>
     </article>`;
-  }).join('') : `<p class="hint" style="text-align:center;padding:24px">No services yet. Add your first service to start collecting feedback.</p>`;
+  }).join('');
+}
 
+function updateDeptUI() {
+  const card = document.querySelector('.svc-card');
+  if (!card) return;
+  const activeCount = cfg.depts.filter((d) => d.active).length;
+  const countEl = card.querySelector('.svc-head-count');
+  if (countEl) {
+    countEl.textContent = `${activeCount} active • ${cfg.depts.length - activeCount} inactive • ${cfg.depts.length} total`;
+  }
+  const listEl = card.querySelector('.svc-list');
+  if (listEl) {
+    listEl.innerHTML = renderDeptRows();
+  }
+}
+
+function deptUI() {
+  if (!adminSession?.isAdmin) {
+    return `<section class="card"><h3>Services</h3>${cfg.depts.map((d) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(d.n[0])}</h4></div><span class="user-role">${d.active ? 'Active' : 'Inactive'}</span></article>`).join('')}</section>`;
+  }
+  const activeCount = cfg.depts.filter((d) => d.active).length;
   return `<section class="card svc-card">
     <div class="svc-head">
       <div>
         <h3 style="margin:0">Visited Services</h3>
-        <p class="hint" style="margin:4px 0 0">${activeCount} active • ${cfg.depts.length - activeCount} inactive • ${cfg.depts.length} total</p>
+        <p class="hint svc-head-count" style="margin:4px 0 0">${activeCount} active • ${cfg.depts.length - activeCount} inactive • ${cfg.depts.length} total</p>
       </div>
       <button class="adm-btn primary" type="button" id="add-service-btn" onclick="add()"><i class='bx bx-plus'></i> Add service</button>
     </div>
-    <div class="svc-list">${rows}</div>
+    <div class="svc-list">${renderDeptRows()}</div>
   </section>`;
 }
 
@@ -1964,16 +1983,28 @@ async function setDepartmentActive(id, active) {
     ? { icon: 'bx-revision', tone: 'success', title: 'Restore service?', description: `“${name}” will appear in the patient survey again.`, confirmLabel: 'Restore service', confirmIcon: 'bx-revision' }
     : { icon: 'bx-pause-circle', tone: 'warning', title: 'Deactivate service?', description: `“${name}” will be hidden from the patient survey. Existing feedback is kept and you can restore it at any time.`, confirmLabel: 'Deactivate', confirmIcon: 'bx-pause' });
   if (!ok) return;
-  adminLoading = true;
-  admin();
+
+  const toggleBtn = $(`svc-toggle-btn-${id}`);
+  const delBtn = $(`svc-del-btn-${id}`);
+  if (toggleBtn) {
+    toggleBtn.disabled = true;
+    toggleBtn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> ${active ? 'Restoring…' : 'Deactivating…'}`;
+  }
+  if (delBtn) delBtn.disabled = true;
+
   try {
     await apiRequest(`/api/admin/departments/${encodeURIComponent(id)}`, 'PATCH', { active });
-    await loadAdminData();
+    if (dept) dept.active = active;
+    sv('dmc_c', cfg);
+    updateDeptUI();
   } catch (error) {
     console.error('Could not update the service:', error);
-    adminLoading = false;
-    adminError = 'The service could not be updated. Please try again.';
-    admin();
+    if (toggleBtn) {
+      toggleBtn.disabled = false;
+      toggleBtn.innerHTML = active ? "<i class='bx bx-revision'></i> Restore" : "<i class='bx bx-pause'></i> Deactivate";
+    }
+    if (delBtn) delBtn.disabled = false;
+    alert('The service could not be updated. Please try again.');
   }
 }
 
@@ -1987,16 +2018,42 @@ async function deleteDepartment(id) {
     confirmLabel: 'Delete service', confirmIcon: 'bx-trash'
   });
   if (!ok) return;
-  adminLoading = true;
-  admin();
+
+  const row = $(`svc-row-${id}`);
+  const delBtn = $(`svc-del-btn-${id}`);
+  const toggleBtn = $(`svc-toggle-btn-${id}`);
+
+  if (delBtn) {
+    delBtn.disabled = true;
+    delBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Deleting…";
+  }
+  if (toggleBtn) toggleBtn.disabled = true;
+  if (row) row.classList.add('is-deleting');
+
   try {
     await apiRequest(`/api/admin/departments/${encodeURIComponent(id)}`, 'DELETE');
-    await loadAdminData();
+    cfg.depts = cfg.depts.filter((d) => d.id !== id);
+    sv('dmc_c', cfg);
+
+    if (row) {
+      row.classList.remove('is-deleting');
+      row.classList.add('is-deleted');
+      setTimeout(() => {
+        if (row.parentNode) row.remove();
+        updateDeptUI();
+      }, 280);
+    } else {
+      updateDeptUI();
+    }
   } catch (error) {
     console.error('Could not delete the service:', error);
-    adminLoading = false;
-    adminError = 'The service could not be deleted. Please try again.';
-    admin();
+    if (row) row.classList.remove('is-deleting');
+    if (delBtn) {
+      delBtn.disabled = false;
+      delBtn.innerHTML = "<i class='bx bx-trash'></i> Delete";
+    }
+    if (toggleBtn) toggleBtn.disabled = false;
+    alert('The service could not be deleted. Please try again.');
   }
 }
 
@@ -2009,16 +2066,32 @@ async function add() {
     input: { label: 'Service name', placeholder: 'e.g. Cardiology', maxLength: 120 }
   });
   if (!n) return;
-  adminLoading = true;
-  admin();
+
+  const addBtn = $('add-service-btn');
+  if (addBtn) {
+    addBtn.disabled = true;
+    addBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Adding…";
+  }
+
   try {
-    await apiRequest('/api/admin/departments', 'POST', { name: n });
-    await loadAdminData();
+    const created = await apiRequest('/api/admin/departments', 'POST', { name: n });
+    if (created?.id) {
+      cfg.depts.push({
+        id: created.id,
+        n: created.labels || [n, n, n],
+        active: created.is_active !== false
+      });
+      sv('dmc_c', cfg);
+    }
+    updateDeptUI();
   } catch (error) {
     console.error('Could not add the service:', error);
-    adminLoading = false;
-    adminError = 'The service could not be added. Please try again.';
-    admin();
+    alert('The service could not be added. Please try again.');
+  } finally {
+    if (addBtn) {
+      addBtn.disabled = false;
+      addBtn.innerHTML = "<i class='bx bx-plus'></i> Add service";
+    }
   }
 }
 
