@@ -13,7 +13,13 @@ create table if not exists public.feedback_responses (
   department_name text not null,
   answers jsonb not null check (jsonb_typeof(answers) = 'object'),
   is_demo boolean not null default false,
-  user_id text references public."user"(id) on delete set null
+  user_id text references public."user"(id) on delete set null,
+  sentiment text check (sentiment in ('positive', 'neutral', 'negative')),
+  urgent boolean not null default false,
+  urgent_reason text,
+  urgent_signals jsonb not null default '[]'::jsonb,
+  analysis_source text check (analysis_source in ('llm', 'fallback')),
+  detected_language text check (detected_language in ('en', 'fr', 'rw', 'other'))
 );
 
 create table if not exists public.feedback_admins (

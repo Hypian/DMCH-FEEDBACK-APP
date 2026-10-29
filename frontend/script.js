@@ -263,7 +263,13 @@ function toFeedbackResponse(row) {
     l: row.language,
     d: row.department_id,
     dn: row.department_name,
-    a: row.answers
+    a: row.answers,
+    sentiment: row.sentiment || null,
+    urgent: Boolean(row.urgent),
+    reason: row.urgent_reason || '',
+    signals: Array.isArray(row.urgent_signals) ? row.urgent_signals : [],
+    analysisSource: row.analysis_source || '',
+    detectedLang: row.detected_language || row.language || 'en'
   };
 }
 
@@ -595,6 +601,9 @@ let customEndDate = '';
 let feedbackSearchQuery = '';
 let feedbackServiceFilter = 'all';
 let feedbackRatingFilter = 'all'; // 'all', 'sat', 'neu', 'diss'
+let feedbackUrgentFilter = 'all'; // 'all', 'urgent'
+let feedbackSentimentFilter = 'all'; // 'all', 'positive', 'neutral', 'negative'
+let feedbackLanguageFilter = 'all'; // 'all', 'en', 'fr', 'rw', 'other'
 let feedbackPage = 1;
 const FEEDBACK_PAGE_SIZE = 10;
 let deptSearchQuery = '';
@@ -851,6 +860,24 @@ function openChartDetailModal(chartKey, itemKey = 'all') {
       sliceLabel = 'All Doctor Care Evaluations';
       sliceColor = '#e54b2b';
       subset = allFiltered.filter((r) => r.a?.q5 != null);
+    }
+  } else if (chartKey === 'wait' || chartKey === 'delays') {
+    categoryName = 'Consultation Wait Times & Delays';
+    const waitMap = {
+      wait0: { label: '<15 min (Prompt Consultation)', filter: (r) => r.a?.q3 === 0, color: '#10b981' },
+      wait1: { label: '15–30 min (Standard Wait)', filter: (r) => r.a?.q3 === 1, color: '#0284c7' },
+      wait2: { label: '30–60 min (Moderate Delay)', filter: (r) => r.a?.q3 === 2, color: '#f59e0b' },
+      wait3: { label: '>60 min (Prolonged Delay)', filter: (r) => r.a?.q3 === 3, color: '#e54b2b' }
+    };
+    if (waitMap[itemKey]) {
+      const target = waitMap[itemKey];
+      sliceLabel = target.label;
+      sliceColor = target.color;
+      subset = allFiltered.filter(target.filter);
+    } else {
+      sliceLabel = 'All Consultation Wait Times';
+      sliceColor = '#f59e0b';
+      subset = allFiltered.filter((r) => r.a?.q3 != null);
     }
   }
 
@@ -1139,6 +1166,28 @@ function chartsUI() {
     centerLabel: 'Attentive'
   });
 
+  // Donut 5: Consultation Wait Time & Delay Severity
+  const wait0 = R.filter((r) => r.a?.q3 === 0).length;
+  const wait1 = R.filter((r) => r.a?.q3 === 1).length;
+  const wait2 = R.filter((r) => r.a?.q3 === 2).length;
+  const wait3 = R.filter((r) => r.a?.q3 === 3).length;
+  const waitTotal = wait0 + wait1 + wait2 + wait3;
+  const delayedCount = wait2 + wait3;
+  const delayPct = waitTotal > 0 ? Math.round((delayedCount / waitTotal) * 100) : 0;
+  const bigDonutWaitTimes = renderLargeVisualDonut({
+    chartKey: 'wait',
+    title: `<i class='bx bx-timer' style="color:#f59e0b"></i> Doctor Wait Time & Delays`,
+    subtitle: 'Waiting duration before doctor consultation (<15m prompt to >60m delay)',
+    items: [
+      { key: 'wait0', label: '<15 min (Prompt)', value: wait0, color: '#10b981' },
+      { key: 'wait1', label: '15–30 min (Standard)', value: wait1, color: '#0284c7' },
+      { key: 'wait2', label: '30–60 min (Moderate Delay)', value: wait2, color: '#f59e0b' },
+      { key: 'wait3', label: '>60 min (Prolonged Delay)', value: wait3, color: '#e54b2b' }
+    ],
+    centerValue: `${delayPct}%`,
+    centerLabel: 'Delayed (>30m)'
+  });
+
   // Visual Bar data helpers
   const tl = (f, lb) => {
     const m = {};
@@ -1186,6 +1235,7 @@ function chartsUI() {
     </div>` +
     `<div class="big-donut-grid">
       ${bigDonutSatisfaction}
+      ${bigDonutWaitTimes}
       ${bigDonutCohorts}
       ${bigDonutVisitTimes}
       ${bigDonutDoctor}
@@ -1858,6 +1908,18 @@ function feedbacksUI() {
     R = R.filter((r) => r.a?.q8 != null && (5 - r.a.q8) <= 2);
   }
 
+  if (feedbackUrgentFilter === 'urgent') {
+    R = R.filter((r) => r.urgent === true);
+  }
+
+  if (feedbackSentimentFilter !== 'all') {
+    R = R.filter((r) => r.sentiment === feedbackSentimentFilter);
+  }
+
+  if (feedbackLanguageFilter !== 'all') {
+    R = R.filter((r) => (r.detectedLang || r.l) === feedbackLanguageFilter);
+  }
+
   if (feedbackSearchQuery.trim()) {
     const q = feedbackSearchQuery.trim().toLowerCase();
     R = R.filter((r) => {
@@ -1866,7 +1928,8 @@ function feedbacksUI() {
       const matchQ10 = (r.a?.q10 || '').toLowerCase().includes(q);
       const matchId = (r.id || '').toLowerCase().includes(q);
       const matchLang = (r.l || '').toLowerCase().includes(q);
-      return matchDept || matchQ9 || matchQ10 || matchId || matchLang;
+      const matchReason = (r.reason || '').toLowerCase().includes(q);
+      return matchDept || matchQ9 || matchQ10 || matchId || matchLang || matchReason;
     });
   }
 
@@ -1894,6 +1957,7 @@ function feedbacksUI() {
     </div>` : '';
 
   const dateBarHtml = renderDateFilterBar('Feedback Records');
+  const urgentCount = dateFiltered.filter((r) => r.urgent).length;
 
   const controlsHtml = `
     <div class="fb-controls-bar">
@@ -1904,7 +1968,21 @@ function feedbacksUI() {
       <select class="fb-select" onchange="feedbackServiceFilter=this.value;feedbackPage=1;admin()" aria-label="Filter by department">
         ${deptOptions}
       </select>
+      <select class="fb-select" onchange="feedbackSentimentFilter=this.value;feedbackPage=1;admin()" aria-label="Filter by sentiment">
+        <option value="all"${feedbackSentimentFilter === 'all' ? ' selected' : ''}>All Sentiments</option>
+        <option value="positive"${feedbackSentimentFilter === 'positive' ? ' selected' : ''}>Positive 😊</option>
+        <option value="neutral"${feedbackSentimentFilter === 'neutral' ? ' selected' : ''}>Neutral 😐</option>
+        <option value="negative"${feedbackSentimentFilter === 'negative' ? ' selected' : ''}>Negative 🙁</option>
+      </select>
+      <select class="fb-select" onchange="feedbackLanguageFilter=this.value;feedbackPage=1;admin()" aria-label="Filter by language">
+        <option value="all"${feedbackLanguageFilter === 'all' ? ' selected' : ''}>All Languages</option>
+        <option value="en"${feedbackLanguageFilter === 'en' ? ' selected' : ''}>English (EN)</option>
+        <option value="fr"${feedbackLanguageFilter === 'fr' ? ' selected' : ''}>Français (FR)</option>
+        <option value="rw"${feedbackLanguageFilter === 'rw' ? ' selected' : ''}>Kinyarwanda (RW)</option>
+        <option value="other"${feedbackLanguageFilter === 'other' ? ' selected' : ''}>Other</option>
+      </select>
       <div class="fb-chips-row">
+        <button class="date-pill ${feedbackUrgentFilter === 'urgent' ? 'active urgent-pill-active' : ''}" onclick="feedbackUrgentFilter=feedbackUrgentFilter==='urgent'?'all':'urgent';feedbackPage=1;admin()"><i class='bx bxs-bell-ring'></i> Urgent Only (${urgentCount})</button>
         <button class="date-pill ${feedbackRatingFilter === 'all' ? 'active' : ''}" onclick="feedbackRatingFilter='all';feedbackPage=1;admin()">All Ratings</button>
         <button class="date-pill ${feedbackRatingFilter === 'sat' ? 'active' : ''}" onclick="feedbackRatingFilter='sat';feedbackPage=1;admin()">4-5★ Satisfied</button>
         <button class="date-pill ${feedbackRatingFilter === 'neu' ? 'active' : ''}" onclick="feedbackRatingFilter='neu';feedbackPage=1;admin()">3★ Neutral</button>
@@ -1918,6 +1996,12 @@ function feedbacksUI() {
     const scoreBadge = sScore != null
       ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
       : '';
+    const sentimentBadge = r.sentiment
+      ? `<span class="badge-sentiment ${esc(r.sentiment)}"><i class='bx ${r.sentiment === 'positive' ? 'bxs-smile' : r.sentiment === 'negative' ? 'bxs-angry' : 'bxs-meh'}'></i> ${esc(r.sentiment.toUpperCase())}</span>`
+      : '';
+    const urgentBadge = r.urgent
+      ? `<span class="urgent-item-tag"><i class='bx bxs-bell-ring bx-tada'></i> URGENT ACTION</span>`
+      : '';
     const cat = r.a?.cat === 0 ? 'New Patient' : r.a?.cat === 1 ? 'Returning Patient' : '';
     const catBadge = cat ? `<span class="cohort-badge ${r.a?.cat === 0 ? 'new' : 'ret'}" style="margin-left:6px">${cat}</span>` : '';
     const timeSlot = r.a?.time != null ? Q.time.o[r.a.time]?.[0] : '';
@@ -1928,18 +2012,26 @@ function feedbacksUI() {
       : '';
     const globalIdx = totalItems - (startIndex + idx);
     const respIdx = feedbackResponses.indexOf(r);
-    return `<div class="fb-item fb-item-clickable" role="button" tabindex="0" aria-label="View full details for submission #${globalIdx}" data-fb-idx="${respIdx}" data-fb-num="${globalIdx}" onclick="openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)" onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)}">
+    return `<div class="fb-item fb-item-clickable ${r.urgent ? 'fb-item-urgent' : ''}" role="button" tabindex="0" aria-label="View full details for submission #${globalIdx}" data-fb-idx="${respIdx}" data-fb-num="${globalIdx}" onclick="openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)" onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFeedbackDetail(+this.dataset.fbIdx, +this.dataset.fbNum)}">
+      ${r.urgent ? `<div class="urgent-banner"><i class='bx bxs-bell-ring'></i> <strong>URGENT ATTENTION REQUIRED:</strong> ${esc(r.reason || 'Flagged for immediate review')}</div>` : ''}
       <div class="fb-meta">
         <span><b>#${globalIdx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
         <span class="fb-meta-right"><span class="fb-view-hint"><i class='bx bx-expand-alt'></i> View details</span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="event.stopPropagation();deleteFeedback('${safeId}')" onkeydown="event.stopPropagation()">Delete feedback</button>` : ''}</span>
       </div>
-      <div style="margin:8px 0">${scoreBadge} <span class="hint" style="margin-left:8px;font-size:12px">Lang: ${esc(r.l || 'en')}</span></div>
+      <div style="margin:8px 0;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+        ${urgentBadge}
+        ${scoreBadge}
+        ${sentimentBadge}
+        <span class="hint" style="font-size:12px;margin:0">Lang: ${esc((r.detectedLang || r.l || 'en').toUpperCase())}</span>
+        ${r.analysisSource ? `<span class="analysis-source-tag">${esc(r.analysisSource === 'llm' ? 'Gemini' : 'Fallback')}</span>` : ''}
+      </div>
       ${delays ? `<div class="hint" style="margin:4px 0"><b>Delays noted:</b> ${esc(delays)}</div>` : ''}
       ${issues ? `<div class="hint" style="margin:4px 0"><b>Unpleasant experience / issues:</b> ${esc(issues)}</div>` : ''}
       ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
       ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
+      ${r.reason && !r.urgent ? `<div class="hint" style="margin-top:6px;font-style:italic"><i class='bx bx-info-circle'></i> ${esc(r.reason)}</div>` : ''}
     </div>`;
-  }).join('') : `<div style="text-align:center;padding:32px 16px"><p class="hint">No feedback submissions match your active filter criteria.</p><button class="adm-btn" onclick="feedbackSearchQuery='';feedbackServiceFilter='all';feedbackRatingFilter='all';cohortFilter='all';setDateFilter('all');">Reset all filters</button></div>`;
+  }).join('') : `<div style="text-align:center;padding:32px 16px"><p class="hint">No feedback submissions match your active filter criteria.</p><button class="adm-btn" onclick="feedbackSearchQuery='';feedbackServiceFilter='all';feedbackRatingFilter='all';feedbackUrgentFilter='all';feedbackSentimentFilter='all';feedbackLanguageFilter='all';cohortFilter='all';setDateFilter('all');">Reset all filters</button></div>`;
 
   return dateBarHtml + `<div class="card">
     <div class="filter-bar">
@@ -2008,6 +2100,29 @@ function openFeedbackDetail(respIdx, displayNum) {
   };
 
   $('feedback-detail-body').innerHTML = `
+    <section class="fbd-section fbd-analysis-section">
+      <h4><i class='bx bx-brain'></i> AI Sentiment & Urgency Analysis</h4>
+      <div class="fbd-analysis-grid">
+        <div class="fbd-analysis-stat ${r.urgent ? 'stat-urgent' : 'stat-normal'}">
+          <span class="fbd-as-label">Urgency Status</span>
+          <span class="fbd-as-val">${r.urgent ? `<span class="badge-urgent-tag"><i class='bx bxs-bell-ring'></i> URGENT ACTION</span>` : '<span class="badge-normal-tag">Standard</span>'}</span>
+        </div>
+        <div class="fbd-analysis-stat">
+          <span class="fbd-as-label">Sentiment</span>
+          <span class="fbd-as-val">${r.sentiment ? `<span class="badge-sentiment ${esc(r.sentiment)}">${esc(r.sentiment.toUpperCase())}</span>` : '<span class="fbd-empty">Unclassified</span>'}</span>
+        </div>
+        <div class="fbd-analysis-stat">
+          <span class="fbd-as-label">Detected Language</span>
+          <span class="fbd-as-val"><b>${esc((r.detectedLang || r.l || 'en').toUpperCase())}</b></span>
+        </div>
+        <div class="fbd-analysis-stat">
+          <span class="fbd-as-label">Analysis Engine</span>
+          <span class="fbd-as-val"><b>${esc(r.analysisSource === 'llm' ? 'Gemini LLM' : r.analysisSource === 'fallback' ? 'Safety Net Fallback' : 'Automated')}</b></span>
+        </div>
+      </div>
+      ${r.reason ? `<div class="fbd-reason-box"><i class='bx bx-info-circle'></i> <span><strong>Analysis Reason:</strong> ${esc(r.reason)}</span></div>` : ''}
+      ${r.signals && r.signals.length ? `<div class="fbd-signals-row"><span class="fbd-signals-label">Triggered Signals:</span> ${r.signals.map((s) => `<span class="fbd-signal-chip">${esc(s)}</span>`).join('')}</div>` : ''}
+    </section>
     <section class="fbd-section"><h4><i class='bx bx-list-check'></i> Survey Responses</h4>
       ${['q1', 'q2', 'q3'].map(singleRow).join('')}
       ${multiRow('q4')}

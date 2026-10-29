@@ -2,11 +2,13 @@ import crypto from 'node:crypto';
 import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
 import { getAccountApproval, handleApprovalApi, requireApprovedAccount, validateSessionActivity } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
+import { analyzeFeedback } from './sentiment-analyzer.mjs';
+import { notifyUrgentFeedback } from './urgent-alert.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hashSecret = process.env.DMC_DEVICE_HASH_SECRET;
-const responseFields = 'id, submitted_at, language, department_id, department_name, answers, is_demo, user_id';
+const responseFields = 'id, submitted_at, language, department_id, department_name, answers, is_demo, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language';
 
 if (!hashSecret || Buffer.byteLength(hashSecret, 'utf8') < 32) {
   throw new Error('DMC_DEVICE_HASH_SECRET must be configured with at least 32 bytes.');
@@ -149,20 +151,54 @@ async function saveFeedback(body) {
       return { status: 400, body: { error: 'invalid_department' } };
     }
     const labels = department.rows[0].labels;
+    const feedbackText = [body.answers?.q10, body.answers?.q9, body.text, body.comment]
+      .filter((v) => typeof v === 'string' && v.trim().length > 0)
+      .join('\n');
+    const analysis = await analyzeFeedback(feedbackText, { language: body.language });
+
     const inserted = await client.query(
       `insert into public.feedback_responses
-        (language, department_id, department_name, answers, user_id)
-       values ($1, $2, $3, $4::jsonb, $5)
+        (language, department_id, department_name, answers, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language)
+       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
        returning id`,
-      [body.language, body.departmentId, labels[0], JSON.stringify(body.answers), session?.user?.id || null]
+      [
+        body.language,
+        body.departmentId,
+        labels[0],
+        JSON.stringify(body.answers),
+        session?.user?.id || null,
+        analysis.sentiment,
+        analysis.urgent,
+        analysis.reason,
+        JSON.stringify(analysis.signals),
+        analysis.analysis_source,
+        analysis.language
+      ]
     );
+
+    if (analysis.urgent) {
+      await notifyUrgentFeedback(client, {
+        feedbackId: inserted.rows[0]?.id,
+        departmentId: body.departmentId,
+        departmentName: labels[0],
+        language: body.language,
+        text: feedbackText,
+        analysis
+      });
+    }
+
     await recordAuditEvent(client, {
       actorId: session?.user?.id || null,
       action: 'feedback.submitted',
       summary: `Feedback submitted for ${labels[0]}.`,
       targetType: 'feedback',
       targetId: inserted.rows[0]?.id || null,
-      metadata: { departmentId: body.departmentId, language: body.language }
+      metadata: {
+        departmentId: body.departmentId,
+        language: body.language,
+        sentiment: analysis.sentiment,
+        urgent: analysis.urgent
+      }
     });
     await client.query('commit');
     return { status: 201, body: { ok: true } };
@@ -508,11 +544,25 @@ export async function handleNeonApi(request, response, url) {
             q8: pick(5),
             q10: choices[pick(choices.length)]
           };
+          const demoLang = ['rw', 'en', 'fr'][pick(3)];
+          const demoAnalysis = await analyzeFeedback(answers.q10 || '', { language: demoLang });
           await client.query(
             `insert into public.feedback_responses
-              (submitted_at, language, department_id, department_name, answers, is_demo)
-             values (now() - ($1 * interval '1 millisecond'), $2, $3, $4, $5::jsonb, true)`,
-            [Math.random() * 2_592_000_000, ['rw', 'en', 'fr'][pick(3)], department.id, department.labels[0], JSON.stringify(answers)]
+              (submitted_at, language, department_id, department_name, answers, is_demo, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language)
+             values (now() - ($1 * interval '1 millisecond'), $2, $3, $4, $5::jsonb, true, $6, $7, $8, $9::jsonb, $10, $11)`,
+            [
+              Math.random() * 2_592_000_000,
+              demoLang,
+              department.id,
+              department.labels[0],
+              JSON.stringify(answers),
+              demoAnalysis.sentiment,
+              demoAnalysis.urgent,
+              demoAnalysis.reason,
+              JSON.stringify(demoAnalysis.signals),
+              demoAnalysis.analysis_source,
+              demoAnalysis.language
+            ]
           );
         }
         await recordAuditEvent(client, {
