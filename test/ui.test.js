@@ -321,18 +321,18 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
       return id;
     },
     clearInterval(id) { timers.delete(id); },
-    addEventListener() {},
-    scrollTo() {},
+    addEventListener() { },
+    scrollTo() { },
     location,
-    console: { error() {}, log() {} },
-    alert() {},
+    console: { error() { }, log() { } },
+    alert() { },
     confirm() { return true; },
-    URL: Object.assign(class extends URL {}, {
+    URL: Object.assign(class extends URL { }, {
       createObjectURL(blob) {
         backendState.downloadedBlob = blob;
         return 'blob:dmc-report';
       },
-      revokeObjectURL() {}
+      revokeObjectURL() { }
     }),
     Blob: class {
       constructor(parts, options) {

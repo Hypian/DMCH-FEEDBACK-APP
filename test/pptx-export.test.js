@@ -149,3 +149,154 @@ test('dashboard scripts wire PPTX export and Presentation Mode controls', () => 
   assert.match(appScript, /onclick="exportPptx\('patients'\)"/);
   assert.match(appScript, /onclick="openPresentationMode\(\)"/);
 });
+
+test('all PPTX slide shapes, cards, legends, bars, and tables stay strictly within slide and card boundaries', () => {
+  const pptxBytes = createPresentation({
+    title: 'DMC Hospital — Boundary Verification Presentation With Very Long Title Text To Test Truncation',
+    subtitle: 'Confidential executive presentation | Filter: Custom Range | 120 feedback submissions across 10 departments',
+    badge: '120 records • All Cohorts',
+    logoBytes: new Uint8Array(logoBytes),
+    kpis: [
+      { label: 'Total Feedback', value: '120', sub: '70 New • 50 Returning', color: '#17263c' },
+      { label: 'Avg Satisfaction', value: '4.5 / 5', sub: '90% Positive (4-5★)', color: '#10b981' },
+      { label: 'Dissatisfied Rate', value: '5%', sub: 'Rated 1-2★', color: '#e54b2b' },
+      { label: 'Delay Incidence', value: '14%', sub: '94% Full Doctor Care', color: '#f59e0b' }
+    ],
+    overviewCharts: [
+      {
+        title: 'Overall Satisfaction Spectrum',
+        subtitle: 'Distribution of 1 to 5 star patient ratings',
+        chartType: 'donut',
+        centerValue: '4.5/5',
+        centerLabel: 'Avg Score',
+        items: [
+          { label: '5 ★ Very Satisfied', value: 70, color: '#10b981' },
+          { label: '4 ★ Satisfied', value: 38, color: '#34d399' },
+          { label: '3 ★ Neutral', value: 6, color: '#f59e0b' },
+          { label: '2 ★ Dissatisfied', value: 4, color: '#f97316' },
+          { label: '1 ★ Very Dissatisfied', value: 2, color: '#e54b2b' }
+        ]
+      },
+      {
+        title: 'Responses by Visited Service',
+        subtitle: 'Top visited hospital departments',
+        chartType: 'bar',
+        centerValue: '8',
+        centerLabel: 'Services',
+        items: [
+          { label: 'General & Family Medicine Outpatient Clinic', value: 42, color: '#10b981' },
+          { label: 'Pediatrics & Child Wellness Department', value: 28, color: '#0284c7' },
+          { label: 'Obstetrics & Gynecology Services', value: 19, color: '#8b5cf6' },
+          { label: 'Laboratory & Diagnostic Imaging', value: 14, color: '#f59e0b' },
+          { label: 'Pharmacy & Medication Dispensing', value: 10, color: '#e54b2b' },
+          { label: 'Dental & Maxillofacial Surgery', value: 7, color: '#06b6d4' }
+        ]
+      }
+    ],
+    chartSlides: [
+      {
+        title: 'Doctor Wait Times & Clinical Care Quality',
+        subtitle: 'Wait duration and doctor attentiveness',
+        charts: [
+          {
+            title: 'Doctor Wait Time & Delays',
+            subtitle: 'Duration waited prior to seeing a physician',
+            chartType: 'bar',
+            items: [
+              { label: 'Under 15 minutes', value: 60, color: '#10b981' },
+              { label: '15–30 minutes', value: 40, color: '#0284c7' },
+              { label: '30–60 minutes', value: 15, color: '#f59e0b' },
+              { label: 'Over 1 hour', value: 5, color: '#e54b2b' }
+            ]
+          },
+          {
+            title: 'Doctor Care & Attentiveness',
+            subtitle: 'Did the doctor listen carefully?',
+            chartType: 'donut',
+            items: [
+              { label: 'Yes, completely', value: 108, color: '#10b981' },
+              { label: 'Partially', value: 8, color: '#f59e0b' },
+              { label: 'No', value: 4, color: '#e54b2b' }
+            ]
+          }
+        ]
+      }
+    ],
+    headers: ['Department / Service', 'Reviews', 'New', 'Returning', 'Avg Score', 'Satisfied (%)', 'Dissatisfied (%)', 'Delay Rate (%)', 'Issue Rate (%)'],
+    rows: Array.from({ length: 12 }, (_, idx) => [
+      `Department #${idx + 1} With Long Service Name`,
+      20 - idx,
+      10,
+      10 - idx,
+      '4.50',
+      '90%',
+      '5%',
+      '10%',
+      '5%'
+    ])
+  });
+
+  const files = storedFiles(pptxBytes);
+  const decoder = new TextDecoder();
+  const SLIDE_W = 12192000;
+  const SLIDE_H = 6858000;
+
+  for (const [fileName, fileEntry] of files.entries()) {
+    if (!/^ppt\/slides\/slide\d+\.xml$/.test(fileName)) continue;
+    const xml = decoder.decode(fileEntry.data);
+
+    // Extract every named shape or graphic frame with its bounding box
+    const shapeRegex = /<p:(?:cNvPr) id="\d+" name="([^"]+)"[\s\S]*?<a:xfrm><a:off x="(\d+)" y="(\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/><\/a:xfrm>/g;
+    const shapes = [];
+    let match;
+    while ((match = shapeRegex.exec(xml)) !== null) {
+      const [, name, xStr, yStr, cxStr, cyStr] = match;
+      const x = Number(xStr);
+      const y = Number(yStr);
+      const cx = Number(cxStr);
+      const cy = Number(cyStr);
+      if (cx === 0 && cy === 0) continue; // root group transform
+      shapes.push({ name, x, y, cx, cy });
+
+      // 1. Every shape must be strictly within the 16:9 slide boundaries
+      assert.ok(x >= 0, `${fileName} [${name}] x=${x} < 0`);
+      assert.ok(y >= 0, `${fileName} [${name}] y=${y} < 0`);
+      assert.ok(cx > 0, `${fileName} [${name}] cx=${cx} <= 0`);
+      assert.ok(cy > 0, `${fileName} [${name}] cy=${cy} <= 0`);
+      assert.ok(x + cx <= SLIDE_W, `${fileName} [${name}] x+cx=${x + cx} exceeds SLIDE_W=${SLIDE_W}`);
+      assert.ok(y + cy <= SLIDE_H, `${fileName} [${name}] y+cy=${y + cy} exceeds SLIDE_H=${SLIDE_H}`);
+
+      // 2. Body content shapes must stay within horizontal margins [320000, 11872000] and body vertical zone [1040000, 6280000]
+      const isFrameShape = /^(Slide Canvas|Header Banner|Brand Accent Stripe|Logo Plate|DMC Hospital Logo|Header Title|Filter Badge|Footer Divider|Footer Banner)$/.test(name);
+      if (!isFrameShape) {
+        assert.ok(x >= 320000, `${fileName} [${name}] x=${x} violates left margin 320000`);
+        assert.ok(x + cx <= SLIDE_W - 320000, `${fileName} [${name}] right edge ${x + cx} violates right margin ${SLIDE_W - 320000}`);
+        assert.ok(y >= 1040000, `${fileName} [${name}] y=${y} overlaps header zone (< 1040000)`);
+        assert.ok(y + cy <= 6280000, `${fileName} [${name}] bottom edge ${y + cy} overlaps footer zone (> 6280000)`);
+      }
+    }
+
+    // 3. Verify card headings never collide with Mode Tag badges
+    for (const heading of shapes.filter((s) => s.name.endsWith(' Heading'))) {
+      const prefix = heading.name.slice(0, -' Heading'.length);
+      const modeTag = shapes.find((s) => s.name === `${prefix} Mode Tag`);
+      if (modeTag) {
+        assert.ok(
+          heading.x + heading.cx <= modeTag.x,
+          `${fileName} [${heading.name}] right edge (${heading.x + heading.cx}) overlaps [${modeTag.name}] left edge (${modeTag.x})`
+        );
+      }
+    }
+
+    // 4. Verify Bar Fill never exceeds Bar Track width
+    for (const fill of shapes.filter((s) => s.name.startsWith('Bar Fill '))) {
+      const label = fill.name.slice('Bar Fill '.length);
+      const track = shapes.find((s) => s.name === `Bar Track ${label}`);
+      assert.ok(track, `Missing Bar Track for ${label}`);
+      assert.equal(fill.x, track.x);
+      assert.equal(fill.y, track.y);
+      assert.ok(fill.cx <= track.cx, `${fileName} [${fill.name}] width ${fill.cx} > track width ${track.cx}`);
+    }
+  }
+});
+

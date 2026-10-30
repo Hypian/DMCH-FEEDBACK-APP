@@ -8,6 +8,25 @@
   const encoder = new TextEncoder();
   const SLIDE_W = 12192000; // 13.333 in (16:9 widescreen)
   const SLIDE_H = 6858000;  // 7.5 in
+  const MARGIN_X = 320000;  // 0.35 in horizontal margin
+  const CONTENT_W = SLIDE_W - MARGIN_X * 2; // 11,552,000 EMUs
+  const BODY_TOP = 1040000;
+  const BODY_BOTTOM = 6280000;
+  const BODY_H = BODY_BOTTOM - BODY_TOP; // 5,240,000 EMUs
+
+  const truncateText = (value, maxLen = 60) => {
+    const str = String(value ?? '').replace(/\s+/g, ' ').trim();
+    if (str.length <= maxLen) return str;
+    return str.slice(0, Math.max(1, maxLen - 1)).trimEnd() + '…';
+  };
+
+  const clampBox = (box) => {
+    const x = Math.max(0, Math.min(SLIDE_W - 50000, Math.round(box.x || 0)));
+    const y = Math.max(0, Math.min(SLIDE_H - 50000, Math.round(box.y || 0)));
+    const cx = Math.max(10000, Math.min(SLIDE_W - x, Math.round(box.cx || 0)));
+    const cy = Math.max(10000, Math.min(SLIDE_H - y, Math.round(box.cy || 0)));
+    return { x, y, cx, cy };
+  };
 
   const xmlEscape = (value) => String(value ?? '')
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -114,10 +133,15 @@
     strokeWidth = 12700,
     paragraphs = [],
     valign = 'ctr',
+    wrap = 'square',
     inset = [91440, 45720, 91440, 45720]
   }) {
-    const avLst = adj
-      ? `<a:avLst>${Object.entries(adj).map(([k, v]) => `<a:gd name="${k}" fmla="val ${Math.round(v)}"/>`).join('')}</a:avLst>`
+    const safeBox = clampBox({ x, y, cx, cy });
+    const effectiveAdj = adj !== null
+      ? adj
+      : (geom === 'roundRect' ? { adj: 4500 } : null);
+    const avLst = effectiveAdj
+      ? `<a:avLst>${Object.entries(effectiveAdj).map(([k, v]) => `<a:gd name="${k}" fmla="val ${Math.round(v)}"/>`).join('')}</a:avLst>`
       : '<a:avLst/>';
     const fillXml = fill ? `<a:solidFill><a:srgbClr val="${cleanHex(fill)}"/></a:solidFill>` : '<a:noFill/>';
     const lineXml = stroke
@@ -127,33 +151,40 @@
     const bodyParagraphs = paragraphs.length
       ? paragraphs.map((p) => {
           const align = p.align || 'l';
+          const spcBefore = p.spaceBefore ? `<a:spcBef><a:spcPts val="${Math.round(p.spaceBefore)}"/></a:spcBef>` : '';
+          const spcAfter = p.spaceAfter ? `<a:spcAft><a:spcPts val="${Math.round(p.spaceAfter)}"/></a:spcAft>` : '';
+          const pPrChildren = `${spcBefore}${spcAfter}`;
+          const pPr = pPrChildren ? `<a:pPr algn="${align}">${pPrChildren}</a:pPr>` : `<a:pPr algn="${align}"/>`;
           const runs = (p.runs || [{ text: p.text ?? '', size: p.size || 1200, bold: p.bold, color: p.color || '17263C' }]).map((run) => {
             const sz = Math.round(run.size || 1200);
             const b = run.bold ? ' b="1"' : '';
             const clr = cleanHex(run.color || '17263C');
             return `<a:r><a:rPr lang="en-US" sz="${sz}"${b} dirty="0"><a:solidFill><a:srgbClr val="${clr}"/></a:solidFill><a:latin typeface="Aptos"/><a:cs typeface="Aptos"/></a:rPr><a:t>${xmlEscape(run.text)}</a:t></a:r>`;
           }).join('');
-          return `<a:p><a:pPr algn="${align}"/>${runs}</a:p>`;
+          return `<a:p>${pPr}${runs}</a:p>`;
         }).join('')
       : '<a:p><a:endParaRPr lang="en-US"/></a:p>';
 
     return `<p:sp>
       <p:nvSpPr><p:cNvPr id="${id}" name="${xmlEscape(name || `Shape ${id}`)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
       <p:spPr>
-        <a:xfrm><a:off x="${Math.round(x)}" y="${Math.round(y)}"/><a:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/></a:xfrm>
+        <a:xfrm><a:off x="${safeBox.x}" y="${safeBox.y}"/><a:ext cx="${safeBox.cx}" cy="${safeBox.cy}"/></a:xfrm>
         <a:prstGeom prst="${geom}">${avLst}</a:prstGeom>
         ${fillXml}
         ${lineXml}
       </p:spPr>
       <p:txBody>
-        <a:bodyPr wrap="square" lIns="${lIns}" tIns="${tIns}" rIns="${rIns}" bIns="${bIns}" anchor="${valign}"/>
+        <a:bodyPr wrap="${wrap}" lIns="${lIns}" tIns="${tIns}" rIns="${rIns}" bIns="${bIns}" anchor="${valign}">
+          <a:noAutofit/>
+        </a:bodyPr>
         <a:lstStyle/>
         ${bodyParagraphs}
       </p:txBody>
     </p:sp>`;
   }
 
-  function logoPicXml(id, x = 320000, y = 135000, cx = 1920000, cy = 560000) {
+  function logoPicXml(id, x = 360000, y = 155000, cx = 1880000, cy = 540000) {
+    const safeBox = clampBox({ x, y, cx, cy });
     return `<p:pic>
       <p:nvPicPr>
         <p:cNvPr id="${id}" name="DMC Hospital Logo" descr="Dream Medical Center Hospital logo"/>
@@ -165,7 +196,7 @@
         <a:stretch><a:fillRect/></a:stretch>
       </p:blipFill>
       <p:spPr>
-        <a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>
+        <a:xfrm><a:off x="${safeBox.x}" y="${safeBox.y}"/><a:ext cx="${safeBox.cx}" cy="${safeBox.cy}"/></a:xfrm>
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
       </p:spPr>
     </p:pic>`;
@@ -190,7 +221,7 @@
       x: 0,
       y: 0,
       cx: SLIDE_W,
-      cy: 860000,
+      cy: 850000,
       fill: '17263C'
     }));
     // Brand Red Accent Line
@@ -198,36 +229,38 @@
       id: nextId(),
       name: 'Brand Accent Stripe',
       x: 0,
-      y: 860000,
+      y: 850000,
       cx: SLIDE_W,
-      cy: 36000,
+      cy: 32000,
       fill: 'E54B2B'
     }));
     // White badge behind logo for crisp contrast
     shapes.push(shapeXml({
       id: nextId(),
       name: 'Logo Plate',
-      x: 280000,
-      y: 110000,
-      cx: 2000000,
-      cy: 620000,
+      x: MARGIN_X,
+      y: 125000,
+      cx: 1960000,
+      cy: 600000,
       geom: 'roundRect',
+      adj: { adj: 6000 },
       fill: 'FFFFFF'
     }));
-    // Logo picture
-    shapes.push(logoPicXml(nextId(), 320000, 140000, 1920000, 560000));
-    // Title & Subtitle in header
+    // Logo picture strictly inside Logo Plate
+    shapes.push(logoPicXml(nextId(), MARGIN_X + 40000, 155000, 1880000, 540000));
+    // Title & Subtitle in header (strictly bounded between Logo Plate and Filter Badge)
     shapes.push(shapeXml({
       id: nextId(),
       name: 'Header Title',
-      x: 2450000,
-      y: 95000,
-      cx: 7200000,
-      cy: 660000,
+      x: MARGIN_X + 2100000,
+      y: 110000,
+      cx: badgeText ? 7080000 : 9452000,
+      cy: 630000,
       valign: 'ctr',
+      inset: [45720, 22860, 45720, 22860],
       paragraphs: [
-        { text: title || 'DMC Hospital — Executive Report', size: 1900, bold: true, color: 'FFFFFF' },
-        { text: subtitle || 'Confidential Quality Improvement & Patient Experience Presentation', size: 1050, bold: false, color: 'DCE5F1' }
+        { text: truncateText(title || 'DMC Hospital — Executive Report', 68), size: 1750, bold: true, color: 'FFFFFF', spaceAfter: 200 },
+        { text: truncateText(subtitle || 'Confidential Quality Improvement & Patient Experience Presentation', 105), size: 980, bold: false, color: 'DCE5F1' }
       ]
     }));
     // Right pill badge in header
@@ -235,30 +268,43 @@
       shapes.push(shapeXml({
         id: nextId(),
         name: 'Filter Badge',
-        x: 9750000,
-        y: 210000,
-        cx: 2160000,
-        cy: 420000,
+        x: SLIDE_W - MARGIN_X - 2220000,
+        y: 225000,
+        cx: 2220000,
+        cy: 400000,
         geom: 'roundRect',
+        adj: { adj: 12000 },
         fill: 'E54B2B',
+        inset: [45720, 22860, 45720, 22860],
         paragraphs: [
-          { text: badgeText, size: 950, bold: true, color: 'FFFFFF', align: 'ctr' }
+          { text: truncateText(badgeText, 28), size: 920, bold: true, color: 'FFFFFF', align: 'ctr' }
         ]
       }));
     }
+    // Subtle footer divider line
+    shapes.push(shapeXml({
+      id: nextId(),
+      name: 'Footer Divider',
+      x: MARGIN_X,
+      y: 6390000,
+      cx: CONTENT_W,
+      cy: 12700,
+      fill: 'CBD5E1'
+    }));
     // Footer bar
     shapes.push(shapeXml({
       id: nextId(),
       name: 'Footer Banner',
-      x: 280000,
-      y: 6460000,
-      cx: SLIDE_W - 560000,
-      cy: 280000,
+      x: MARGIN_X,
+      y: 6420000,
+      cx: CONTENT_W,
+      cy: 300000,
+      inset: [0, 22860, 0, 22860],
       paragraphs: [
         {
           runs: [
-            { text: 'CONFIDENTIAL  •  DREAM MEDICAL CENTER HOSPITAL  •  QUALITY IMPROVEMENT', size: 850, bold: true, color: '64748B' },
-            { text: `      |      Slide ${slideNumber} of ${totalSlides}`, size: 850, bold: false, color: '94A3B8' }
+            { text: 'CONFIDENTIAL  •  DREAM MEDICAL CENTER HOSPITAL  •  QUALITY IMPROVEMENT', size: 820, bold: true, color: '64748B' },
+            { text: `      |      Slide ${slideNumber} of ${totalSlides}`, size: 820, bold: false, color: '94A3B8' }
           ]
         }
       ]
@@ -266,57 +312,112 @@
     return shapes;
   }
 
-  function renderDonutGraphic(nextId, chart, box) {
+  function renderCardShell(nextId, chart, box, modeLabel, modeFill, modeStroke, modeTextColor) {
     const shapes = [];
-    const items = Array.isArray(chart.items) ? chart.items : [];
-    const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+    const safeBox = clampBox(box);
+    const headerH = 620000;
 
-    // Card container
+    // Outer Card Container with subtle corner radius (adj=2200 prevents corner clipping)
     shapes.push(shapeXml({
       id: nextId(),
-      name: `${chart.title} Card`,
-      x: box.x,
-      y: box.y,
-      cx: box.cx,
-      cy: box.cy,
+      name: `${chart.title || 'Chart'} Card`,
+      x: safeBox.x,
+      y: safeBox.y,
+      cx: safeBox.cx,
+      cy: safeBox.cy,
       geom: 'roundRect',
+      adj: { adj: 2200 },
       fill: 'FFFFFF',
-      stroke: 'E2E8F0'
+      stroke: 'CBD5E1',
+      strokeWidth: 12700
     }));
 
-    // Card header
+    // Card Header Band (strictly inside outer border)
     shapes.push(shapeXml({
       id: nextId(),
-      name: `${chart.title} Heading`,
-      x: box.x + 180000,
-      y: box.y + 110000,
-      cx: box.cx - 360000,
-      cy: 560000,
-      valign: 't',
+      name: `${chart.title || 'Chart'} Header Band`,
+      x: safeBox.x + 15000,
+      y: safeBox.y + 15000,
+      cx: safeBox.cx - 30000,
+      cy: headerH - 15000,
+      geom: 'rect',
+      fill: 'F8FAFC'
+    }));
+
+    // Card Header Divider Line
+    shapes.push(shapeXml({
+      id: nextId(),
+      name: `${chart.title || 'Chart'} Header Divider`,
+      x: safeBox.x,
+      y: safeBox.y + headerH,
+      cx: safeBox.cx,
+      cy: 12700,
+      geom: 'rect',
+      fill: 'E2E8F0'
+    }));
+
+    // Card Title & Subtitle (strictly stops before the Mode Tag badge on the right)
+    const badgeW = 1180000;
+    const titleW = Math.max(1500000, safeBox.cx - badgeW - 440000);
+    shapes.push(shapeXml({
+      id: nextId(),
+      name: `${chart.title || 'Chart'} Heading`,
+      x: safeBox.x + 180000,
+      y: safeBox.y + 55000,
+      cx: titleW,
+      cy: headerH - 90000,
+      valign: 'ctr',
+      inset: [0, 15000, 0, 15000],
       paragraphs: [
-        { text: chart.title || 'Visual Breakdown', size: 1350, bold: true, color: '17263C' },
-        ...(chart.subtitle ? [{ text: chart.subtitle, size: 920, bold: false, color: '64748B' }] : [])
+        { text: truncateText(chart.title || 'Visual Breakdown', 48), size: 1250, bold: true, color: '17263C', spaceAfter: 100 },
+        ...(chart.subtitle ? [{ text: truncateText(chart.subtitle, 72), size: 860, bold: false, color: '64748B' }] : [])
       ]
     }));
 
-    // Mode tag badge (DONUT VIEW)
+    // Mode Tag Pill (DONUT CHART / BAR CHART)
     shapes.push(shapeXml({
       id: nextId(),
-      name: 'Chart Mode Tag',
-      x: box.x + box.cx - 1380000,
-      y: box.y + 130000,
-      cx: 1200000,
-      cy: 260000,
+      name: `${chart.title || 'Chart'} Mode Tag`,
+      x: safeBox.x + safeBox.cx - badgeW - 160000,
+      y: safeBox.y + 170000,
+      cx: badgeW,
+      cy: 280000,
       geom: 'roundRect',
-      fill: 'FDF1EE',
-      stroke: 'F5CBBF',
-      paragraphs: [{ text: 'DONUT CHART', size: 750, bold: true, color: 'C73D20', align: 'ctr' }]
+      adj: { adj: 14000 },
+      fill: modeFill,
+      stroke: modeStroke,
+      inset: [25000, 15000, 25000, 15000],
+      paragraphs: [{ text: modeLabel, size: 720, bold: true, color: modeTextColor, align: 'ctr' }]
     }));
 
-    // Donut geometry area
-    const donutSize = Math.min(box.cy - 1050000, Math.round(box.cx * 0.42), 2350000);
-    const donutX = box.x + 220000;
-    const donutY = box.y + 740000 + Math.max(0, Math.round((box.cy - 920000 - donutSize) / 2));
+    return {
+      shapes,
+      bodyBox: {
+        x: safeBox.x + 180000,
+        y: safeBox.y + headerH + 100000,
+        cx: safeBox.cx - 360000,
+        cy: safeBox.cy - headerH - 200000
+      }
+    };
+  }
+
+  function renderDonutGraphic(nextId, chart, box) {
+    const items = Array.isArray(chart.items) ? chart.items : [];
+    const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+    const { shapes, bodyBox } = renderCardShell(
+      nextId,
+      chart,
+      box,
+      'DONUT CHART',
+      'FDF1EE',
+      'F5CBBF',
+      'C73D20'
+    );
+
+    // Donut geometry strictly within left 42% of bodyBox
+    const donutSize = Math.min(bodyBox.cy - 80000, Math.round(bodyBox.cx * 0.40), 2150000);
+    const donutX = bodyBox.x + 40000;
+    const donutY = bodyBox.y + Math.max(0, Math.round((bodyBox.cy - donutSize) / 2));
 
     // Base ring
     shapes.push(shapeXml({
@@ -331,7 +432,8 @@
     }));
 
     if (total > 0) {
-      let currentAngle = 16200000; // -90 deg (top 12 o'clock) in 60,000ths of a degree
+      const startOrigin = 16200000; // -90 deg (12 o'clock) in 60,000ths of a degree
+      let currentAngle = startOrigin;
       const fullCircle = 21600000;
       const nonZeroItems = items.filter((item) => (Number(item.value) || 0) > 0);
       if (nonZeroItems.length === 1) {
@@ -346,11 +448,13 @@
           fill: nonZeroItems[0].color || 'E54B2B'
         }));
       } else {
-        for (const item of nonZeroItems) {
+        nonZeroItems.forEach((item, sIdx) => {
           const val = Number(item.value) || 0;
           const sweep = Math.max(60000, Math.round((val / total) * fullCircle));
           const start = currentAngle % fullCircle;
-          const end = (currentAngle + sweep) % fullCircle;
+          const end = sIdx === nonZeroItems.length - 1
+            ? startOrigin
+            : (currentAngle + sweep) % fullCircle;
           currentAngle += sweep;
           shapes.push(shapeXml({
             id: nextId(),
@@ -363,12 +467,12 @@
             adj: { adj1: start, adj2: end },
             fill: item.color || 'E54B2B'
           }));
-        }
+        });
       }
     }
 
     // Inner hole for Donut
-    const holeSize = Math.round(donutSize * 0.62);
+    const holeSize = Math.round(donutSize * 0.60);
     const holeOffset = Math.round((donutSize - holeSize) / 2);
     shapes.push(shapeXml({
       id: nextId(),
@@ -379,163 +483,136 @@
       cy: holeSize,
       geom: 'ellipse',
       fill: 'FFFFFF',
-      stroke: 'F1F5F9',
+      stroke: 'E2E8F0',
+      inset: [20000, 20000, 20000, 20000],
       paragraphs: [
-        { text: String(chart.centerValue ?? total), size: 1550, bold: true, color: '17263C', align: 'ctr' },
-        { text: String(chart.centerLabel || 'TOTAL').toUpperCase(), size: 750, bold: true, color: '64748B', align: 'ctr' }
+        { text: truncateText(String(chart.centerValue ?? total), 12), size: 1350, bold: true, color: '17263C', align: 'ctr' },
+        { text: truncateText(String(chart.centerLabel || 'TOTAL').toUpperCase(), 14), size: 680, bold: true, color: '64748B', align: 'ctr' }
       ]
     }));
 
-    // Legend on the right side of the donut
-    const legendX = donutX + donutSize + 200000;
-    const legendW = Math.max(1200000, box.x + box.cx - legendX - 180000);
-    const maxItems = Math.min(items.length, 6);
-    const rowH = Math.min(380000, Math.floor((box.cy - 860000) / Math.max(1, maxItems)));
-    const startY = box.y + 740000;
+    // Legend rows on the right side of the donut — strictly bounded inside bodyBox
+    const legendX = donutX + donutSize + 180000;
+    const legendW = Math.max(1000000, bodyBox.x + bodyBox.cx - legendX);
+    const visibleItems = items.slice(0, 6);
+    const maxItems = Math.max(1, visibleItems.length);
+    const maxRowPitch = 460000;
+    const rowPitch = Math.min(maxRowPitch, Math.floor(bodyBox.cy / maxItems));
+    const rowBoxH = Math.max(240000, rowPitch - 55000);
+    const totalLegendH = maxItems * rowPitch - (rowPitch - rowBoxH);
+    const startY = bodyBox.y + Math.max(0, Math.round((bodyBox.cy - totalLegendH) / 2));
 
-    items.slice(0, maxItems).forEach((item, idx) => {
+    visibleItems.forEach((item, idx) => {
       const val = Number(item.value) || 0;
-      const pct = total > 0 ? Math.round((val / total) * 100) : 0;
-      const ry = startY + idx * rowH;
-      // Color swatch
+      const pct = chart.unit === '%' ? Math.min(100, Math.round(val)) : (total > 0 ? Math.round((val / total) * 100) : 0);
+      const ry = startY + idx * rowPitch;
+
+      // Bounded Legend Pill Container
+      shapes.push(shapeXml({
+        id: nextId(),
+        name: `Legend Row ${idx + 1}`,
+        x: legendX,
+        y: ry,
+        cx: legendW,
+        cy: rowBoxH,
+        geom: 'roundRect',
+        adj: { adj: 6000 },
+        fill: 'F8FAFC',
+        stroke: 'E2E8F0'
+      }));
+
+      // Crisp Square Color Swatch inside Legend Row
+      const swatchSize = Math.min(130000, rowBoxH - 80000);
+      const swatchY = ry + Math.round((rowBoxH - swatchSize) / 2);
       shapes.push(shapeXml({
         id: nextId(),
         name: `Swatch ${item.label}`,
-        x: legendX,
-        y: ry + 65000,
-        cx: 130000,
-        cy: 130000,
-        geom: 'roundRect',
+        x: legendX + 75000,
+        y: swatchY,
+        cx: swatchSize,
+        cy: swatchSize,
+        geom: 'rect',
         fill: item.color || '0284C7'
       }));
-      // Label & count
+
+      // Single-line Label & Value inside Legend Row
+      const textX = legendX + 75000 + swatchSize + 65000;
+      const textW = Math.max(400000, legendX + legendW - textX - 60000);
+      const metricSuffix = `${val}${chart.unit || ''}${chart.unit === '%' ? '' : ` (${pct}%)`}`;
       shapes.push(shapeXml({
         id: nextId(),
         name: `Legend ${item.label}`,
-        x: legendX + 160000,
-        y: ry + 10000,
-        cx: legendW - 160000,
-        cy: 230000,
-        inset: [15000, 0, 15000, 0],
+        x: textX,
+        y: ry + 15000,
+        cx: textW,
+        cy: rowBoxH - 30000,
+        valign: 'ctr',
+        wrap: 'none',
+        inset: [0, 0, 0, 0],
         paragraphs: [
           {
             runs: [
-              { text: `${item.label}: `, size: 920, bold: true, color: '1C1410' },
-              { text: `${val}${chart.unit || ''} (${pct}%)`, size: 920, bold: true, color: cleanHex(item.color || '17263C') }
+              { text: `${truncateText(item.label, 24)}  `, size: 860, bold: true, color: '17263C' },
+              { text: `•  ${metricSuffix}`, size: 860, bold: true, color: cleanHex(item.color || '0284C7') }
             ]
           }
         ]
       }));
-      // Mini progress bar track
-      const trackY = ry + 235000;
-      const trackW = legendW - 160000;
-      if (rowH >= 300000 && trackW > 200000) {
-        shapes.push(shapeXml({
-          id: nextId(),
-          name: `Legend Track ${idx}`,
-          x: legendX + 160000,
-          y: trackY,
-          cx: trackW,
-          cy: 55000,
-          geom: 'roundRect',
-          fill: 'E5EAF0'
-        }));
-        if (pct > 0) {
-          shapes.push(shapeXml({
-            id: nextId(),
-            name: `Legend Fill ${idx}`,
-            x: legendX + 160000,
-            y: trackY,
-            cx: Math.max(45000, Math.round((pct / 100) * trackW)),
-            cy: 55000,
-            geom: 'roundRect',
-            fill: item.color || '0284C7'
-          }));
-        }
-      }
     });
 
     return shapes;
   }
 
   function renderBarGraphic(nextId, chart, box) {
-    const shapes = [];
     const items = Array.isArray(chart.items) ? chart.items : [];
     const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
     const maxVal = chart.maxValue || Math.max(1, ...items.map((item) => Number(item.value) || 0));
+    const { shapes, bodyBox } = renderCardShell(
+      nextId,
+      chart,
+      box,
+      'BAR CHART',
+      'EFF6FF',
+      'BFDBFE',
+      '1D4ED8'
+    );
 
-    // Card container
-    shapes.push(shapeXml({
-      id: nextId(),
-      name: `${chart.title} Bar Card`,
-      x: box.x,
-      y: box.y,
-      cx: box.cx,
-      cy: box.cy,
-      geom: 'roundRect',
-      fill: 'FFFFFF',
-      stroke: 'E2E8F0'
-    }));
-
-    // Card header
-    shapes.push(shapeXml({
-      id: nextId(),
-      name: `${chart.title} Bar Heading`,
-      x: box.x + 180000,
-      y: box.y + 110000,
-      cx: box.cx - 1600000,
-      cy: 560000,
-      valign: 't',
-      paragraphs: [
-        { text: chart.title || 'Bar Chart Breakdown', size: 1350, bold: true, color: '17263C' },
-        ...(chart.subtitle ? [{ text: chart.subtitle, size: 920, bold: false, color: '64748B' }] : [])
-      ]
-    }));
-
-    // Mode tag badge (BAR CHART)
-    shapes.push(shapeXml({
-      id: nextId(),
-      name: 'Bar Mode Tag',
-      x: box.x + box.cx - 1380000,
-      y: box.y + 130000,
-      cx: 1200000,
-      cy: 260000,
-      geom: 'roundRect',
-      fill: 'EFF6FF',
-      stroke: 'BFDBFE',
-      paragraphs: [{ text: 'BAR CHART', size: 750, bold: true, color: '1D4ED8', align: 'ctr' }]
-    }));
-
-    const visibleItems = items.slice(0, 8);
+    const visibleItems = items.slice(0, 7);
     const count = Math.max(1, visibleItems.length);
-    const areaX = box.x + 200000;
-    const areaY = box.y + 720000;
-    const areaW = box.cx - 400000;
-    const areaH = box.cy - 860000;
-    const rowH = Math.min(460000, Math.floor(areaH / count));
+    const areaX = bodyBox.x;
+    const areaW = bodyBox.cx;
+    const maxRowPitch = 520000;
+    const rowPitch = Math.min(maxRowPitch, Math.floor(bodyBox.cy / count));
+    const totalBarsH = count * rowPitch;
+    const startY = bodyBox.y + Math.max(0, Math.round((bodyBox.cy - totalBarsH) / 2));
 
     visibleItems.forEach((item, idx) => {
       const val = Number(item.value) || 0;
       const pct = chart.unit === '%' ? Math.min(100, Math.round(val)) : (total > 0 ? Math.round((val / total) * 100) : 0);
       const fillRatio = Math.min(1, Math.max(0, val / (maxVal || 1)));
-      const ry = areaY + idx * rowH;
+      const ry = startY + idx * rowPitch;
+      const labelH = Math.min(210000, Math.round(rowPitch * 0.50));
+      const barY = ry + labelH + 10000;
+      const barH = Math.max(75000, Math.min(130000, Math.round(rowPitch * 0.28)));
 
-      // Label + Value row
+      // Single-line Label + Value row (never wraps onto the bar track)
       shapes.push(shapeXml({
         id: nextId(),
         name: `Bar Label ${item.label}`,
         x: areaX,
         y: ry,
         cx: areaW,
-        cy: Math.round(rowH * 0.52),
-        inset: [10000, 0, 10000, 0],
+        cy: labelH,
+        valign: 'ctr',
+        wrap: 'none',
+        inset: [0, 0, 0, 0],
         paragraphs: [
           {
             runs: [
-              { text: `${item.label}`, size: 950, bold: true, color: '17263C' },
+              { text: truncateText(item.label, 38), size: 880, bold: true, color: '17263C' },
               {
                 text: `   —   ${val}${chart.unit || ''}${chart.unit === '%' ? '' : ` (${pct}%)`}`,
-                size: 920,
+                size: 860,
                 bold: true,
                 color: cleanHex(item.color || 'E54B2B')
               }
@@ -544,9 +621,7 @@
         ]
       }));
 
-      // Bar Track
-      const barY = ry + Math.round(rowH * 0.52);
-      const barH = Math.max(85000, Math.min(150000, Math.round(rowH * 0.32)));
+      // Crisp Rectangular Bar Track (strictly bounded within areaW)
       shapes.push(shapeXml({
         id: nextId(),
         name: `Bar Track ${item.label}`,
@@ -554,20 +629,21 @@
         y: barY,
         cx: areaW,
         cy: barH,
-        geom: 'roundRect',
-        fill: 'E5EAF0'
+        geom: 'rect',
+        fill: 'E2E8F0'
       }));
 
-      // Proportional Bar Fill
+      // Proportional Rectangular Bar Fill (clamped strictly to [0, areaW])
       if (val > 0) {
+        const fillW = Math.min(areaW, Math.max(50000, Math.round(fillRatio * areaW)));
         shapes.push(shapeXml({
           id: nextId(),
           name: `Bar Fill ${item.label}`,
           x: areaX,
           y: barY,
-          cx: Math.max(90000, Math.round(fillRatio * areaW)),
+          cx: fillW,
           cy: barH,
-          geom: 'roundRect',
+          geom: 'rect',
           fill: item.color || 'E54B2B'
         }));
       }
@@ -581,51 +657,79 @@
     return mode === 'bar' ? renderBarGraphic(nextId, chart, box) : renderDonutGraphic(nextId, chart, box);
   }
 
-  function tableGraphicXml(nextId, { headers, rows, x, y, cx, cy }) {
-    const colCount = headers.length;
-    const colWidth = Math.floor(cx / Math.max(1, colCount));
-    const gridCols = headers.map(() => `<a:gridCol w="${colWidth}"/>`).join('');
+  function computeColumnWidths(headers, totalWidth) {
+    const weights = headers.map((h) => {
+      const label = String(h || '').toLowerCase();
+      if (/comment|suggestion|additional/.test(label)) return 2.4;
+      if (/department|service|cohort/.test(label)) return 2.1;
+      if (/date|timestamp|wait|satisfaction|cleanliness|experience/.test(label)) return 1.3;
+      return 0.95;
+    });
+    const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
+    const widths = weights.map((w) => Math.floor((w / weightSum) * totalWidth));
+    const remainder = totalWidth - widths.reduce((a, b) => a + b, 0);
+    if (widths.length > 0) widths[0] += remainder;
+    return widths;
+  }
 
-    const headerCells = headers.map((h) => `<a:tc>
+  function tableGraphicXml(nextId, { headers, rows, x, y, cx, cy }) {
+    const safeBox = clampBox({ x, y, cx, cy });
+    const colWidths = computeColumnWidths(headers, safeBox.cx);
+    const gridCols = colWidths.map((w) => `<a:gridCol w="${w}"/>`).join('');
+
+    const headerCells = headers.map((h, cIdx) => {
+      const isTextCol = cIdx === 0 || /department|service|cohort|comment/i.test(String(h));
+      const align = isTextCol ? 'l' : 'ctr';
+      return `<a:tc>
       <a:txBody>
-        <a:bodyPr lIns="65000" tIns="35000" rIns="65000" bIns="35000" anchor="ctr"/>
+        <a:bodyPr lIns="55000" tIns="30000" rIns="55000" bIns="30000" anchor="ctr"/>
         <a:lstStyle/>
-        <a:p><a:pPr algn="l"/><a:r><a:rPr lang="en-US" sz="900" b="1" dirty="0"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>${xmlEscape(h)}</a:t></a:r></a:p>
+        <a:p><a:pPr algn="${align}"/><a:r><a:rPr lang="en-US" sz="840" b="1" dirty="0"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>${xmlEscape(truncateText(h, 30))}</a:t></a:r></a:p>
       </a:txBody>
-      <a:tcPr marL="65000" marR="65000" marT="35000" marB="35000" anchor="ctr">
-        <a:solidFill><a:srgbClr val="E54B2B"/></a:solidFill>
+      <a:tcPr marL="55000" marR="55000" marT="30000" marB="30000" anchor="ctr">
+        <a:solidFill><a:srgbClr val="17263C"/></a:solidFill>
       </a:tcPr>
-    </a:tc>`).join('');
+    </a:tc>`;
+    }).join('');
 
     const bodyRows = rows.map((row, rIdx) => {
       const bg = rIdx % 2 === 0 ? 'FFFFFF' : 'F8FAFC';
       const cells = headers.map((header, cIdx) => {
-        const val = row[cIdx] ?? '';
+        const rawVal = row[cIdx] ?? '';
+        const isTextCol = cIdx === 0 || /department|service|cohort|comment/i.test(String(header));
+        const maxChars = /comment/i.test(String(header)) ? 48 : (isTextCol ? 34 : 20);
+        const val = truncateText(rawVal, maxChars);
+        const align = isTextCol ? 'l' : 'ctr';
         let cellBg = bg;
         let textColor = '17263C';
-        if (/dissatisf|issue incidence/i.test(header)) {
+        let isBold = cIdx === 0 ? ' b="1"' : '';
+        if (/dissatisf|issue/i.test(header)) {
           cellBg = 'FFEFED';
           textColor = 'B91C1C';
+          isBold = ' b="1"';
         } else if (/satisfaction rate|satisfied/i.test(header)) {
           cellBg = 'EAF5F0';
           textColor = '047857';
+          isBold = ' b="1"';
         } else if (/delay/i.test(header)) {
           cellBg = 'FFF6E6';
           textColor = 'B45309';
         }
         return `<a:tc>
           <a:txBody>
-            <a:bodyPr lIns="65000" tIns="30000" rIns="65000" bIns="30000" anchor="ctr"/>
+            <a:bodyPr lIns="55000" tIns="25000" rIns="55000" bIns="25000" anchor="ctr"/>
             <a:lstStyle/>
-            <a:p><a:pPr algn="l"/><a:r><a:rPr lang="en-US" sz="850" dirty="0"><a:solidFill><a:srgbClr val="${textColor}"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>${xmlEscape(val)}</a:t></a:r></a:p>
+            <a:p><a:pPr algn="${align}"/><a:r><a:rPr lang="en-US" sz="820"${isBold} dirty="0"><a:solidFill><a:srgbClr val="${textColor}"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>${xmlEscape(val)}</a:t></a:r></a:p>
           </a:txBody>
-          <a:tcPr marL="65000" marR="65000" marT="30000" marB="30000" anchor="ctr">
+          <a:tcPr marL="55000" marR="55000" marT="25000" marB="25000" anchor="ctr">
             <a:solidFill><a:srgbClr val="${cellBg}"/></a:solidFill>
           </a:tcPr>
         </a:tc>`;
       }).join('');
-      return `<a:tr h="360000">${cells}</a:tr>`;
+      return `<a:tr h="410000">${cells}</a:tr>`;
     }).join('');
+
+    const totalTableH = Math.min(safeBox.cy, 440000 + rows.length * 410000);
 
     return `<p:graphicFrame>
       <p:nvGraphicFramePr>
@@ -633,13 +737,13 @@
         <p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr>
         <p:nvPr/>
       </p:nvGraphicFramePr>
-      <p:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></p:xfrm>
+      <p:xfrm><a:off x="${safeBox.x}" y="${safeBox.y}"/><a:ext cx="${safeBox.cx}" cy="${totalTableH}"/></p:xfrm>
       <a:graphic>
         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
           <a:tbl>
             <a:tblPr firstRow="1" bandRow="1"/>
             <a:tblGrid>${gridCols}</a:tblGrid>
-            <a:tr h="400000">${headerCells}</a:tr>
+            <a:tr h="440000">${headerCells}</a:tr>
             ${bodyRows}
           </a:tbl>
         </a:graphicData>
@@ -664,14 +768,16 @@
 
     if (slideSpec.kind === 'overview') {
       const kpis = Array.isArray(slideSpec.kpis) ? slideSpec.kpis.slice(0, 4) : [];
-      const kpiW = 2750000;
-      const kpiGap = 210000;
-      const startX = 280000;
-      const kpiY = 1040000;
-      const kpiH = 1150000;
+      const kpiCount = Math.max(1, kpis.length);
+      const kpiGap = 200000;
+      const kpiW = Math.floor((CONTENT_W - kpiGap * (kpiCount - 1)) / kpiCount);
+      const kpiY = BODY_TOP;
+      const kpiH = 1180000;
 
       kpis.forEach((kpi, idx) => {
-        const kx = startX + idx * (kpiW + kpiGap);
+        const kx = MARGIN_X + idx * (kpiW + kpiGap);
+        const accentColor = cleanHex(kpi.color || '17263C');
+        // KPI Card Outer Box
         shapes.push(shapeXml({
           id: nextId(),
           name: `KPI Card ${idx + 1}`,
@@ -680,72 +786,103 @@
           cx: kpiW,
           cy: kpiH,
           geom: 'roundRect',
+          adj: { adj: 4500 },
           fill: 'FFFFFF',
-          stroke: 'E2E8F0',
+          stroke: 'CBD5E1',
+          inset: [65000, 110000, 65000, 45000],
           paragraphs: [
-            { text: String(kpi.value ?? '–'), size: 2400, bold: true, color: cleanHex(kpi.color || '17263C'), align: 'ctr' },
-            { text: String(kpi.label || '').toUpperCase(), size: 880, bold: true, color: '64748B', align: 'ctr' }
+            { text: truncateText(String(kpi.value ?? '–'), 18), size: 2150, bold: true, color: accentColor, align: 'ctr', spaceAfter: 80 },
+            { text: truncateText(String(kpi.label || '').toUpperCase(), 26), size: 840, bold: true, color: '475569', align: 'ctr', spaceAfter: 60 },
+            ...(kpi.sub ? [{ text: truncateText(String(kpi.sub), 34), size: 760, bold: false, color: '64748B', align: 'ctr' }] : [])
           ]
+        }));
+        // Top Accent Bar strictly inside KPI Card
+        shapes.push(shapeXml({
+          id: nextId(),
+          name: `KPI Accent ${idx + 1}`,
+          x: kx + 120000,
+          y: kpiY + 45000,
+          cx: kpiW - 240000,
+          cy: 42000,
+          geom: 'rect',
+          fill: accentColor
         }));
       });
 
       const charts = Array.isArray(slideSpec.charts) ? slideSpec.charts : [];
+      const chartTop = kpiY + kpiH + 180000; // 2,400,000
+      const chartH = BODY_BOTTOM - chartTop; // 3,880,000
       if (charts.length === 1) {
         shapes.push(...renderChartBox(nextId, charts[0], {
-          x: 280000,
-          y: 2340000,
-          cx: SLIDE_W - 560000,
-          cy: 3980000
+          x: MARGIN_X,
+          y: chartTop,
+          cx: CONTENT_W,
+          cy: chartH
         }));
       } else if (charts.length >= 2) {
-        const cardW = Math.floor((SLIDE_W - 560000 - 240000) / 2);
+        const gap = 220000;
+        const cardW = Math.floor((CONTENT_W - gap) / 2);
         shapes.push(...renderChartBox(nextId, charts[0], {
-          x: 280000,
-          y: 2340000,
+          x: MARGIN_X,
+          y: chartTop,
           cx: cardW,
-          cy: 3980000
+          cy: chartH
         }));
         shapes.push(...renderChartBox(nextId, charts[1], {
-          x: 280000 + cardW + 240000,
-          y: 2340000,
+          x: MARGIN_X + cardW + gap,
+          y: chartTop,
           cx: cardW,
-          cy: 3980000
+          cy: chartH
         }));
       }
     } else if (slideSpec.kind === 'charts') {
       const charts = Array.isArray(slideSpec.charts) ? slideSpec.charts : [];
       if (charts.length === 1) {
         shapes.push(...renderChartBox(nextId, charts[0], {
-          x: 280000,
-          y: 1040000,
-          cx: SLIDE_W - 560000,
-          cy: 5280000
+          x: MARGIN_X,
+          y: BODY_TOP,
+          cx: CONTENT_W,
+          cy: BODY_H
         }));
       } else if (charts.length >= 2) {
-        const cardW = Math.floor((SLIDE_W - 560000 - 240000) / 2);
+        const gap = 220000;
+        const cardW = Math.floor((CONTENT_W - gap) / 2);
         shapes.push(...renderChartBox(nextId, charts[0], {
-          x: 280000,
-          y: 1040000,
+          x: MARGIN_X,
+          y: BODY_TOP,
           cx: cardW,
-          cy: 5280000
+          cy: BODY_H
         }));
         shapes.push(...renderChartBox(nextId, charts[1], {
-          x: 280000 + cardW + 240000,
-          y: 1040000,
+          x: MARGIN_X + cardW + gap,
+          y: BODY_TOP,
           cx: cardW,
-          cy: 5280000
+          cy: BODY_H
         }));
       }
     } else if (slideSpec.kind === 'table') {
-      const tableHeaders = (slideSpec.headers || []).slice(0, 10);
-      const tableRows = (slideSpec.rows || []).slice(0, 11).map((r) => r.slice(0, 10));
+      const tableHeaders = (slideSpec.headers || []).slice(0, 9);
+      const tableRows = (slideSpec.rows || []).slice(0, 8).map((r) => r.slice(0, 9));
+      // White Card Frame behind Data Table
+      shapes.push(shapeXml({
+        id: nextId(),
+        name: 'Table Card Container',
+        x: MARGIN_X,
+        y: BODY_TOP,
+        cx: CONTENT_W,
+        cy: BODY_H,
+        geom: 'roundRect',
+        adj: { adj: 2200 },
+        fill: 'FFFFFF',
+        stroke: 'CBD5E1'
+      }));
       shapes.push(tableGraphicXml(nextId, {
         headers: tableHeaders,
         rows: tableRows,
-        x: 280000,
-        y: 1060000,
-        cx: SLIDE_W - 560000,
-        cy: 5200000
+        x: MARGIN_X + 140000,
+        y: BODY_TOP + 140000,
+        cx: CONTENT_W - 280000,
+        cy: BODY_H - 280000
       }));
     }
 
@@ -841,7 +978,9 @@
     const hasChartSlides = Array.isArray(report.chartSlides) && report.chartSlides.length > 0;
 
     if (hasKpis || hasCharts) {
-      const charts = hasCharts ? report.charts : (hasChartSlides ? (report.chartSlides[0].charts || []) : []);
+      const overviewCharts = Array.isArray(report.overviewCharts)
+        ? report.overviewCharts
+        : (hasCharts ? report.charts : (hasChartSlides ? (report.chartSlides[0].charts || []) : []));
       slides.push({
         kind: 'overview',
         title: report.title || 'DMC Hospital — Executive Quality Deck',
@@ -851,7 +990,7 @@
           { label: 'Feedback Records', value: (report.rows || []).length, color: '17263C' },
           { label: 'Report Columns', value: (report.headers || []).length, color: 'E54B2B' }
         ],
-        charts: charts.slice(0, 2)
+        charts: overviewCharts.slice(0, 2)
       });
       if (hasCharts) {
         for (let idx = 2; idx < report.charts.length; idx += 2) {
@@ -877,7 +1016,7 @@
       });
     }
     if (Array.isArray(report.headers) && report.headers.length > 0 && Array.isArray(report.rows)) {
-      const pageSize = 10;
+      const pageSize = 8;
       const totalRows = report.rows.length;
       if (totalRows === 0) {
         slides.push({

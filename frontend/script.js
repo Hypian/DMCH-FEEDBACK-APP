@@ -3650,12 +3650,9 @@ function buildPptxReportData(type, R, dateStr) {
     { label: 'Delay Incidence', value: `${specs.delayRate}%`, sub: `${specs.docFullPct}% Full Doctor Care`, color: '#f59e0b' }
   ];
 
+  const overviewCharts = [specs.charts.satisfaction, specs.charts.cohorts];
+
   const chartSlides = [
-    {
-      title: 'Overall Satisfaction & Patient Cohort Visuals',
-      subtitle: `Visual representation (${activeMode.toUpperCase()} view) • ${specs.n} responses`,
-      charts: [specs.charts.satisfaction, specs.charts.cohorts]
-    },
     {
       title: 'Doctor Wait Times & Clinical Care Quality',
       subtitle: `${specs.fastWaitPct}% seen under 30m • ${specs.docFullPct}% full doctor attentiveness`,
@@ -3667,9 +3664,14 @@ function buildPptxReportData(type, R, dateStr) {
       charts: [specs.charts.services, specs.charts.delay_hotspots]
     },
     {
-      title: 'Facility Quality Benchmarks & Visit Shift Distribution',
-      subtitle: 'Reception, billing, cleanliness scores and patient arrival shifts',
-      charts: [specs.charts.quality_benchmark, specs.charts.times]
+      title: 'Service Issue Hotspots & Facility Quality Benchmarks',
+      subtitle: 'Reported unpleasant experience locations and front-desk/cleanliness ratings',
+      charts: [specs.charts.issue_hotspots, specs.charts.quality_benchmark]
+    },
+    {
+      title: 'Visit Shift Distribution & Survey Languages',
+      subtitle: 'Patient arrival shift breakdown and language preferences',
+      charts: [specs.charts.times, specs.charts.languages]
     }
   ];
 
@@ -3678,6 +3680,21 @@ function buildPptxReportData(type, R, dateStr) {
   let headers = [];
   let rows = [];
 
+  const formatDeptTableForPptx = (deptData) => ({
+    headers: [
+      'Department / Service',
+      'Reviews',
+      'New',
+      'Returning',
+      'Avg Score',
+      'Satisfied (%)',
+      'Dissatisfied (%)',
+      'Delay Rate (%)',
+      'Issue Rate (%)'
+    ],
+    rows: deptData.rows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[6], r[8], r[10], r[12]])
+  });
+
   if (type === 'full') {
     const base = buildReportData('full', R, dateStr);
     title = 'DMC Hospital — Complete Survey Dataset & Visual Report';
@@ -3685,31 +3702,42 @@ function buildPptxReportData(type, R, dateStr) {
     headers = [
       'Date & Time',
       'Department / Service',
-      'Patient Category',
+      'Patient Cohort',
       'Wait Time',
       'Doctor Care',
       'Cleanliness',
-      'Overall Satisfaction',
-      'Score (1-5)',
+      'Satisfaction',
+      'Score',
       'Comments'
     ];
-    rows = base.rows.map((r) => [r[2], r[4], r[5], r[8], r[10], r[12], r[13], r[14], r[16] || r[15] || '']);
+    rows = base.rows.map((r) => [r[2], r[4], r[5], r[9], r[11], r[13], r[14], r[15], r[17] || r[16] || '']);
   } else if (type === 'departments') {
     const base = buildReportData('departments', R, dateStr);
+    const formatted = formatDeptTableForPptx(base);
     title = 'DMC Hospital — Department Performance & Visual Report';
     filename = `DMC-Department-Performance-${dateStr}.pptx`;
-    headers = base.headers;
-    rows = base.rows;
+    headers = formatted.headers;
+    rows = formatted.rows;
   } else if (type === 'patients') {
     const base = buildReportData('patients', R, dateStr);
     title = 'DMC Hospital — Patient Cohort Analytics & Visual Report';
     filename = `DMC-Patient-Cohort-Analytics-${dateStr}.pptx`;
-    headers = base.headers;
-    rows = base.rows;
+    headers = [
+      'Patient Cohort',
+      'Reviews',
+      'Population Share',
+      'Avg Score',
+      'Satisfied (%)',
+      'Dissatisfied (%)',
+      'Delay Rate (%)',
+      'Issue Rate (%)'
+    ];
+    rows = base.rows.map((r) => [r[0], r[1], r[2], r[3], r[5], r[7], r[8], r[9]]);
   } else {
     const deptTable = buildReportData('departments', R, dateStr);
-    headers = deptTable.headers;
-    rows = deptTable.rows;
+    const formatted = formatDeptTableForPptx(deptTable);
+    headers = formatted.headers;
+    rows = formatted.rows;
   }
 
   return {
@@ -3717,6 +3745,7 @@ function buildPptxReportData(type, R, dateStr) {
     filename,
     subtitle: `Confidential executive presentation | Generated ${dateStr} | ${R.length} feedback submissions`,
     kpis,
+    overviewCharts,
     chartSlides,
     headers,
     rows
