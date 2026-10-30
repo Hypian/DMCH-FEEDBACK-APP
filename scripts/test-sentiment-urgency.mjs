@@ -63,6 +63,140 @@ const TEST_CASES = [
     text: 'Murakoze cyane, abaganga banyitayeho neza cyane kandi bakirana urugwiro.',
     expected: { language: 'rw', sentiment: 'positive', urgent: false },
     description: 'Kinyarwanda praise: gratitude for kind medical care (marked for verification)'
+  },
+
+  // ── Kinyarwanda accuracy suite ──────────────────────────────────────────────
+  // Covers negation, noun-class forms, verb affixes, mixed feedback, and false-positive
+  // traps. English glosses are in the descriptions. Labels were written by a
+  // non-native speaker: have a native speaker (e.g. DMCH patient-relations staff) review
+  // them and replace or add real patient comments over time.
+  {
+    id: 9,
+    text: 'Serivisi yari nziza cyane, murakoze',
+    expected: { language: 'rw', sentiment: 'positive', urgent: false },
+    description: 'rw praise: "the service was very good, thank you"'
+  },
+  {
+    id: 10,
+    text: 'Ntabwo byari byiza, abaganga batinze cyane',
+    expected: { language: 'rw', sentiment: 'negative', urgent: false },
+    description: 'rw negation: "it was not good, the doctors were very late" (must not read "byiza" as praise)'
+  },
+  {
+    id: 11,
+    text: 'Nta kibazo, byose byagenze neza',
+    expected: { language: 'rw', sentiment: 'positive', urgent: false },
+    description: 'rw negated problem: "no problem, everything went well"'
+  },
+  {
+    id: 12,
+    text: 'Abaganga ni beza ariko twategereje igihe kirekire',
+    expected: { language: 'rw', sentiment: 'neutral', urgent: false },
+    description: 'rw mixed: "the doctors are good but we waited a long time"'
+  },
+  {
+    id: 13,
+    text: 'Ntibanyitayeho kandi ntibishimishije',
+    expected: { language: 'rw', sentiment: 'negative', urgent: false },
+    description: 'rw negative verb prefixes: "they did not care for me and it was not pleasing"'
+  },
+  {
+    id: 14,
+    text: 'Sinishimiye na gato',
+    expected: { language: 'rw', sentiment: 'negative', urgent: false },
+    description: 'rw first-person negation: "I am not happy at all"'
+  },
+  {
+    id: 15,
+    text: 'Umwanda mwinshi mu bwiherero',
+    expected: { language: 'rw', sentiment: 'negative', urgent: false },
+    description: 'rw hygiene complaint: "lots of dirt in the toilets"'
+  },
+  {
+    id: 16,
+    text: 'Twategereje amasaha abiri, byatinze',
+    expected: { language: 'rw', sentiment: 'negative', urgent: false },
+    description: 'rw mild delay: "we waited two hours, it was slow" (negative, not urgent)'
+  },
+  {
+    id: 17,
+    text: 'Nishyuye amafaranga ku isanduku, serivisi yari nziza',
+    expected: { language: 'rw', sentiment: 'positive', urgent: false },
+    description: 'rw false-positive trap: bare "amafaranga" (money) must not be urgent'
+  },
+  {
+    id: 18,
+    text: 'Bampimye amaraso vuba kandi neza',
+    expected: { language: 'rw', sentiment: 'positive', urgent: false },
+    description: 'rw false-positive trap: "they tested my blood quickly and well" ("amaraso" alone is not bleeding)'
+  },
+  {
+    id: 19,
+    text: 'Nari ndi kuva amaraso ariko nta muntu wanyitayeho',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw urgent: "I was bleeding but nobody attended to me"'
+  },
+  {
+    id: 20,
+    text: 'Banze kumvura kuko ntari mfite amafaranga',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw urgent: "they refused to treat me because I had no money"'
+  },
+  {
+    id: 21,
+    text: 'Abaganga ni beza ariko banze kunvura umwana wanjye',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw praise mixed with refusal of care: still urgent'
+  },
+  {
+    id: 22,
+    text: 'Umuforomo yantutse kandi yankubise',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw abuse: "the nurse insulted me and hit me"'
+  },
+  {
+    id: 23,
+    text: 'Umukozi yansabye ruswa',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw bribery: "a staff member asked me for a bribe"'
+  },
+  {
+    id: 24,
+    text: 'Banyishyuje amafaranga menshi cyane',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw overcharging: "they charged me a lot of money"'
+  },
+  {
+    id: 25,
+    text: 'Nashakaga gusubizwa amafaranga yanjye',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw refund demand: "I would like to be refunded my money"'
+  },
+  {
+    id: 26,
+    text: 'Umurwayi yataye ubwenge nta muganga uhari',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw emergency: "the patient fainted and no doctor was there"'
+  },
+  {
+    id: 27,
+    text: 'Naje mfite ububabare bukabije',
+    expected: { language: 'rw', sentiment: 'negative', urgent: true },
+    description: 'rw urgent: "I came with severe pain"'
+  },
+
+  // ── Negation in English and French (same engine) ────────────────────────────
+  {
+    id: 28,
+    text: 'It was not good at all.',
+    expected: { language: 'en', sentiment: 'negative', urgent: false },
+    description: 'English negation: "not good" must not read as praise'
+  },
+  {
+    id: 29,
+    text: "Ce n'était pas bon.",
+    expected: { language: 'fr', sentiment: 'negative', urgent: false },
+    description: 'French negation: "pas bon" must not read as praise'
   }
 ];
 
