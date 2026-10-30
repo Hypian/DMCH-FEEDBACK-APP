@@ -940,3 +940,114 @@ test('Statistics & Visual Charts tab renders large donut graphs and proportional
   assert.equal(vm.runInContext("typeof activeSliceNavigation", context), 'object');
 });
 
+
+test('visual and stats tabs support global and per-card switching between Bar Charts and Donuts', () => {
+  const backendState = {
+    session: { user: { id: 'admin-user', name: 'Admin', username: 'admin' } },
+    isAdmin: true,
+    isSupremeAdmin: false,
+    responses: []
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'admin-user',name:'Admin',username:'admin'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true;feedbackResponses=[{id:'f-1',t:Date.now(),submitted_at:'2026-10-21T18:00:00.000Z',l:'en',language:'en',department_id:'o0',department_name:'General medicine',dn:'General medicine',a:{cat:0,time:0,q1:0,q2:0,q3:0,q4:[0],q5:0,q6:[0],q7:0,q8:0},is_demo:false,user_id:null}];tab='charts';admin()",
+    context
+  );
+
+  assert.match(app.innerHTML, /big-donut-svg-wrap/);
+  assert.match(app.innerHTML, /Switch Between Bar Charts &amp; Donuts/);
+
+  vm.runInContext("setVisualChartMode('bar')", context);
+  assert.equal(vm.runInContext('visualChartMode', context), 'bar');
+  assert.match(app.innerHTML, /vertical-bar-stage/);
+  assert.match(app.innerHTML, /vcol-chart-grid/);
+
+  vm.runInContext("toggleCardChartMode('satisfaction', 'bar')", context);
+  assert.equal(vm.runInContext("cardChartModes.satisfaction", context), 'donut');
+  assert.match(app.innerHTML, /big-donut-svg-wrap/);
+  assert.match(app.innerHTML, /vertical-bar-stage/);
+
+  vm.runInContext("tab='stats';admin()", context);
+  assert.match(app.innerHTML, /Analytics &#38; Cohorts Visuals|Analytics &amp; Cohorts Visuals/);
+  vm.runInContext("setStatsChartMode('donut')", context);
+  assert.equal(vm.runInContext('statsChartMode', context), 'donut');
+  assert.match(app.innerHTML, /donut-svg/);
+
+  vm.runInContext("setStatsChartMode('bar')", context);
+  assert.equal(vm.runInContext('statsChartMode', context), 'bar');
+  assert.match(app.innerHTML, /visual-bar-row/);
+});
+
+test('Presentation Mode opens, navigates slides, switches chart styles, and exports PPTX decks', async () => {
+  const backendState = {
+    session: { user: { id: 'admin-user', name: 'Admin', username: 'admin' } },
+    isAdmin: true,
+    isSupremeAdmin: false,
+    responses: [{
+      id: 'f-101',
+      submitted_at: '2026-10-25T12:00:00.000Z',
+      language: 'en',
+      department_id: 'o0',
+      department_name: 'General medicine',
+      answers: { cat: 0, time: 0, q1: 0, q2: 0, q3: 0, q4: [0], q5: 0, q6: [], q7: 0, q8: 0, q10: 'Very attentive doctor' },
+      is_demo: false,
+      user_id: null
+    }]
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "location.hash='#admin';adminSession={user:{id:'admin-user',name:'Admin'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true",
+    context
+  );
+  await vm.runInContext('loadAdminData()', context);
+
+  vm.runInContext('openPresentationMode()', context);
+  assert.equal(vm.runInContext('presentationModeActive', context), true);
+  assert.equal(vm.runInContext('presentationSlideIndex', context), 0);
+  assert.match(app.innerHTML, /PRESENTATION MODE/);
+  assert.match(app.innerHTML, /Slide 1 • Executive Summary/);
+
+  vm.runInContext('nextPresentationSlide(7)', context);
+  assert.equal(vm.runInContext('presentationSlideIndex', context), 1);
+  assert.match(app.innerHTML, /Slide 2 • Satisfaction &amp; Cohorts|Slide 2 • Satisfaction & Cohorts/);
+
+  vm.runInContext('goToPresentationSlide(5)', context);
+  assert.equal(vm.runInContext('presentationSlideIndex', context), 5);
+  assert.match(app.innerHTML, /Slide 6 • Department Matrix/);
+
+  vm.runInContext('prevPresentationSlide(7)', context);
+  assert.equal(vm.runInContext('presentationSlideIndex', context), 4);
+  assert.match(app.innerHTML, /Slide 5 • Facility Quality/);
+
+  vm.runInContext('closePresentationMode()', context);
+  assert.equal(vm.runInContext('presentationModeActive', context), false);
+
+  const pptxReports = [];
+  const apiFetch = context.fetch;
+  context.fetch = async (url, options) => {
+    if (new URL(url, 'https://dmc.example/').pathname === '/logo-optimized.jpg') {
+      return {
+        ok: true,
+        status: 200,
+        async arrayBuffer() { return new Uint8Array([0xFF, 0xD8, 0xFF, 0xD9]).buffer; }
+      };
+    }
+    return apiFetch(url, options);
+  };
+  context.DMCPptxExport = {
+    async downloadPresentation(report) { pptxReports.push(report); }
+  };
+
+  await vm.runInContext("exportPptx('visuals')", context);
+  await vm.runInContext("exportPptx('full')", context);
+  await vm.runInContext("exportPptx('departments')", context);
+  await vm.runInContext("exportPptx('patients')", context);
+
+  assert.equal(pptxReports.length, 4);
+  assert.equal(pptxReports[0].filename.endsWith('.pptx'), true);
+  assert.equal(pptxReports[0].chartSlides.length, 4);
+  assert.equal(pptxReports[1].rows.length, 1);
+  assert.equal(pptxReports[2].rows[0][0], 'General medicine');
+  assert.equal(pptxReports[3].rows.length, 2);
+  assert.equal(backendState.reportExports.filter((e) => e.format === 'pptx').length, 4);
+});

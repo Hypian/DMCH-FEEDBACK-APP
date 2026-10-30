@@ -777,6 +777,101 @@ function renderVisualBars(items, maxValue, unit = '') {
 }
 
 let activeSliceNavigation = null;
+let visualChartMode = 'donut'; // 'donut' | 'bar'
+let statsChartMode = 'bar'; // 'bar' | 'donut'
+let cardChartModes = {}; // { [chartKey]: 'donut' | 'bar' }
+let presentationModeActive = false;
+let presentationSlideIndex = 0;
+let presentationAutoplayTimer = null;
+
+const CHART_PALETTE = ['#10b981', '#0284c7', '#8b5cf6', '#f59e0b', '#e54b2b', '#06b6d4', '#ec4899', '#17263c', '#059669', '#d97706'];
+
+function getEffectiveChartMode(chartKey, defaultMode = 'donut') {
+  if (cardChartModes[chartKey]) return cardChartModes[chartKey];
+  return defaultMode;
+}
+
+function setVisualChartMode(mode) {
+  if (mode !== 'donut' && mode !== 'bar') return;
+  visualChartMode = mode;
+  statsChartMode = mode;
+  cardChartModes = {};
+  admin();
+}
+
+function setStatsChartMode(mode) {
+  if (mode !== 'donut' && mode !== 'bar') return;
+  statsChartMode = mode;
+  visualChartMode = mode;
+  cardChartModes = {};
+  admin();
+}
+
+function toggleCardChartMode(chartKey, defaultMode = 'donut') {
+  const current = getEffectiveChartMode(chartKey, defaultMode);
+  cardChartModes[chartKey] = current === 'donut' ? 'bar' : 'donut';
+  admin();
+}
+
+function stopPresentationAutoplay() {
+  if (presentationAutoplayTimer !== null) {
+    clearInterval(presentationAutoplayTimer);
+    presentationAutoplayTimer = null;
+  }
+}
+
+function openPresentationMode(startSlide = 0) {
+  presentationModeActive = true;
+  presentationSlideIndex = Math.max(0, Number(startSlide) || 0);
+  admin();
+}
+
+function closePresentationMode() {
+  stopPresentationAutoplay();
+  presentationModeActive = false;
+  admin();
+}
+
+function nextPresentationSlide(totalSlides = 7) {
+  presentationSlideIndex = (presentationSlideIndex + 1) % Math.max(1, totalSlides);
+  admin();
+}
+
+function prevPresentationSlide(totalSlides = 7) {
+  const max = Math.max(1, totalSlides);
+  presentationSlideIndex = (presentationSlideIndex - 1 + max) % max;
+  admin();
+}
+
+function goToPresentationSlide(index) {
+  presentationSlideIndex = Math.max(0, Number(index) || 0);
+  admin();
+}
+
+function togglePresentationAutoplay() {
+  if (presentationAutoplayTimer !== null) {
+    stopPresentationAutoplay();
+  } else {
+    presentationAutoplayTimer = setInterval(() => {
+      if (!presentationModeActive) {
+        stopPresentationAutoplay();
+        return;
+      }
+      nextPresentationSlide(7);
+    }, 7000);
+  }
+  admin();
+}
+
+function togglePresentationFullscreen() {
+  try {
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else if (typeof document !== 'undefined') {
+      document.documentElement?.requestFullscreen?.();
+    }
+  } catch (e) {}
+}
 
 function openChartDetailModal(chartKey, itemKey = 'all') {
   const dialog = $('chart-detail-dialog');
@@ -879,6 +974,43 @@ function openChartDetailModal(chartKey, itemKey = 'all') {
       sliceColor = '#f59e0b';
       subset = allFiltered.filter((r) => r.a?.q3 != null);
     }
+  } else if (chartKey === 'services') {
+    categoryName = 'Visited Services & Review Volumes';
+    if (itemKey && itemKey !== 'all') {
+      sliceLabel = itemKey;
+      sliceColor = '#17263c';
+      subset = allFiltered.filter((r) => (r.dn || 'General medicine') === itemKey);
+      navFilter = { service: itemKey };
+    } else {
+      sliceLabel = 'All Visited Services';
+      sliceColor = '#17263c';
+      subset = allFiltered;
+    }
+  } else if (chartKey === 'languages') {
+    categoryName = 'Preferred Survey Languages';
+    const langMap = {
+      English: 'en',
+      Français: 'fr',
+      Kinyarwanda: 'rw',
+      en: 'en',
+      fr: 'fr',
+      rw: 'rw'
+    };
+    const code = langMap[itemKey];
+    if (code) {
+      sliceLabel = `${itemKey} Survey Submissions`;
+      sliceColor = '#2563eb';
+      subset = allFiltered.filter((r) => r.l === code);
+    } else {
+      sliceLabel = 'All Survey Languages';
+      sliceColor = '#2563eb';
+      subset = allFiltered;
+    }
+  } else {
+    categoryName = 'Visual Analytics Breakdown';
+    sliceLabel = itemKey && itemKey !== 'all' ? String(itemKey) : 'All Filtered Records';
+    sliceColor = '#0284c7';
+    subset = allFiltered;
   }
 
   activeSliceNavigation = navFilter;
@@ -992,12 +1124,93 @@ function goToFeedbacksSlice() {
   if (activeSliceNavigation) {
     if (activeSliceNavigation.rating) feedbackRatingFilter = activeSliceNavigation.rating;
     if (activeSliceNavigation.cohort) cohortFilter = activeSliceNavigation.cohort;
+    if (activeSliceNavigation.service) feedbackServiceFilter = activeSliceNavigation.service;
   }
   tab = 'feedbacks';
   admin();
 }
 
-function renderLargeVisualDonut({ chartKey, title, subtitle, items, centerValue, centerLabel }) {
+function renderCardModeToggle(chartKey, defaultMode = 'donut') {
+  const mode = getEffectiveChartMode(chartKey, defaultMode);
+  return `<div class="chart-type-toggle" onclick="event.stopPropagation()" role="group" aria-label="Switch chart type">
+    <button type="button" class="chart-type-btn ${mode === 'donut' ? 'active' : ''}" onclick="event.stopPropagation();cardChartModes['${chartKey}']='donut';admin()" title="Switch to Donut Chart"><i class='bx bx-pie-chart-alt-2'></i> Donut</button>
+    <button type="button" class="chart-type-btn ${mode === 'bar' ? 'active' : ''}" onclick="event.stopPropagation();cardChartModes['${chartKey}']='bar';admin()" title="Switch to Bar Chart"><i class='bx bx-bar-chart-alt-2'></i> Bar</button>
+  </div>`;
+}
+
+function renderLargeVisualBarChart({ chartKey, title, subtitle, items, centerValue, centerLabel, defaultMode = 'donut', unit = '' }) {
+  const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const maxVal = Math.max(1, ...items.map((item) => Number(item.value) || 0));
+
+  const columns = items.map((item) => {
+    const val = Number(item.value) || 0;
+    const pct = unit === '%' ? Math.min(100, Math.round(val)) : (total > 0 ? Math.round((val / total) * 100) : 0);
+    const heightPct = Math.max(val > 0 ? 8 : 2, Math.min(100, Math.round((val / maxVal) * 100)));
+    return `<div class="vcol-item" onclick="event.stopPropagation();openChartDetailModal('${chartKey}','${esc(item.key || item.label || '')}')" role="button" tabindex="0" title="${esc(item.label)}: ${val}${unit} (${pct}%) – Click to view details">
+      <span class="vcol-val">${val}${unit}</span>
+      <div class="vcol-track">
+        <div class="vcol-fill" style="height:${heightPct}%;background:${item.color}"></div>
+      </div>
+      <span class="vcol-lbl" title="${esc(item.label)}">${esc(item.label)}</span>
+    </div>`;
+  }).join('');
+
+  const legend = items.map((item) => {
+    const val = Number(item.value) || 0;
+    const pct = unit === '%' ? Math.min(100, Math.round(val)) : (total > 0 ? Math.round((val / total) * 100) : 0);
+    const barPct = Math.min(100, Math.round((val / maxVal) * 100));
+    return `<div class="big-legend-item" onclick="event.stopPropagation();openChartDetailModal('${chartKey}','${esc(item.key || item.label || '')}')" role="button" tabindex="0" title="Click to view details for ${esc(item.label)}">
+      <div class="big-legend-row">
+        <div class="big-legend-left">
+          <span class="big-legend-swatch" style="background:${item.color}"></span>
+          <span>${esc(item.label)}</span>
+        </div>
+        <div class="big-legend-right">
+          <span>${val}${unit}</span>
+          ${unit !== '%' ? `<small style="color:var(--ink-3);font-weight:normal">(${pct}%)</small>` : ''}
+        </div>
+      </div>
+      <div class="big-legend-track">
+        <div class="big-legend-fill" style="width:${barPct}%;background:${item.color}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="big-donut-card big-bar-card" onclick="openChartDetailModal('${chartKey}','all')" role="region" aria-label="${esc(title)}">
+    <div class="big-donut-header">
+      <div class="big-donut-header-left">
+        <h4>${title}</h4>
+        ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
+      </div>
+      <div class="big-donut-header-actions">
+        ${renderCardModeToggle(chartKey, defaultMode)}
+        <span class="big-donut-click-hint"><i class='bx bx-search-alt'></i> View Details</span>
+      </div>
+    </div>
+    <div class="big-donut-body big-bar-body">
+      <div class="vertical-bar-stage">
+        <div class="vcol-summary-badge">
+          <span class="vcol-summary-val">${esc(centerValue)}</span>
+          <span class="vcol-summary-lbl">${esc(centerLabel)}</span>
+        </div>
+        <div class="vcol-chart-grid">
+          ${columns}
+        </div>
+      </div>
+      <div class="big-donut-legend">
+        ${legend}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderLargeVisualDonut({ chartKey, title, subtitle, items, centerValue, centerLabel, defaultMode }) {
+  const baseMode = defaultMode || visualChartMode || 'donut';
+  const effectiveMode = getEffectiveChartMode(chartKey, baseMode);
+  if (effectiveMode === 'bar') {
+    return renderLargeVisualBarChart({ chartKey, title, subtitle, items, centerValue, centerLabel, defaultMode: baseMode });
+  }
+
   const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
   const size = 220;
   const strokeWidth = 32;
@@ -1052,7 +1265,10 @@ function renderLargeVisualDonut({ chartKey, title, subtitle, items, centerValue,
         <h4>${title}</h4>
         ${subtitle ? `<p class="hint">${subtitle}</p>` : ''}
       </div>
-      <span class="big-donut-click-hint"><i class='bx bx-search-alt'></i> View Details</span>
+      <div class="big-donut-header-actions">
+        ${renderCardModeToggle(chartKey, baseMode)}
+        <span class="big-donut-click-hint"><i class='bx bx-search-alt'></i> View Details</span>
+      </div>
     </div>
     <div class="big-donut-body">
       <div class="big-donut-svg-wrap">
@@ -1071,9 +1287,76 @@ function renderLargeVisualDonut({ chartKey, title, subtitle, items, centerValue,
   </div>`;
 }
 
+function renderSwitchableBreakdownCard({ chartKey, title, subtitle, items, maxValue, unit = '', defaultMode = 'bar', centerValue, centerLabel }) {
+  const effectiveMode = getEffectiveChartMode(chartKey, defaultMode);
+  const normalizedItems = (items || []).map(([label, val, color], idx) => ({
+    key: label,
+    label,
+    value: Number(val) || 0,
+    color: color && color !== '#17263c' ? color : CHART_PALETTE[idx % CHART_PALETTE.length]
+  }));
+  const total = normalizedItems.reduce((sum, item) => sum + item.value, 0);
+  const cVal = centerValue != null ? centerValue : (unit === '%' && normalizedItems.length ? `${Math.round(total / normalizedItems.length)}%` : `${total}`);
+  const cLbl = centerLabel || (unit === '%' ? 'Avg Score' : 'Total Count');
+
+  if (effectiveMode === 'donut') {
+    return `<div class="chart-card-full switchable-chart-card">
+      <div class="big-donut-header">
+        <div class="big-donut-header-left">
+          <h3>${title}</h3>
+          ${subtitle ? `<p class="hint" style="margin:2px 0 0">${subtitle}</p>` : ''}
+        </div>
+        <div class="big-donut-header-actions">
+          ${renderCardModeToggle(chartKey, defaultMode)}
+        </div>
+      </div>
+      ${normalizedItems.length ? renderDonutChart({
+        title: '',
+        subtitle: '',
+        items: normalizedItems,
+        centerValue: cVal,
+        centerLabel: cLbl
+      }) : '<p class="hint">–</p>'}
+    </div>`;
+  }
+
+  return `<div class="chart-card-full switchable-chart-card">
+    <div class="big-donut-header">
+      <div class="big-donut-header-left">
+        <h3>${title}</h3>
+        ${subtitle ? `<p class="hint" style="margin:2px 0 0">${subtitle}</p>` : ''}
+      </div>
+      <div class="big-donut-header-actions">
+        ${renderCardModeToggle(chartKey, defaultMode)}
+      </div>
+    </div>
+    ${renderVisualBars(items, maxValue, unit)}
+  </div>`;
+}
+
+function renderChartModeSwitcherBar(activeMode, contextName = 'Visual Charts') {
+  return `<div class="chart-mode-bar">
+    <div class="chart-mode-info">
+      <span class="chart-mode-badge"><i class='bx bx-slider-alt'></i> Visualization Mode</span>
+      <div>
+        <h4>${esc(contextName)}: Switch Between Bar Charts &amp; Donuts</h4>
+        <p class="hint" style="margin:0">Toggle all charts at once or switch individual cards between Donut and Bar chart views.</p>
+      </div>
+    </div>
+    <div class="chart-mode-actions">
+      <div class="filter-pills" role="group" aria-label="Global chart visualization style">
+        <button type="button" class="filter-pill ${activeMode === 'donut' ? 'active' : ''}" onclick="setVisualChartMode('donut')"><i class='bx bx-pie-chart-alt-2'></i> Donut Charts</button>
+        <button type="button" class="filter-pill ${activeMode === 'bar' ? 'active' : ''}" onclick="setVisualChartMode('bar')"><i class='bx bx-bar-chart-alt-2'></i> Bar Charts</button>
+      </div>
+      <button type="button" class="adm-btn" onclick="openPresentationMode()"><i class='bx bx-tv'></i> Presentation Mode</button>
+      <button type="button" class="adm-btn primary" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Export Visuals PPTX</button>
+    </div>
+  </div>`;
+}
+
 function chartsUI() {
   const allR = feedbackResponses;
-  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Filtered Dataset XLSX</button></div></div>`;
+  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools><button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Filtered Dataset XLSX</button><button class="adm-btn primary" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Export Visual Charts PPTX</button><button class="adm-btn" onclick="openPresentationMode()"><i class='bx bx-tv'></i> Presentation Mode</button></div></div>`;
   if (!allR.length) {
     return `<div class="card"><p class="hint">No responses recorded yet to plot charts.</p></div>` + tools;
   }
@@ -1094,7 +1377,7 @@ function chartsUI() {
   const pos = s8.length ? Math.round(s8.filter((x) => x >= 4).length / s8.length * 100) : 0;
   const neg = s8.length ? Math.round(s8.filter((x) => x <= 2).length / s8.length * 100) : 0;
 
-  // Donut 1: Satisfaction Spectrum
+  // Chart 1: Satisfaction Spectrum
   const star5 = R.filter((r) => r.a?.q8 === 0).length;
   const star4 = R.filter((r) => r.a?.q8 === 1).length;
   const star3 = R.filter((r) => r.a?.q8 === 2).length;
@@ -1112,10 +1395,11 @@ function chartsUI() {
       { key: 'star1', label: '1★ Very Dissatisfied', value: star1, color: '#e54b2b' }
     ],
     centerValue: `${pos}%`,
-    centerLabel: 'Satisfied (4-5★)'
+    centerLabel: 'Satisfied (4-5★)',
+    defaultMode: visualChartMode
   });
 
-  // Donut 2: Cohorts Ratio
+  // Chart 2: Cohorts Ratio
   const bigDonutCohorts = renderLargeVisualDonut({
     chartKey: 'cohorts',
     title: `<i class='bx bx-user-pin' style="color:#0284c7"></i> Patient Cohort Ratio`,
@@ -1125,10 +1409,11 @@ function chartsUI() {
       { key: 'returning', label: 'Returning Patients', value: retCount, color: '#d97706' }
     ],
     centerValue: `${dateFiltered.length}`,
-    centerLabel: 'Submissions'
+    centerLabel: 'Submissions',
+    defaultMode: visualChartMode
   });
 
-  // Donut 3: Visit Times
+  // Chart 3: Visit Times
   const time0 = R.filter((r) => r.a?.time === 0).length;
   const time1 = R.filter((r) => r.a?.time === 1).length;
   const time2 = R.filter((r) => r.a?.time === 2).length;
@@ -1144,10 +1429,11 @@ function chartsUI() {
       { key: 'time3', label: 'Night / Emergency', value: time3, color: '#64748b' }
     ],
     centerValue: `${n}`,
-    centerLabel: 'Visits'
+    centerLabel: 'Visits',
+    defaultMode: visualChartMode
   });
 
-  // Donut 4: Doctor Care & Attentiveness
+  // Chart 4: Doctor Care & Attentiveness
   const docYes = R.filter((r) => r.a?.q5 === 0).length;
   const docPart = R.filter((r) => r.a?.q5 === 1).length;
   const docNo = R.filter((r) => r.a?.q5 === 2).length;
@@ -1163,10 +1449,11 @@ function chartsUI() {
       { key: 'docNo', label: 'Not Attentive', value: docNo, color: '#e54b2b' }
     ],
     centerValue: `${docPct}%`,
-    centerLabel: 'Attentive'
+    centerLabel: 'Attentive',
+    defaultMode: visualChartMode
   });
 
-  // Donut 5: Consultation Wait Time & Delay Severity
+  // Chart 5: Consultation Wait Time & Delay Severity
   const wait0 = R.filter((r) => r.a?.q3 === 0).length;
   const wait1 = R.filter((r) => r.a?.q3 === 1).length;
   const wait2 = R.filter((r) => r.a?.q3 === 2).length;
@@ -1185,7 +1472,8 @@ function chartsUI() {
       { key: 'wait3', label: '>60 min (Prolonged Delay)', value: wait3, color: '#e54b2b' }
     ],
     centerValue: `${delayPct}%`,
-    centerLabel: 'Delayed (>30m)'
+    centerLabel: 'Delayed (>30m)',
+    defaultMode: visualChartMode
   });
 
   // Visual Bar data helpers
@@ -1202,16 +1490,16 @@ function chartsUI() {
     return v.length ? Math.round(v.filter((r) => r.a[k] <= 1).length / v.length * 100) : 0;
   };
 
-  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v]) => [k, v, '#17263c']);
+  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v], idx) => [k, v, CHART_PALETTE[idx % CHART_PALETTE.length]]);
   const waitTimes = q('q3').map(([k, v]) => [k, v, k.toLowerCase().includes('less') || k.includes('15') ? '#10b981' : k.includes('30') ? '#0284c7' : k.includes('60') ? '#f59e0b' : '#e54b2b']);
-  const delayHotspots = q('q4', 1).map(([k, v]) => [k, v, '#e54b2b']);
-  const issueHotspots = q('q6', 1).map(([k, v]) => [k, v, '#ea580c']);
+  const delayHotspots = q('q4', 1).map(([k, v], idx) => [k, v, idx === 0 ? '#e54b2b' : idx === 1 ? '#ea580c' : '#f59e0b']);
+  const issueHotspots = q('q6', 1).map(([k, v], idx) => [k, v, idx === 0 ? '#ea580c' : idx === 1 ? '#e54b2b' : '#d97706']);
   const qualityScores = [
     ['Reception Staff Care & Courtesy', good('q1'), '#059669'],
     ['Cashier & Billing Efficiency', good('q2'), '#0284c7'],
     ['Hospital Cleanliness & Hygiene', good('q7'), '#10b981']
   ];
-  const langBars = tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])).map(([k, v]) => [k, v, '#2563eb']);
+  const langBars = tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])).map(([k, v], idx) => [k, v, ['#2563eb', '#8b5cf6', '#059669'][idx % 3]]);
 
   const filterBarHtml = `<div class="filter-bar">
     <div>
@@ -1225,8 +1513,12 @@ function chartsUI() {
     </div>
   </div>`;
 
+  const modeSwitcherHtml = renderChartModeSwitcherBar(visualChartMode, 'Visual Charts & Breakdown');
+  const breakdownDefault = cardChartModes.__globalSet ? visualChartMode : (visualChartMode === 'bar' ? 'bar' : 'bar');
+
   return dateBarHtml +
     filterBarHtml +
+    modeSwitcherHtml +
     `<div class="kpis">
       <div class="kpi"><b>${n}</b>${cohortFilter === 'new' ? 'New Patient' : cohortFilter === 'returning' ? 'Returning' : 'Total'} Responses</div>
       <div class="kpi"><b>${avg}/5</b>Avg Satisfaction</div>
@@ -1240,36 +1532,66 @@ function chartsUI() {
       ${bigDonutVisitTimes}
       ${bigDonutDoctor}
     </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-buildings'></i> Visited Services & Review Volumes</h3>
-      <p class="hint">Patient review counts by outpatient department or clinical service.</p>
-      ${renderVisualBars(deptBars, deptBars[0]?.[1] || 1, ' reviews')}
-    </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-timer'></i> Doctor Wait Time Breakdown</h3>
-      <p class="hint">How long patients waited before being attended to by the doctor.</p>
-      ${renderVisualBars(waitTimes, n)}
-    </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-alarm-exclamation' style="color:#e54b2b"></i> Operational Delay Hotspots</h3>
-      <p class="hint">Service points where patients encountered excessive waiting or bottlenecks.</p>
-      ${renderVisualBars(delayHotspots, n)}
-    </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-error-circle' style="color:#ea580c"></i> Service Friction & Incident Points</h3>
-      <p class="hint">Specific hospital units where patients reported an unpleasant or unsatisfactory experience.</p>
-      ${renderVisualBars(issueHotspots, n)}
-    </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-shield-check' style="color:#059669"></i> Touchpoint Quality Benchmark (% Rated Good/Excellent)</h3>
-      <p class="hint">Percentage of positive ratings across reception, billing, and general facility cleanliness.</p>
-      ${renderVisualBars(qualityScores, 100, '%')}
-    </div>` +
-    `<div class="chart-card-full">
-      <h3><i class='bx bx-globe'></i> Patient Preferred Survey Languages</h3>
-      <p class="hint">Language distribution chosen by respondents for feedback submission.</p>
-      ${renderVisualBars(langBars, n, ' patients')}
-    </div>` +
+    renderSwitchableBreakdownCard({
+      chartKey: 'services',
+      title: `<i class='bx bx-buildings'></i> Visited Services & Review Volumes`,
+      subtitle: 'Patient review counts by outpatient department or clinical service.',
+      items: deptBars,
+      maxValue: deptBars[0]?.[1] || 1,
+      unit: ' reviews',
+      defaultMode: breakdownDefault,
+      centerValue: `${n}`,
+      centerLabel: 'Reviews'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'wait_breakdown',
+      title: `<i class='bx bx-timer'></i> Doctor Wait Time Breakdown`,
+      subtitle: 'How long patients waited before being attended to by the doctor.',
+      items: waitTimes,
+      maxValue: n,
+      defaultMode: breakdownDefault,
+      centerValue: `${delayPct}%`,
+      centerLabel: 'Delayed'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'delay_hotspots',
+      title: `<i class='bx bx-alarm-exclamation' style="color:#e54b2b"></i> Operational Delay Hotspots`,
+      subtitle: 'Service points where patients encountered excessive waiting or bottlenecks.',
+      items: delayHotspots,
+      maxValue: n,
+      defaultMode: breakdownDefault,
+      centerLabel: 'Delay Reports'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'issue_hotspots',
+      title: `<i class='bx bx-error-circle' style="color:#ea580c"></i> Service Friction & Incident Points`,
+      subtitle: 'Specific hospital units where patients reported an unpleasant or unsatisfactory experience.',
+      items: issueHotspots,
+      maxValue: n,
+      defaultMode: breakdownDefault,
+      centerLabel: 'Incidents'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'quality_benchmark',
+      title: `<i class='bx bx-shield-check' style="color:#059669"></i> Touchpoint Quality Benchmark (% Rated Good/Excellent)`,
+      subtitle: 'Percentage of positive ratings across reception, billing, and general facility cleanliness.',
+      items: qualityScores,
+      maxValue: 100,
+      unit: '%',
+      defaultMode: breakdownDefault,
+      centerLabel: 'Benchmark'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'languages',
+      title: `<i class='bx bx-globe'></i> Patient Preferred Survey Languages`,
+      subtitle: 'Language distribution chosen by respondents for feedback submission.',
+      items: langBars,
+      maxValue: n,
+      unit: ' patients',
+      defaultMode: breakdownDefault,
+      centerValue: `${n}`,
+      centerLabel: 'Respondents'
+    }) +
     tools;
 }
 
@@ -1283,6 +1605,7 @@ function admin() {
       </div>
     </div>
     <div class="adm-actions">
+      ${adminSession && adminDataLoaded ? `<button class="adm-btn" type="button" onclick="openPresentationMode()"><i class='bx bx-tv'></i> Presentation Mode</button><button class="adm-btn primary" type="button" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Export PPTX</button>` : ''}
       <button class="adm-btn" onclick="location.hash=''"><i class='bx bx-arrow-back'></i> Patient App</button>
       ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()" ${adminSigningOut ? 'disabled' : ''}>${adminSigningOut ? "<i class='bx bx-loader-alt bx-spin'></i> Signing out…" : "<i class='bx bx-log-out'></i> Sign out"}</button>` : ''}
     </div>
@@ -1301,6 +1624,10 @@ function admin() {
   }
   if (!adminDataLoaded) {
     loadAdminData();
+    return;
+  }
+  if (presentationModeActive) {
+    $('app').innerHTML = renderPresentationMode();
     return;
   }
 
@@ -2503,7 +2830,10 @@ function deptsPerfUI() {
         <h3 style="margin:0"><i class='bx bx-buildings'></i> Department Performance Matrix (${list.length} Services)</h3>
         <p class="hint" style="margin:2px 0 0">Comparative volume, patient cohort splits, satisfaction ratings, and delay incidence.</p>
       </div>
-      <button class="adm-btn primary" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Export Matrix XLSX</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="adm-btn primary" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Export Matrix XLSX</button>
+        <button class="adm-btn" onclick="exportPptx('departments')"><i class='bx bx-slideshow'></i> Export Matrix PPTX</button>
+      </div>
     </div>
     <div class="fb-controls-bar">
       <div class="dept-search-wrap">
@@ -2547,18 +2877,32 @@ function exportUI() {
     <div class="export-banner">
       <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
       <div>
-        <h3>DMC Hospital — Data Export Center</h3>
-        <p>Download executive Excel workbooks with the official DMC logo, brand colors, and active date filters applied (${filtered.length} records • ${esc(dateLabel)}).</p>
+        <h3>DMC Hospital — Data &amp; Presentation Export Center</h3>
+        <p>Download executive Excel workbooks and PowerPoint presentations with the official DMC logo, brand colors, visual charts, and active date filters applied (${filtered.length} records • ${esc(dateLabel)}).</p>
       </div>
     </div>
     <div class="export-grid">
+      <div class="export-card">
+        <div>
+          <i class='bx bx-slideshow export-icon'></i>
+          <h4>Visual Charts &amp; Executive Deck</h4>
+          <p>Export a widescreen 16:9 PowerPoint presentation featuring visual Donut &amp; Bar charts, KPI scorecards, and service benchmarks matching your active chart view (${esc(dateLabel)}).</p>
+        </div>
+        <div class="report-actions">
+          <button class="btn" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Download Visuals PPTX</button>
+          <button class="adm-btn" onclick="openPresentationMode()"><i class='bx bx-tv'></i> Launch Presentation Mode</button>
+        </div>
+      </div>
       <div class="export-card">
         <div>
           <i class='bx bx-file-blank export-icon'></i>
           <h4>Complete Survey Dataset</h4>
           <p>Export raw patient feedback records including all 18 questionnaire variables, exact timestamps, visited departments, patient cohort, and full comments for ${esc(dateLabel)}.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Download XLSX (${filtered.length})</button></div>
+        <div class="report-actions">
+          <button class="btn" onclick="exportExcel('full')"><i class='bx bx-download'></i> Download XLSX (${filtered.length})</button>
+          <button class="adm-btn" onclick="exportPptx('full')"><i class='bx bx-slideshow'></i> Download PPTX (${filtered.length})</button>
+        </div>
       </div>
       <div class="export-card">
         <div>
@@ -2566,7 +2910,10 @@ function exportUI() {
           <h4>Department Performance Report</h4>
           <p>Aggregated department statistics: review counts, patient split (new vs returning), average satisfaction rating, satisfaction rate, and delay frequency.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Download XLSX</button></div>
+        <div class="report-actions">
+          <button class="btn" onclick="exportExcel('departments')"><i class='bx bx-download'></i> Download XLSX</button>
+          <button class="adm-btn" onclick="exportPptx('departments')"><i class='bx bx-slideshow'></i> Download PPTX</button>
+        </div>
       </div>
       <div class="export-card">
         <div>
@@ -2574,7 +2921,10 @@ function exportUI() {
           <h4>Patient Cohort Summary</h4>
           <p>Comparative analytics and loyalty breakdown comparing First-Time / New Patients versus Returning Patients across satisfaction, delays, and care quality.</p>
         </div>
-        <div class="report-actions"><button class="btn" onclick="exportExcel('patients')"><i class='bx bx-download'></i> Download XLSX</button></div>
+        <div class="report-actions">
+          <button class="btn" onclick="exportExcel('patients')"><i class='bx bx-download'></i> Download XLSX</button>
+          <button class="adm-btn" onclick="exportPptx('patients')"><i class='bx bx-slideshow'></i> Download PPTX</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -2582,7 +2932,7 @@ function exportUI() {
 
 function stats() {
   const allR = feedbackResponses;
-  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools>${adminSession?.isAdmin ? `<button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button>` : ''}<button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Dataset XLSX</button>${adminSession?.isAdmin ? '<button onclick="clearResponses()"><i class=\'bx bx-trash\'></i> Clear all</button>' : ''}</div></div>`;
+  const tools = `<div class=card><h3>${adminSession?.isAdmin ? 'Management Tools' : 'Reports'}</h3><div class=tools>${adminSession?.isAdmin ? `<button onclick="seed()"><i class='bx bx-data'></i> Load demo data (60 reviews)</button><button onclick="unseed()"><i class='bx bx-eraser'></i> Remove demo data</button>` : ''}<button class="adm-btn primary" onclick="exportExcel('full')"><i class='bx bx-download'></i> Export Full Dataset XLSX</button><button class="adm-btn primary" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Export Visuals PPTX</button><button class="adm-btn" onclick="openPresentationMode()"><i class='bx bx-tv'></i> Presentation Mode</button>${adminSession?.isAdmin ? '<button onclick="clearResponses()"><i class=\'bx bx-trash\'></i> Clear all</button>' : ''}</div></div>`;
   if (!allR.length) return `<div class="card"><p class="hint">No responses recorded yet.</p></div>` + tools;
 
   const dateFiltered = getFilteredResponses();
@@ -2622,7 +2972,6 @@ function stats() {
     }));
     return Object.entries(m).map(([k, v]) => [lb ? lb(k) : k, v]).sort((a, b) => b[1] - a[1]);
   };
-  const bars = (a, max, x = '') => a.map(([k, v]) => `<div class=brow><span>${esc(k)}</span><div><i style="width:${Math.min(100, v / (max || n) * 100)}%"></i></div><em>${v}${x}</em></div>`).join('') || '–';
   const q = (k, ex) => tl((r) => r.a[k], (v) => Q[k].o[+v][0]).filter((e) => !ex || e[0] !== Q[k].o[Q[k].o.length - 1][0]);
   const good = (k) => {
     const v = R.filter((r) => r.a[k] != null);
@@ -2701,13 +3050,16 @@ function stats() {
     </div>
   </div>`;
 
-  // Visual Bar data formatting
-  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v]) => [k, v, '#17263c']);
+  const chartModeBarHtml = renderChartModeSwitcherBar(statsChartMode, 'Analytics & Cohorts Visuals');
+
+  // Visual Bar / Donut data formatting
+  const deptBars = tl((r) => r.dn).slice(0, 10).map(([k, v], idx) => [k, v, CHART_PALETTE[idx % CHART_PALETTE.length]]);
   const waitTimes = q('q3').map(([k, v]) => [k, v, k.toLowerCase().includes('less') || k.includes('15') ? '#10b981' : k.includes('30') ? '#0284c7' : k.includes('60') ? '#f59e0b' : '#e54b2b']);
-  const delayHotspots = q('q4', 1).map(([k, v]) => [k, v, '#e54b2b']);
-  const issueHotspots = q('q6', 1).map(([k, v]) => [k, v, '#ea580c']);
+  const delayHotspots = q('q4', 1).map(([k, v], idx) => [k, v, ['#e54b2b', '#dc2626', '#ea580c', '#d97706', '#f59e0b', '#b91c1c'][idx % 6]]);
+  const issueHotspots = q('q6', 1).map(([k, v], idx) => [k, v, ['#ea580c', '#e54b2b', '#f59e0b', '#dc2626', '#d97706', '#9a3412'][idx % 6]]);
   const qualityScores = [['Reception Staff Care', good('q1'), '#059669'], ['Cashier & Billing Experience', good('q2'), '#0284c7'], ['Hospital Cleanliness Rating', good('q7'), '#10b981']];
   const doctorCare = q('q5').map(([k, v]) => [k, v, k.toLowerCase().startsWith('yes') ? '#10b981' : k.toLowerCase().startsWith('part') ? '#f59e0b' : '#e54b2b']);
+  const langBars = tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v] || v)).map(([k, v], idx) => [k, v, ['#17263c', '#0284c7', '#10b981'][idx % 3]]);
 
   const cm = R.flatMap((r) => [r.a?.q10, r.a?.q9]).filter((x) => x && x.trim()).slice(-8).reverse();
 
@@ -2720,14 +3072,80 @@ function stats() {
       <div class=kpi><b>${neg}%</b>Dissatisfied (≤2★)</div>
     </div>` +
     cohortCardHtml +
+    chartModeBarHtml +
     cd("<i class='bx bx-trending-down' style='color:#c81e1e'></i> Service Satisfaction Ranking (Lowest / Needs Attention First)", `<p class="hint" style="margin-bottom:8px">Sorted from lowest satisfaction rating to highest in active view.</p>` + (rankHtml || '–')) +
-    cd('Responses by Visited Service', renderVisualBars(deptBars, deptBars[0]?.[1] || 1, ' reviews')) +
-    cd('Wait Time Before Seeing Doctor', renderVisualBars(waitTimes, n)) +
-    cd('Where Delays Occurred (Delay Hotspots)', renderVisualBars(delayHotspots, n)) +
-    cd('Where Unpleasant Experience Was Reported', renderVisualBars(issueHotspots, n)) +
-    cd('Cleanliness & Reception Quality (Rated Excellent/Good)', renderVisualBars(qualityScores, 100, '%')) +
-    cd('Doctor Care & Attentiveness (Listened Carefully)', renderVisualBars(doctorCare, n)) +
-    cd('Languages Used', bars(tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v])))) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_services',
+      title: 'Responses by Visited Service',
+      subtitle: 'Top visited hospital departments in the current filter.',
+      items: deptBars,
+      maxValue: deptBars[0]?.[1] || 1,
+      unit: ' reviews',
+      defaultMode: statsChartMode,
+      centerValue: `${n}`,
+      centerLabel: 'Total Visits'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_wait',
+      title: 'Wait Time Before Seeing Doctor',
+      subtitle: 'Distribution of patient wait durations prior to physician consultation.',
+      items: waitTimes,
+      maxValue: n,
+      defaultMode: statsChartMode,
+      centerValue: `${n}`,
+      centerLabel: 'Responses'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_delays',
+      title: 'Where Delays Occurred (Delay Hotspots)',
+      subtitle: 'Service points where patients reported experiencing delays.',
+      items: delayHotspots,
+      maxValue: n,
+      defaultMode: statsChartMode,
+      centerValue: `${delayHotspots.reduce((s, x) => s + x[1], 0)}`,
+      centerLabel: 'Delay Reports'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_issues',
+      title: 'Where Unpleasant Experience Was Reported',
+      subtitle: 'Locations flagged by patients for service or attitude issues.',
+      items: issueHotspots,
+      maxValue: n,
+      defaultMode: statsChartMode,
+      centerValue: `${issueHotspots.reduce((s, x) => s + x[1], 0)}`,
+      centerLabel: 'Issue Reports'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_quality',
+      title: 'Cleanliness & Reception Quality (Rated Excellent/Good)',
+      subtitle: 'Percentage of positive ratings across front-desk, billing, and facility hygiene.',
+      items: qualityScores,
+      maxValue: 100,
+      unit: '%',
+      defaultMode: statsChartMode,
+      centerValue: `${Math.round((good('q1') + good('q2') + good('q7')) / 3)}%`,
+      centerLabel: 'Quality Avg'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_doctor',
+      title: 'Doctor Care & Attentiveness (Listened Carefully)',
+      subtitle: 'Patient feedback on whether doctors listened and explained clearly.',
+      items: doctorCare,
+      maxValue: n,
+      defaultMode: statsChartMode,
+      centerValue: `${n}`,
+      centerLabel: 'Responses'
+    }) +
+    renderSwitchableBreakdownCard({
+      chartKey: 'stats_languages',
+      title: 'Languages Used',
+      subtitle: 'Breakdown of survey submissions by language.',
+      items: langBars,
+      maxValue: n,
+      defaultMode: statsChartMode,
+      centerValue: `${langBars.length}`,
+      centerLabel: 'Languages'
+    }) +
     cd('Recent Comments & Improvement Suggestions', cm.map((x) => `<div class=cm>${esc(x)}</div>`).join('') || '–') +
     tools;
 }
@@ -2991,6 +3409,593 @@ async function exportExcel(type = 'full') {
     alert('The Excel workbook could not be created. Check your connection and try again.');
   }
 }
+
+/* ---------- PowerPoint (.pptx) Export & Presentation Mode ---------- */
+
+function buildVisualChartSpecs(R, defaultMode = visualChartMode) {
+  const n = R.length;
+  const s8 = R.filter((r) => r.a?.q8 != null).map((r) => 5 - r.a.q8);
+  const avg = s8.length ? (s8.reduce((a, b) => a + b, 0) / s8.length).toFixed(1) : '–';
+  const pos = s8.length ? Math.round((s8.filter((x) => x >= 4).length / s8.length) * 100) : 0;
+  const neg = s8.length ? Math.round((s8.filter((x) => x <= 2).length / s8.length) * 100) : 0;
+
+  const newCount = R.filter((r) => r.a?.cat === 0).length;
+  const retCount = R.filter((r) => r.a?.cat === 1).length;
+
+  const satCounts = [0, 0, 0, 0, 0];
+  R.forEach((r) => {
+    if (r.a?.q8 != null && r.a.q8 >= 0 && r.a.q8 <= 4) satCounts[r.a.q8] += 1;
+  });
+  const satItems = [
+    { key: '0', label: '5 ★ Very Satisfied', value: satCounts[0], color: '#10b981' },
+    { key: '1', label: '4 ★ Satisfied', value: satCounts[1], color: '#34d399' },
+    { key: '2', label: '3 ★ Neutral', value: satCounts[2], color: '#f59e0b' },
+    { key: '3', label: '2 ★ Dissatisfied', value: satCounts[3], color: '#f97316' },
+    { key: '4', label: '1 ★ Very Dissatisfied', value: satCounts[4], color: '#e54b2b' }
+  ];
+
+  const cohortItems = [
+    { key: '0', label: 'New Patients (First-Time)', value: newCount, color: '#0284c7' },
+    { key: '1', label: 'Returning Patients', value: retCount, color: '#f59e0b' }
+  ];
+
+  const waitCounts = [0, 0, 0, 0];
+  R.forEach((r) => {
+    if (r.a?.q3 != null && r.a.q3 >= 0 && r.a.q3 <= 3) waitCounts[r.a.q3] += 1;
+  });
+  const waitItems = [
+    { key: '0', label: 'Under 15 minutes', value: waitCounts[0], color: '#10b981' },
+    { key: '1', label: '15–30 minutes', value: waitCounts[1], color: '#0284c7' },
+    { key: '2', label: '30–60 minutes', value: waitCounts[2], color: '#f59e0b' },
+    { key: '3', label: 'Over 1 hour', value: waitCounts[3], color: '#e54b2b' }
+  ];
+  const waitTotal = waitCounts.reduce((a, b) => a + b, 0);
+  const fastWaitPct = waitTotal ? Math.round(((waitCounts[0] + waitCounts[1]) / waitTotal) * 100) : 0;
+
+  const timeCounts = [0, 0, 0];
+  R.forEach((r) => {
+    if (r.a?.time != null && r.a.time >= 0 && r.a.time <= 2) timeCounts[r.a.time] += 1;
+  });
+  const timeItems = [
+    { key: '0', label: 'Morning (06:00–12:00)', value: timeCounts[0], color: '#0284c7' },
+    { key: '1', label: 'Afternoon (12:00–18:00)', value: timeCounts[1], color: '#8b5cf6' },
+    { key: '2', label: 'Evening / Night', value: timeCounts[2], color: '#17263c' }
+  ];
+
+  const docCounts = [0, 0, 0];
+  R.forEach((r) => {
+    if (r.a?.q5 != null && r.a.q5 >= 0 && r.a.q5 <= 2) docCounts[r.a.q5] += 1;
+  });
+  const docItems = [
+    { key: '0', label: 'Yes, completely', value: docCounts[0], color: '#10b981' },
+    { key: '1', label: 'Partially', value: docCounts[1], color: '#f59e0b' },
+    { key: '2', label: 'No', value: docCounts[2], color: '#e54b2b' }
+  ];
+  const docTotal = docCounts.reduce((a, b) => a + b, 0);
+  const docFullPct = docTotal ? Math.round((docCounts[0] / docTotal) * 100) : 0;
+
+  const tl = (f, lb) => {
+    const m = {};
+    R.forEach((r) => [].concat(f(r)).forEach((x) => {
+      if (x != null && x !== '') m[x] = (m[x] || 0) + 1;
+    }));
+    return Object.entries(m).map(([k, v]) => [lb ? lb(k) : k, v]).sort((a, b) => b[1] - a[1]);
+  };
+  const q = (k, ex) => tl((r) => r.a?.[k], (v) => Q[k].o[+v]?.[0] || v).filter((e) => !ex || e[0] !== Q[k].o[Q[k].o.length - 1][0]);
+  const good = (k) => {
+    const v = R.filter((r) => r.a?.[k] != null);
+    return v.length ? Math.round((v.filter((r) => r.a[k] <= 1).length / v.length) * 100) : 0;
+  };
+
+  const deptItems = tl((r) => r.dn).slice(0, 8).map(([label, value], idx) => ({
+    key: label,
+    label,
+    value,
+    color: CHART_PALETTE[idx % CHART_PALETTE.length]
+  }));
+
+  const delayItems = q('q4', 1).map(([label, value], idx) => ({
+    key: label,
+    label,
+    value,
+    color: ['#e54b2b', '#dc2626', '#ea580c', '#d97706', '#f59e0b', '#b91c1c'][idx % 6]
+  }));
+  const delayCount = R.filter((r) => r.a?.q4?.length && !r.a.q4.includes(Q.q4.o.length - 1)).length;
+  const delayRate = n ? Math.round((delayCount / n) * 100) : 0;
+
+  const issueItems = q('q6', 1).map(([label, value], idx) => ({
+    key: label,
+    label,
+    value,
+    color: ['#ea580c', '#e54b2b', '#f59e0b', '#dc2626', '#d97706', '#9a3412'][idx % 6]
+  }));
+  const issueCount = R.filter((r) => r.a?.q6?.length && !r.a.q6.includes(Q.q6.o.length - 1)).length;
+  const issueRate = n ? Math.round((issueCount / n) * 100) : 0;
+
+  const q1Good = good('q1');
+  const q2Good = good('q2');
+  const q7Good = good('q7');
+  const avgQuality = Math.round((q1Good + q2Good + q7Good) / 3);
+  const qualityItems = [
+    { key: 'Reception Staff Care', label: 'Reception Staff Care', value: q1Good, color: '#059669' },
+    { key: 'Cashier & Billing Experience', label: 'Cashier & Billing Experience', value: q2Good, color: '#0284c7' },
+    { key: 'Hospital Cleanliness Rating', label: 'Hospital Cleanliness Rating', value: q7Good, color: '#10b981' }
+  ];
+
+  const langItems = tl((r) => r.l, (v) => ({ en: 'English', fr: 'Français', rw: 'Kinyarwanda' }[v] || v)).map(([label, value], idx) => ({
+    key: label,
+    label,
+    value,
+    color: ['#17263c', '#0284c7', '#10b981'][idx % 3]
+  }));
+
+  return {
+    n,
+    avg,
+    pos,
+    neg,
+    newCount,
+    retCount,
+    fastWaitPct,
+    docFullPct,
+    delayRate,
+    issueRate,
+    avgQuality,
+    charts: {
+      satisfaction: {
+        chartKey: 'satisfaction',
+        title: 'Overall Satisfaction Spectrum',
+        subtitle: 'Distribution of 1 to 5 star patient ratings',
+        chartType: getEffectiveChartMode('satisfaction', defaultMode),
+        items: satItems,
+        centerValue: `${avg}/5`,
+        centerLabel: 'Avg Score'
+      },
+      cohorts: {
+        chartKey: 'cohorts',
+        title: 'Patient Cohort Ratio',
+        subtitle: 'First-time visitors vs returning patients',
+        chartType: getEffectiveChartMode('cohorts', defaultMode),
+        items: cohortItems,
+        centerValue: `${n}`,
+        centerLabel: 'Total Visits'
+      },
+      wait: {
+        chartKey: 'wait',
+        title: 'Doctor Wait Time & Delays',
+        subtitle: 'Duration waited prior to seeing a physician',
+        chartType: getEffectiveChartMode('wait', defaultMode),
+        items: waitItems,
+        centerValue: `${fastWaitPct}%`,
+        centerLabel: 'Under 30m'
+      },
+      times: {
+        chartKey: 'times',
+        title: 'Visit Time Distribution',
+        subtitle: 'Feedback volume by hospital shift',
+        chartType: getEffectiveChartMode('times', defaultMode),
+        items: timeItems,
+        centerValue: `${n}`,
+        centerLabel: 'Total Visits'
+      },
+      doctor: {
+        chartKey: 'doctor',
+        title: 'Doctor Care & Attentiveness',
+        subtitle: 'Did the doctor listen carefully and explain clearly?',
+        chartType: getEffectiveChartMode('doctor', defaultMode),
+        items: docItems,
+        centerValue: `${docFullPct}%`,
+        centerLabel: 'Full Care'
+      },
+      services: {
+        chartKey: 'services',
+        title: 'Responses by Visited Service',
+        subtitle: 'Top visited hospital departments',
+        chartType: getEffectiveChartMode('services', defaultMode),
+        items: deptItems,
+        centerValue: `${deptItems.length}`,
+        centerLabel: 'Services'
+      },
+      delay_hotspots: {
+        chartKey: 'delay_hotspots',
+        title: 'Operational Delay Hotspots',
+        subtitle: 'Service points where patients reported delays',
+        chartType: getEffectiveChartMode('delay_hotspots', defaultMode),
+        items: delayItems.length ? delayItems : [{ label: 'No Delays Reported', value: n, color: '#10b981' }],
+        centerValue: `${delayRate}%`,
+        centerLabel: 'Delay Rate'
+      },
+      issue_hotspots: {
+        chartKey: 'issue_hotspots',
+        title: 'Unpleasant Experience Hotspots',
+        subtitle: 'Locations flagged for service or attitude issues',
+        chartType: getEffectiveChartMode('issue_hotspots', defaultMode),
+        items: issueItems.length ? issueItems : [{ label: 'No Issues Reported', value: n, color: '#10b981' }],
+        centerValue: `${issueRate}%`,
+        centerLabel: 'Issue Rate'
+      },
+      quality_benchmark: {
+        chartKey: 'quality_benchmark',
+        title: 'Facility & Front-Desk Quality Benchmark',
+        subtitle: 'Percentage rated Excellent or Good (%)',
+        chartType: getEffectiveChartMode('quality_benchmark', defaultMode),
+        items: qualityItems,
+        unit: '%',
+        maxValue: 100,
+        centerValue: `${avgQuality}%`,
+        centerLabel: 'Quality Avg'
+      },
+      languages: {
+        chartKey: 'languages',
+        title: 'Survey Languages Used',
+        subtitle: 'Submissions by patient language preference',
+        chartType: getEffectiveChartMode('languages', defaultMode),
+        items: langItems,
+        centerValue: `${langItems.length}`,
+        centerLabel: 'Languages'
+      }
+    }
+  };
+}
+
+function buildPptxReportData(type, R, dateStr) {
+  const activeMode = tab === 'stats' ? statsChartMode : visualChartMode;
+  const specs = buildVisualChartSpecs(R, activeMode);
+  const cohortLabel = cohortFilter === 'new' ? 'New Patients' : cohortFilter === 'returning' ? 'Returning Patients' : `${specs.newCount} New • ${specs.retCount} Returning`;
+
+  const kpis = [
+    { label: 'Total Feedback', value: String(specs.n), sub: cohortLabel, color: '#17263c' },
+    { label: 'Avg Satisfaction', value: `${specs.avg} / 5`, sub: `${specs.pos}% Positive (4-5★)`, color: '#10b981' },
+    { label: 'Dissatisfied Rate', value: `${specs.neg}%`, sub: 'Rated 1-2★', color: '#e54b2b' },
+    { label: 'Delay Incidence', value: `${specs.delayRate}%`, sub: `${specs.docFullPct}% Full Doctor Care`, color: '#f59e0b' }
+  ];
+
+  const chartSlides = [
+    {
+      title: 'Overall Satisfaction & Patient Cohort Visuals',
+      subtitle: `Visual representation (${activeMode.toUpperCase()} view) • ${specs.n} responses`,
+      charts: [specs.charts.satisfaction, specs.charts.cohorts]
+    },
+    {
+      title: 'Doctor Wait Times & Clinical Care Quality',
+      subtitle: `${specs.fastWaitPct}% seen under 30m • ${specs.docFullPct}% full doctor attentiveness`,
+      charts: [specs.charts.wait, specs.charts.doctor]
+    },
+    {
+      title: 'Visited Service Volume & Operational Delay Hotspots',
+      subtitle: 'Comparative department volume and reported delay bottlenecks',
+      charts: [specs.charts.services, specs.charts.delay_hotspots]
+    },
+    {
+      title: 'Facility Quality Benchmarks & Visit Shift Distribution',
+      subtitle: 'Reception, billing, cleanliness scores and patient arrival shifts',
+      charts: [specs.charts.quality_benchmark, specs.charts.times]
+    }
+  ];
+
+  let title = 'DMC Hospital — Visual Analytics & Executive Presentation';
+  let filename = `DMC-Visual-Analytics-Presentation-${dateStr}.pptx`;
+  let headers = [];
+  let rows = [];
+
+  if (type === 'full') {
+    const base = buildReportData('full', R, dateStr);
+    title = 'DMC Hospital — Complete Survey Dataset & Visual Report';
+    filename = `DMC-Complete-Survey-Presentation-${dateStr}.pptx`;
+    headers = [
+      'Date & Time',
+      'Department / Service',
+      'Patient Category',
+      'Wait Time',
+      'Doctor Care',
+      'Cleanliness',
+      'Overall Satisfaction',
+      'Score (1-5)',
+      'Comments'
+    ];
+    rows = base.rows.map((r) => [r[2], r[4], r[5], r[8], r[10], r[12], r[13], r[14], r[16] || r[15] || '']);
+  } else if (type === 'departments') {
+    const base = buildReportData('departments', R, dateStr);
+    title = 'DMC Hospital — Department Performance & Visual Report';
+    filename = `DMC-Department-Performance-${dateStr}.pptx`;
+    headers = base.headers;
+    rows = base.rows;
+  } else if (type === 'patients') {
+    const base = buildReportData('patients', R, dateStr);
+    title = 'DMC Hospital — Patient Cohort Analytics & Visual Report';
+    filename = `DMC-Patient-Cohort-Analytics-${dateStr}.pptx`;
+    headers = base.headers;
+    rows = base.rows;
+  } else {
+    const deptTable = buildReportData('departments', R, dateStr);
+    headers = deptTable.headers;
+    rows = deptTable.rows;
+  }
+
+  return {
+    title,
+    filename,
+    subtitle: `Confidential executive presentation | Generated ${dateStr} | ${R.length} feedback submissions`,
+    kpis,
+    chartSlides,
+    headers,
+    rows
+  };
+}
+
+function getPptxReportData(type = 'visuals') {
+  if (!['visuals', 'executive', 'full', 'departments', 'patients'].includes(type)) {
+    alert('The selected presentation report is not supported.');
+    return null;
+  }
+  const dateFiltered = getFilteredResponses();
+  const R = cohortFilter === 'new'
+    ? dateFiltered.filter((r) => r.a?.cat === 0)
+    : cohortFilter === 'returning'
+      ? dateFiltered.filter((r) => r.a?.cat === 1)
+      : dateFiltered;
+
+  if (!R.length) {
+    alert(`No feedback records available to export for ${getDateFilterLabel()}.`);
+    return null;
+  }
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filterLabel = getDateFilterLabel();
+  const cohortText = cohortFilter === 'all' ? 'All Cohorts' : cohortFilter === 'new' ? 'New Patients' : 'Returning Patients';
+  const report = buildPptxReportData(type, R, dateStr);
+  report.subtitle = `Confidential executive presentation | Filter: ${filterLabel} (${cohortText}) | Generated ${dateStr} | ${R.length} submissions`;
+  return report;
+}
+
+async function exportPptx(type = 'visuals') {
+  const report = getPptxReportData(type);
+  if (!report) return;
+  try {
+    const logoResponse = await fetch(new URL('logo-optimized.jpg', document.baseURI));
+    if (!logoResponse.ok) throw new Error(`Could not load the DMC logo (${logoResponse.status}).`);
+    await DMCPptxExport.downloadPresentation({
+      ...report,
+      logoBytes: new Uint8Array(await logoResponse.arrayBuffer())
+    });
+    await recordReportExport(type, 'pptx');
+  } catch (error) {
+    console.error('Could not create PowerPoint export:', error);
+    alert('The PowerPoint presentation could not be created. Check your connection and try again.');
+  }
+}
+
+function renderPresentationChartCard(spec) {
+  return renderLargeVisualDonut({
+    chartKey: spec.chartKey,
+    title: spec.title,
+    subtitle: spec.subtitle,
+    items: spec.items,
+    centerValue: spec.centerValue,
+    centerLabel: spec.centerLabel,
+    defaultMode: visualChartMode
+  });
+}
+
+function renderPresentationMode() {
+  const dateFiltered = getFilteredResponses();
+  const R = cohortFilter === 'new'
+    ? dateFiltered.filter((r) => r.a?.cat === 0)
+    : cohortFilter === 'returning'
+      ? dateFiltered.filter((r) => r.a?.cat === 1)
+      : dateFiltered;
+
+  const dateLabel = getDateFilterLabel();
+  const specs = buildVisualChartSpecs(R, visualChartMode);
+  const deptReport = buildReportData('departments', R.length ? R : feedbackResponses, new Date().toISOString().slice(0, 10));
+  const comments = R.filter((r) => (r.a?.q10 && r.a.q10.trim()) || (r.a?.q9 && r.a.q9.trim())).slice(-6).reverse();
+
+  const slides = [
+    {
+      title: 'Executive KPI & Cohort Overview',
+      subtitle: `${esc(dateLabel)} • ${specs.n} Patient Feedback Submissions`,
+      badge: 'Slide 1 • Executive Summary',
+      body: `<div class="pres-kpi-grid">
+        <div class="pres-kpi-card">
+          <span class="pres-kpi-lbl">Total Submissions</span>
+          <strong class="pres-kpi-val">${specs.n}</strong>
+          <span class="pres-kpi-sub">${specs.newCount} New • ${specs.retCount} Returning</span>
+        </div>
+        <div class="pres-kpi-card accent-green">
+          <span class="pres-kpi-lbl">Average Satisfaction</span>
+          <strong class="pres-kpi-val">${specs.avg} / 5</strong>
+          <span class="pres-kpi-sub">${specs.pos}% Positive (4–5★)</span>
+        </div>
+        <div class="pres-kpi-card accent-red">
+          <span class="pres-kpi-lbl">Dissatisfaction Rate</span>
+          <strong class="pres-kpi-val">${specs.neg}%</strong>
+          <span class="pres-kpi-sub">Rated 1–2★ overall</span>
+        </div>
+        <div class="pres-kpi-card accent-amber">
+          <span class="pres-kpi-lbl">Delay &amp; Care Index</span>
+          <strong class="pres-kpi-val">${specs.delayRate}%</strong>
+          <span class="pres-kpi-sub">${specs.docFullPct}% Full Doctor Care</span>
+        </div>
+      </div>
+      <div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.satisfaction)}
+        ${renderPresentationChartCard(specs.charts.cohorts)}
+      </div>`
+    },
+    {
+      title: 'Overall Satisfaction & Patient Cohort Visuals',
+      subtitle: 'Interactive Donut & Bar representations of overall hospital ratings and visitor loyalty',
+      badge: 'Slide 2 • Satisfaction & Cohorts',
+      body: `<div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.satisfaction)}
+        ${renderPresentationChartCard(specs.charts.cohorts)}
+      </div>`
+    },
+    {
+      title: 'Doctor Wait Time & Clinical Care Attentiveness',
+      subtitle: `${specs.fastWaitPct}% seen within 30 minutes • ${specs.docFullPct}% reported complete physician attentiveness`,
+      badge: 'Slide 3 • Clinical Experience',
+      body: `<div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.wait)}
+        ${renderPresentationChartCard(specs.charts.doctor)}
+      </div>`
+    },
+    {
+      title: 'Visited Services Volume & Operational Delay Hotspots',
+      subtitle: 'Department traffic distribution alongside patient-reported delay bottlenecks',
+      badge: 'Slide 4 • Service & Bottlenecks',
+      body: `<div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.services)}
+        ${renderPresentationChartCard(specs.charts.delay_hotspots)}
+      </div>`
+    },
+    {
+      title: 'Facility Quality Benchmarks & Shift Distribution',
+      subtitle: `Front-desk, cashier, and cleanliness ratings (${specs.avgQuality}% avg) vs arrival time shifts`,
+      badge: 'Slide 5 • Facility Quality & Shifts',
+      body: `<div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.quality_benchmark)}
+        ${renderPresentationChartCard(specs.charts.times)}
+      </div>`
+    },
+    {
+      title: 'Department Performance Leaderboard',
+      subtitle: 'Comparative volume, cohort split, average score, satisfaction rate, and delay incidence',
+      badge: 'Slide 6 • Department Matrix',
+      body: `<div class="dept-table-wrap pres-table-wrap">
+        <table class="dept-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Department / Service</th>
+              <th>Reviews</th>
+              <th>New</th>
+              <th>Returning</th>
+              <th>Avg Score</th>
+              <th>Satisfied</th>
+              <th>Dissatisfied</th>
+              <th>Delay Rate</th>
+              <th>Issue Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${deptReport.rows.slice(0, 10).map((r, i) => `<tr>
+              <td><b>#${i + 1}</b></td>
+              <td><b>${esc(r[0])}</b></td>
+              <td><b>${r[1]}</b></td>
+              <td><span class="cohort-badge new">${r[2]}</span></td>
+              <td><span class="cohort-badge ret">${r[3]}</span></td>
+              <td><span class="badge-score ${ parseFloat(r[4]) < 3 ? 'badge-low' : parseFloat(r[4]) >= 4 ? 'badge-high' : 'badge-mid' }">${esc(r[4])} / 5</span></td>
+              <td style="color:#03543f;font-weight:700">${esc(r[6])}</td>
+              <td style="color:#c81e1e;font-weight:700">${esc(r[8])}</td>
+              <td>${esc(r[10])}</td>
+              <td>${esc(r[12])}</td>
+            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:24px">No department records in current filter.</td></tr>'}
+          </tbody>
+        </table>
+      </div>`
+    },
+    {
+      title: 'Voice of the Patient — Verbatim Feedback & Languages',
+      subtitle: 'Recent patient improvement suggestions, requested services, and survey languages',
+      badge: 'Slide 7 • Patient Voice',
+      body: `<div class="big-donut-grid pres-chart-pair">
+        ${renderPresentationChartCard(specs.charts.languages)}
+        <div class="big-donut-card pres-comments-card">
+          <div class="big-donut-header">
+            <div class="big-donut-header-left">
+              <h4><i class='bx bx-message-square-Detail'></i> Recent Patient Comments &amp; Suggestions</h4>
+              <p class="hint">Direct verbatim feedback from recent submissions</p>
+            </div>
+          </div>
+          <div class="pres-comments-list">
+            ${comments.length ? comments.map((r) => `<div class="pres-comment-item">
+              <div class="pres-comment-meta">
+                <b>${esc(r.dn || 'General Service')}</b>
+                <span>${new Date(r.t).toLocaleDateString()} • ${r.a?.q8 != null ? (5 - r.a.q8) + '★' : ''}</span>
+              </div>
+              <p>${esc(r.a?.q10 || r.a?.q9 || '')}</p>
+            </div>`).join('') : '<p class="hint">No verbatim comments recorded in this filter range.</p>'}
+          </div>
+        </div>
+      </div>`
+    }
+  ];
+
+  const totalSlides = slides.length;
+  const activeIdx = ((presentationSlideIndex % totalSlides) + totalSlides) % totalSlides;
+  const currentSlide = slides[activeIdx];
+
+  return `<div class="pres-deck-wrap" role="region" aria-label="Executive Presentation Mode">
+    <div class="pres-topbar">
+      <div class="pres-brand">
+        <img src="logo-optimized.jpg" alt="DMC" width="120" height="35">
+        <div>
+          <span class="pres-badge"><i class='bx bx-tv'></i> PRESENTATION MODE</span>
+          <h3>DMC Hospital Executive Deck</h3>
+        </div>
+      </div>
+      <div class="pres-controls">
+        <div class="filter-pills" role="group" aria-label="Presentation time filter">
+          <button type="button" class="filter-pill ${adminDateFilter === 'all' ? 'active' : ''}" onclick="setDateFilter('all')">All Time</button>
+          <button type="button" class="filter-pill ${adminDateFilter === '7d' ? 'active' : ''}" onclick="setDateFilter('7d')">7D</button>
+          <button type="button" class="filter-pill ${adminDateFilter === '30d' ? 'active' : ''}" onclick="setDateFilter('30d')">30D</button>
+        </div>
+        <div class="filter-pills" role="group" aria-label="Presentation cohort filter">
+          <button type="button" class="filter-pill ${cohortFilter === 'all' ? 'active' : ''}" onclick="cohortFilter='all';admin()">All</button>
+          <button type="button" class="filter-pill ${cohortFilter === 'new' ? 'active' : ''}" onclick="cohortFilter='new';admin()">New</button>
+          <button type="button" class="filter-pill ${cohortFilter === 'returning' ? 'active' : ''}" onclick="cohortFilter='returning';admin()">Returning</button>
+        </div>
+        <div class="filter-pills" role="group" aria-label="Presentation chart style">
+          <button type="button" class="filter-pill ${visualChartMode === 'donut' ? 'active' : ''}" onclick="setVisualChartMode('donut')"><i class='bx bx-pie-chart-alt-2'></i> Donuts</button>
+          <button type="button" class="filter-pill ${visualChartMode === 'bar' ? 'active' : ''}" onclick="setVisualChartMode('bar')"><i class='bx bx-bar-chart-alt-2'></i> Bars</button>
+        </div>
+        <button type="button" class="adm-btn ${presentationAutoplayTimer ? 'primary' : ''}" onclick="togglePresentationAutoplay(${totalSlides})">
+          <i class='bx ${presentationAutoplayTimer ? 'bx-pause' : 'bx-play'}'></i> ${presentationAutoplayTimer ? 'Pause' : 'Auto-Play'}
+        </button>
+        <button type="button" class="adm-btn" onclick="togglePresentationFullscreen()"><i class='bx bx-fullscreen'></i> Fullscreen</button>
+        <button type="button" class="adm-btn primary" onclick="exportPptx('visuals')"><i class='bx bx-slideshow'></i> Export PPTX</button>
+        <button type="button" class="adm-btn danger" onclick="closePresentationMode()"><i class='bx bx-exit'></i> Exit</button>
+      </div>
+    </div>
+
+    <div class="pres-stage">
+      <div class="pres-slide-header">
+        <div>
+          <span class="pres-slide-pill">${currentSlide.badge}</span>
+          <h2>${currentSlide.title}</h2>
+          <p class="hint">${currentSlide.subtitle}</p>
+        </div>
+        <div class="pres-slide-counter">
+          Slide <b>${activeIdx + 1}</b> of <b>${totalSlides}</b>
+        </div>
+      </div>
+      <div class="pres-slide-body">
+        ${R.length ? currentSlide.body : `<div class="card" style="text-align:center;padding:48px"><p class="hint">No feedback responses match the selected filter (${esc(dateLabel)}).</p><button class="adm-btn primary" onclick="setDateFilter('all');cohortFilter='all';admin()">Reset Filters</button></div>`}
+      </div>
+    </div>
+
+    <div class="pres-footer">
+      <button type="button" class="adm-btn" onclick="prevPresentationSlide(${totalSlides})"><i class='bx bx-chevron-left'></i> Previous Slide</button>
+      <div class="pres-dots" role="tablist" aria-label="Presentation slides">
+        ${slides.map((s, idx) => `<button type="button" class="pres-dot ${idx === activeIdx ? 'active' : ''}" onclick="goToPresentationSlide(${idx})" title="${esc(s.title)}" aria-label="Slide ${idx + 1}: ${esc(s.title)}">${idx + 1}</button>`).join('')}
+      </div>
+      <button type="button" class="adm-btn primary" onclick="nextPresentationSlide(${totalSlides})">Next Slide <i class='bx bx-chevron-right'></i></button>
+    </div>
+  </div>`;
+}
+
+addEventListener('keydown', (event) => {
+  if (!presentationModeActive) return;
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    nextPresentationSlide(7);
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    prevPresentationSlide(7);
+  } else if (event.key === 'Escape') {
+    closePresentationMode();
+  }
+});
 
 /* ---------- Splash & Welcome Animation ---------- */
 let splashAnimTimers = [];

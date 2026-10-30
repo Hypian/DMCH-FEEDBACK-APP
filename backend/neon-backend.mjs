@@ -257,8 +257,8 @@ export async function handleNeonApi(request, response, url) {
       if (!requireJson(request, response)) return true;
       const body = await readJson(request);
       if (!body || typeof body !== 'object' || Array.isArray(body)
-        || !['full', 'departments', 'patients'].includes(body.type)
-        || !['csv', 'xlsx'].includes(body.format)) {
+        || !['full', 'departments', 'patients', 'visuals', 'executive'].includes(body.type)
+        || !['csv', 'xlsx', 'pptx'].includes(body.format)) {
         sendJson(response, 400, { error: 'invalid_report_export' });
         return true;
       }
