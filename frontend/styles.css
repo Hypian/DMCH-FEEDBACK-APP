@@ -4094,14 +4094,26 @@ body[data-auth-page]::before {
 }
 
 /* ─── Animated Brand Reveal Video Stage ───────────────────────────── */
+.auth-card {
+  background: #ffffff;
+}
+
+.auth-brand.brand-reveal-stage {
+  filter: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
 .brand-reveal-stage {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   aspect-ratio: 760 / 221;
   overflow: hidden;
-  isolation: auto;
+  background: transparent !important;
+  mix-blend-mode: multiply;
 }
 
 .splash-logo-stage {
@@ -4109,55 +4121,84 @@ body[data-auth-page]::before {
 }
 
 .auth-logo-stage {
-  display: block;
-  width: min(100%, 280px);
-  margin: 0 auto 20px;
+  width: min(100%, 290px);
+  margin: 0 auto 18px;
 }
 
-.completion-logo-stage {
-  width: min(72vw, 280px);
-  margin: 0 auto 14px;
+.adm-loading-wrap {
+  min-height: 75dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.brand-reveal-stage > img {
-  display: block;
+.adm-loading-card {
+  max-width: 480px;
   width: 100%;
-  height: auto;
-  aspect-ratio: 760 / 221;
-  object-fit: contain;
-  transition: opacity 0.28s ease;
+  margin: 30px auto;
+  padding: 40px 28px !important;
+  text-align: center;
+  background: #ffffff !important;
 }
 
-.brand-reveal-stage.video-playing > img {
-  opacity: 0;
+.adm-loading-logo-stage {
+  width: min(78vw, 330px);
+  margin: 0 auto 18px;
+}
+
+.adm-loading-label {
+  margin: 0;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+
+/* Hide the static fallback <img> whenever the video stage is active so they NEVER double-render */
+#splash .brand-reveal-stage > img,
+.auth-brand.brand-reveal-stage > img,
+.brand-reveal-stage > img {
+  display: none !important;
+  opacity: 0 !important;
+  animation: none !important;
+}
+
+/* Only show static <img> if video fails to load (.video-fallback) */
+#splash .brand-reveal-stage.video-fallback > img,
+.auth-brand.brand-reveal-stage.video-fallback > img,
+.brand-reveal-stage.video-fallback > img {
+  display: block !important;
+  opacity: 1 !important;
+}
+
+.brand-reveal-stage.video-fallback > .brand-reveal-video {
+  display: none !important;
 }
 
 .brand-reveal-video {
-  position: absolute;
-  inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center 49%;
   transform: scale(1.16);
-  opacity: 0;
   pointer-events: none;
+  background: transparent !important;
+  border: 0;
+  outline: none;
   mix-blend-mode: multiply;
-  filter: brightness(1.08) contrast(1.06);
-  -webkit-mask-image: radial-gradient(ellipse 68% 66% at 50% 50%, #000 70%, transparent 100%);
-  mask-image: radial-gradient(ellipse 68% 66% at 50% 50%, #000 70%, transparent 100%);
-  transition: opacity 0.28s ease;
-}
-
-.brand-reveal-stage.video-playing > .brand-reveal-video {
-  opacity: 1;
+  /* Clamps the video's ~80%-89% grey studio vignette to 100% pure #FFFFFF
+     so mix-blend-mode: multiply produces zero box/rectangle on any app background */
+  filter: brightness(1.26) contrast(1.38) saturate(1.16);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .brand-reveal-video {
     display: none !important;
   }
-  .brand-reveal-stage.video-playing > img {
+  #splash .brand-reveal-stage > img,
+  .auth-brand.brand-reveal-stage > img,
+  .brand-reveal-stage > img {
+    display: block !important;
     opacity: 1 !important;
   }
 }

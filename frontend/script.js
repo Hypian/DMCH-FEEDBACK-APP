@@ -1625,12 +1625,12 @@ function admin() {
       ${adminSession ? `<span class="admin-user-name">${esc(adminSession.user.name || adminSession.user.username || '')}</span><button class="adm-btn" onclick="signOutAdmin()" ${adminSigningOut ? 'disabled' : ''}>${adminSigningOut ? "<i class='bx bx-loader-alt bx-spin'></i> Signing out…" : "<i class='bx bx-log-out'></i> Sign out"}</button>` : ''}
     </div>
   </div>`;
-  if (!adminSession) {
-    $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Dashboard Sign-in</h3><p class="hint">${esc(adminError || 'Sign in with your approved account to access the dashboard.')}</p><a class="btn" href="login.html?next=${encodeURIComponent('index.html#admin')}">Sign in</a></div></div>`;
+  if (adminLoading) {
+    $('app').innerHTML = `<div class="wrap adm adm-loading-wrap"><div class="card adm-loading-card" role="status" aria-live="polite"><div class="brand-reveal-stage adm-loading-logo-stage" aria-hidden="true"><img src="logo.svg" alt="DMC" width="760" height="221"><video class="brand-reveal-video" src="logo-reveal.mp4" autoplay muted playsinline preload="auto" onerror="this.parentElement.classList.add('video-fallback')"></video></div><p class="adm-loading-label">Loading secure dashboard data…</p></div></div>`;
     return;
   }
-  if (adminLoading) {
-    $('app').innerHTML = h + `<div class="card" role="status" style="max-width:520px;margin:30px auto;text-align:center"><p>Loading secure dashboard data…</p></div></div>`;
+  if (!adminSession) {
+    $('app').innerHTML = h + `<div class="card" style="max-width:400px;margin:30px auto;text-align:center"><h3>Dashboard Sign-in</h3><p class="hint">${esc(adminError || 'Sign in with your approved account to access the dashboard.')}</p><a class="btn" href="login.html?next=${encodeURIComponent('index.html#admin')}">Sign in</a></div></div>`;
     return;
   }
   if (adminError && !adminDataLoaded) {

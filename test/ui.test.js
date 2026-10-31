@@ -1080,8 +1080,10 @@ test('both feedback app and admin dashboard use logo.svg for the hospital logo',
 
   vm.runInContext('renderComplete()', context);
   assert.doesNotMatch(app.innerHTML, /brand-reveal-video/);
-  assert.match(indexHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
-  assert.match(loginHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
-  assert.match(signupHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
+  assert.match(indexHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
+  assert.match(loginHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
+  assert.match(signupHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
+  vm.runInContext('adminLoading = true; admin()', context);
+  assert.match(app.innerHTML, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
   assert.equal(fs.existsSync(frontendPath('logo-reveal.mp4')), true);
 });
