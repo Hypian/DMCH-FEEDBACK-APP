@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -33,11 +34,13 @@ const MIME_TYPES = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.js': 'text/javascript; charset=utf-8',
+  '.mp4': 'video/mp4',
   '.png': 'image/png',
-  '.svg': 'image/svg+xml'
+  '.svg': 'image/svg+xml',
+  '.webm': 'video/webm'
 };
 const SECURITY_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com data:; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests",
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com data:; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests",
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Strict-Transport-Security': 'max-age=31536000',
@@ -206,6 +209,32 @@ async function sendSubmission(request, response) {
   sendJson(response, result.status, result.body);
 }
 
+const staticCache = new Map();
+
+async function getStaticFile(filePath) {
+  const stat = await fs.promises.stat(filePath);
+  if (stat.isDirectory()) return null;
+  const cached = staticCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs) {
+    return cached;
+  }
+  const raw = await fs.promises.readFile(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+  const isCompressible = /^(text\/|image\/svg\+xml|application\/(?:javascript|json))/.test(contentType);
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  const gzipped = isCompressible ? zlib.gzipSync(raw, { level: 9 }) : null;
+  const entry = {
+    mtimeMs: stat.mtimeMs,
+    contentType,
+    etag,
+    raw,
+    gzipped
+  };
+  staticCache.set(filePath, entry);
+  return entry;
+}
+
 async function serveStatic(request, response, pathname) {
   const relativePath = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
   const filePath = path.resolve(FRONTEND_DIR, relativePath);
@@ -215,12 +244,59 @@ async function serveStatic(request, response, pathname) {
     return;
   }
   try {
-    const content = await fs.promises.readFile(filePath);
-    response.writeHead(200, {
-      'Cache-Control': 'no-cache',
-      'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
-    });
-    response.end(content);
+    const file = await getStaticFile(filePath);
+    if (!file) {
+      response.writeHead(404);
+      response.end('Not found');
+      return;
+    }
+
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Content-Type', file.contentType);
+    response.setHeader('ETag', file.etag);
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Vary', 'Accept-Encoding');
+
+    const ifNoneMatch = request.headers['if-none-match'];
+    if (ifNoneMatch && (ifNoneMatch === file.etag || ifNoneMatch.includes(file.etag))) {
+      response.writeHead(304);
+      response.end();
+      return;
+    }
+
+    if (request.method === 'HEAD') {
+      response.setHeader('Content-Length', String(file.raw.length));
+      response.writeHead(200);
+      response.end();
+      return;
+    }
+
+    const rangeHeader = request.headers.range;
+    if (rangeHeader && /^bytes=\d*-\d*$/.test(rangeHeader)) {
+      const total = file.raw.length;
+      const [startStr, endStr] = rangeHeader.replace(/^bytes=/, '').split('-');
+      const start = startStr ? parseInt(startStr, 10) : 0;
+      const end = endStr ? Math.min(parseInt(endStr, 10), total - 1) : total - 1;
+      if (start >= 0 && start < total && start <= end) {
+        const chunk = file.raw.subarray(start, end + 1);
+        response.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+        response.setHeader('Content-Length', String(chunk.length));
+        response.writeHead(206);
+        response.end(chunk);
+        return;
+      }
+    }
+
+    const acceptEncoding = request.headers['accept-encoding'] || '';
+    if (file.gzipped && acceptEncoding.includes('gzip')) {
+      response.setHeader('Content-Encoding', 'gzip');
+      response.writeHead(200);
+      response.end(file.gzipped);
+      return;
+    }
+
+    response.writeHead(200);
+    response.end(file.raw);
   } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'EISDIR') {
       response.writeHead(404);
@@ -244,7 +320,7 @@ async function handleRequest(request, response) {
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     response.setHeader('Vary', 'Origin');
   }
-  if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+  if (request.method === 'OPTIONS' && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhooks/'))) {
     if (!requestOrigin || !TRUSTED_ORIGINS.has(requestOrigin)) {
       sendJson(response, 403, { error: 'invalid_origin' });
       return;
@@ -253,7 +329,7 @@ async function handleRequest(request, response) {
     response.end();
     return;
   }
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhooks/')) {
     if (TEST_MODE) {
       if (url.pathname === '/api/check') return sendDeviceCheck(request, response);
       if (url.pathname === '/api/submit') return sendSubmission(request, response);
@@ -304,6 +380,7 @@ async function startServer() {
     const backend = await import('../backend/neon-backend.mjs');
     neonBackend = backend;
     authNodeHandler = backend.authNodeHandler;
+    if (backend.startAlertWorker) backend.startAlertWorker(backend.pool);
     await backend.pool.query('select 1');
   }
   server.listen(PORT, HOST, () => {
@@ -318,6 +395,7 @@ startServer().catch((error) => {
 });
 
 function shutdown() {
+  if (neonBackend?.stopAlertWorker) neonBackend.stopAlertWorker();
   server.close((error) => {
     if (database) database.close();
     if (neonBackend) neonBackend.pool.end().catch((poolError) => {

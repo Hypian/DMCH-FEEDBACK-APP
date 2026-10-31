@@ -115,6 +115,12 @@ test('Static file serving', async t => {
       assert.match(r.headers.get('content-type'), /javascript/);
     });
 
+    await t.test('GET /logo.svg returns 200 image/svg+xml', async () => {
+      const r = await fetch(`${base}/logo.svg`);
+      assert.equal(r.status, 200);
+      assert.match(r.headers.get('content-type'), /image\/svg\+xml/);
+    });
+
     await t.test('GET /logo-optimized.jpg returns 200 image/jpeg', async () => {
       const r = await fetch(`${base}/logo-optimized.jpg`);
       assert.equal(r.status, 200);
@@ -132,6 +138,25 @@ test('Static file serving', async t => {
       // so the server sees /package.json → not in frontend/ → 403 or 404.
       // Either way the file must NOT be returned with 200.
       assert.notEqual(r.status, 200, 'Path traversal must not return file contents');
+    });
+
+    await t.test('GET /styles.css supports gzip compression and ETag 304', async () => {
+      const initial = await fetch(`${base}/styles.css`, { headers: { 'accept-encoding': 'gzip' } });
+      assert.equal(initial.status, 200);
+      assert.equal(initial.headers.get('content-encoding'), 'gzip');
+      const etag = initial.headers.get('etag');
+      assert.ok(etag, 'Static response should include ETag');
+
+      const revalidated = await fetch(`${base}/styles.css`, { headers: { 'if-none-match': etag } });
+      assert.equal(revalidated.status, 304);
+      assert.equal(await revalidated.text(), '');
+    });
+
+    await t.test('HEAD / returns 200 without body', async () => {
+      const head = await fetch(`${base}/`, { method: 'HEAD' });
+      assert.equal(head.status, 200);
+      assert.match(head.headers.get('content-type'), /text\/html/);
+      assert.equal(await head.text(), '');
     });
 
     await t.test('POST to / returns 405', async () => {

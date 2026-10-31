@@ -4,6 +4,9 @@ import { getAccountApproval, handleApprovalApi, requireApprovedAccount, validate
 import { recordAuditEvent } from './audit-log.mjs';
 import { analyzeFeedback } from './sentiment-analyzer.mjs';
 import { notifyUrgentFeedback } from './urgent-alert.mjs';
+import { needsAttention } from './alertRules.js';
+import { queueFeedbackAlerts, processPendingAlerts, processAlertEscalations, startAlertWorker, stopAlertWorker } from './alert-dispatcher.mjs';
+import { sendAlert, isValidE164, sanitizeE164 } from './services/whatsapp.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,6 +15,102 @@ const responseFields = 'id, submitted_at, language, department_id, department_na
 
 if (!hashSecret || Buffer.byteLength(hashSecret, 'utf8') < 32) {
   throw new Error('DMC_DEVICE_HASH_SECRET must be configured with at least 32 bytes.');
+}
+
+
+async function readRawBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 256 * 1024) {
+      const error = new Error('Payload too large.');
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function handleWhatsAppWebhookEvent(pool, eventData) {
+  if (!eventData || !Array.isArray(eventData.entry)) return;
+  for (const entry of eventData.entry) {
+    if (!Array.isArray(entry.changes)) continue;
+    for (const change of entry.changes) {
+      const val = change.value;
+      if (!val) continue;
+
+      if (Array.isArray(val.statuses)) {
+        for (const st of val.statuses) {
+          const providerMsgId = st.id;
+          const status = st.status;
+          if (status === 'delivered') {
+            await pool.query(
+              `update public.alert_outbox
+               set status = 'delivered', delivered_at = now()
+               where provider_message_id = $1 and status = 'sent'`,
+              [providerMsgId]
+            ).catch(() => {});
+          } else if (status === 'read') {
+            await pool.query(
+              `update public.alert_outbox
+               set status = 'read', read_at = now()
+               where provider_message_id = $1 and status in ('sent', 'delivered')`,
+              [providerMsgId]
+            ).catch(() => {});
+          } else if (status === 'failed') {
+            const errObj = st.errors?.[0] || {};
+            await pool.query(
+              `update public.alert_outbox
+               set status = 'failed', last_error = $1
+               where provider_message_id = $2`,
+              [`Meta delivery error ${errObj.code || ''}: ${errObj.message || 'unknown'}`, providerMsgId]
+            ).catch(() => {});
+          }
+        }
+      }
+
+      if (Array.isArray(val.messages)) {
+        for (const msg of val.messages) {
+          const senderPhone = sanitizeE164(msg.from || '');
+          let ackFeedbackId = null;
+
+          if (msg.type === 'button') {
+            const payload = msg.button?.payload || '';
+            if (payload.startsWith('ack_')) ackFeedbackId = payload.slice(4);
+          }
+          if (msg.type === 'interactive') {
+            const replyId = msg.interactive?.button_reply?.id || '';
+            if (replyId.startsWith('ack_')) ackFeedbackId = replyId.slice(4);
+          }
+          if (msg.type === 'text') {
+            const text = (msg.text?.body || '').trim().toLowerCase();
+            if (['ok', 'ack', 'acknowledged', 'seen', 'done'].includes(text)) {
+              const latestAlert = await pool.query(
+                `select feedback_id from public.alert_outbox
+                 where recipient_phone = $1 and acknowledged_at is null
+                 order by created_at desc limit 1`,
+                [senderPhone]
+              ).catch(() => ({ rows: [] }));
+              ackFeedbackId = latestAlert.rows[0]?.feedback_id;
+            }
+          }
+
+          if (ackFeedbackId) {
+            await pool.query(
+              `update public.alert_outbox
+               set status = 'acknowledged',
+                   acknowledged_at = now(),
+                   acknowledged_by = $1
+               where feedback_id = $2 and acknowledged_at is null`,
+              [`WhatsApp (${val.contacts?.[0]?.wa_id || senderPhone})`, ackFeedbackId]
+            ).catch(() => {});
+          }
+        }
+      }
+    }
+  }
 }
 
 function sendJson(response, status, body) {
@@ -176,6 +275,25 @@ async function saveFeedback(body) {
       ]
     );
 
+    const alertDecision = needsAttention(
+      { answers: body.answers, text: feedbackText, language: body.language, departmentName: labels[0] },
+      analysis
+    );
+
+    if (alertDecision.flag) {
+      try {
+        await queueFeedbackAlerts(client, {
+          feedbackId: inserted.rows[0]?.id,
+          departmentId: body.departmentId,
+          departmentName: labels[0],
+          language: analysis.language || body.language,
+          decision: alertDecision
+        });
+      } catch (alertQueueErr) {
+        console.warn('[ALERT QUEUE WARN]', alertQueueErr.message);
+      }
+    }
+
     if (analysis.urgent) {
       await notifyUrgentFeedback(client, {
         feedbackId: inserted.rows[0]?.id,
@@ -197,10 +315,20 @@ async function saveFeedback(body) {
         departmentId: body.departmentId,
         language: body.language,
         sentiment: analysis.sentiment,
-        urgent: analysis.urgent
+        urgent: analysis.urgent,
+        alertFlag: alertDecision.flag,
+        alertSeverity: alertDecision.severity
       }
     });
     await client.query('commit');
+
+    if (alertDecision.flag) {
+      Promise.race([
+        processPendingAlerts(pool, { limit: 5 }),
+        new Promise((resolve) => setTimeout(resolve, 2000))
+      ]).catch((err) => console.warn('[IMMEDIATE ALERT DISPATCH WARN]', err.message));
+    }
+
     return { status: 201, body: { ok: true } };
   } catch (error) {
     await client.query('rollback');
@@ -222,6 +350,273 @@ function validateAdminMethod(request, response) {
 export async function handleNeonApi(request, response, url) {
   const pathname = url.pathname;
   if (await handleApprovalApi(request, response, url, { pool, getAuthSession })) return true;
+
+  // ─── WhatsApp Webhooks ──────────────────────────────────────────────────────
+  if (pathname === '/webhooks/whatsapp') {
+    if (request.method === 'GET') {
+      const mode = url.searchParams.get('hub.mode');
+      const token = url.searchParams.get('hub.verify_token');
+      const challenge = url.searchParams.get('hub.challenge');
+      const expectedToken = process.env.WA_VERIFY_TOKEN || '';
+      if (mode === 'subscribe' && token && token === expectedToken) {
+        response.writeHead(200, { 'Content-Type': 'text/plain' });
+        response.end(challenge || '');
+        return true;
+      }
+      sendJson(response, 403, { error: 'invalid_verify_token' });
+      return true;
+    }
+
+    if (request.method === 'POST') {
+      const rawBody = await readRawBody(request);
+      const appSecret = process.env.WA_APP_SECRET;
+      const signature = request.headers['x-hub-signature-256'];
+
+      if (appSecret) {
+        if (!signature || !signature.startsWith('sha256=')) {
+          sendJson(response, 401, { error: 'missing_or_invalid_signature' });
+          return true;
+        }
+        const expectedSig = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expectedSig);
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+          sendJson(response, 403, { error: 'signature_verification_failed' });
+          return true;
+        }
+      }
+
+      try {
+        const eventData = JSON.parse(rawBody.toString('utf8'));
+        await handleWhatsAppWebhookEvent(pool, eventData);
+      } catch (err) {
+        console.warn('[WEBHOOK PARSE WARN]', err.message);
+      }
+
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+
+    response.setHeader('Allow', 'GET, POST');
+    sendJson(response, 405, { error: 'method_not_allowed' });
+    return true;
+  }
+
+  // ─── Serverless / Cron Dispatcher ───────────────────────────────────────────
+  if (pathname === '/api/cron/process-alerts') {
+    const cronSecret = request.headers['x-cron-secret'] || url.searchParams.get('secret');
+    if (process.env.CRON_SECRET && cronSecret !== process.env.CRON_SECRET) {
+      sendJson(response, 401, { error: 'unauthorized_cron' });
+      return true;
+    }
+    const results = await processPendingAlerts(pool, { limit: 25 });
+    const escalated = await processAlertEscalations(pool);
+    sendJson(response, 200, { ok: true, ...results, escalated });
+    return true;
+  }
+
+  // ─── Alert Outbox & Acknowledgement API ──────────────────────────────────────
+  if (pathname === '/api/admin/alerts' && request.method === 'GET') {
+    if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
+    const result = await pool.query(
+      `select id, feedback_id, recipient_id, recipient_phone, recipient_name,
+              department_name, severity, reason, detected_language, status,
+              attempts, last_error, provider_message_id, created_at,
+              sent_at, delivered_at, read_at, acknowledged_at, acknowledged_by, escalated_at
+       from public.alert_outbox
+       order by created_at desc
+       limit 200`
+    ).catch(() => ({ rows: [] }));
+    sendJson(response, 200, result.rows);
+    return true;
+  }
+
+  const ackMatch = pathname.match(/^\/api\/admin\/alerts\/([0-9a-f-]+)\/acknowledge$/i);
+  if (ackMatch && request.method === 'POST') {
+    if (!validateAdminMethod(request, response)) return true;
+    const account = await requireApprovedAccount(request, response, pool, getAuthSession);
+    if (!account) return true;
+    const alertId = ackMatch[1];
+    const actorName = account.session.user.name || account.session.user.username || 'Admin Staff';
+    const result = await pool.query(
+      `update public.alert_outbox
+       set status = 'acknowledged',
+           acknowledged_at = now(),
+           acknowledged_by = $1
+       where id = $2 or feedback_id = $2
+       returning id, feedback_id`,
+      [`Dashboard (${actorName})`, alertId]
+    );
+    if (result.rowCount === 0) {
+      sendJson(response, 404, { error: 'alert_not_found' });
+      return true;
+    }
+    await recordAuditEvent(pool, {
+      actorId: account.session.user.id,
+      action: 'alert.acknowledged',
+      summary: `Manually acknowledged feedback alert ${alertId}.`,
+      targetType: 'alert',
+      targetId: alertId
+    });
+    sendJson(response, 200, { ok: true, acknowledged: true });
+    return true;
+  }
+
+  // ─── Staff Alert Contacts Management ────────────────────────────────────────
+  if (pathname === '/api/admin/alert-contacts') {
+    if (request.method === 'GET') {
+      if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
+      const result = await pool.query(
+        `select id, name, phone_e164, department_id, department_name, role,
+                is_duty_manager, alert_enabled, min_severity, whatsapp_opt_in_at, created_at
+         from public.staff_alert_contacts
+         order by is_duty_manager desc, department_name asc, name asc`
+      ).catch(() => ({ rows: [] }));
+      sendJson(response, 200, result.rows);
+      return true;
+    }
+
+    if (request.method === 'POST') {
+      if (!validateAdminMethod(request, response)) return true;
+      const session = await getAdminSession(request, response);
+      if (!session) return true;
+      if (!requireJson(request, response)) return true;
+      const body = await readJson(request);
+
+      if (!body.name || typeof body.name !== 'string' || !body.phone_e164 || typeof body.phone_e164 !== 'string') {
+        sendJson(response, 400, { error: 'invalid_contact_payload', message: 'Name and phone are required.' });
+        return true;
+      }
+
+      const phone = sanitizeE164(body.phone_e164);
+      if (!isValidE164(phone)) {
+        sendJson(response, 400, { error: 'invalid_e164_phone', message: 'Must be in E.164 format (+250...).' });
+        return true;
+      }
+
+      const optIn = body.opt_in !== false ? new Date().toISOString() : null;
+      const minSeverity = ['normal', 'high', 'critical'].includes(body.min_severity) ? body.min_severity : 'normal';
+
+      let deptName = null;
+      if (body.department_id) {
+        const dRes = await pool.query('select labels from public.feedback_departments where id = $1', [body.department_id]);
+        deptName = dRes.rows[0]?.labels?.[0] || null;
+      }
+
+      let contactId = body.id;
+      if (contactId) {
+        // Update existing contact
+        await pool.query(
+          `update public.staff_alert_contacts
+           set name = $1, phone_e164 = $2, department_id = $3, department_name = $4,
+               role = $5, is_duty_manager = $6, alert_enabled = $7, min_severity = $8,
+               whatsapp_opt_in_at = coalesce(whatsapp_opt_in_at, $9::timestamptz),
+               updated_at = now()
+           where id = $10`,
+          [
+            body.name.trim(),
+            phone,
+            body.department_id || null,
+            deptName,
+            (body.role || 'staff').trim(),
+            Boolean(body.is_duty_manager),
+            body.alert_enabled !== false,
+            minSeverity,
+            optIn,
+            contactId
+          ]
+        );
+      } else {
+        // Insert new contact
+        const inserted = await pool.query(
+          `insert into public.staff_alert_contacts
+            (name, phone_e164, department_id, department_name, role, is_duty_manager, alert_enabled, min_severity, whatsapp_opt_in_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+           returning id`,
+          [
+            body.name.trim(),
+            phone,
+            body.department_id || null,
+            deptName,
+            (body.role || 'staff').trim(),
+            Boolean(body.is_duty_manager),
+            body.alert_enabled !== false,
+            minSeverity,
+            optIn
+          ]
+        );
+        contactId = inserted.rows[0]?.id;
+      }
+
+      await recordAuditEvent(pool, {
+        actorId: session.user.id,
+        action: body.id ? 'alert_contact.updated' : 'alert_contact.created',
+        summary: `${body.id ? 'Updated' : 'Created'} alert contact for ${body.name} (${phone}).`,
+        targetType: 'alert_contact',
+        targetId: contactId
+      });
+
+      sendJson(response, body.id ? 200 : 201, { ok: true, id: contactId });
+      return true;
+    }
+  }
+
+  const contactTestMatch = pathname.match(/^\/api\/admin\/alert-contacts\/([0-9a-f-]+)\/test$/i);
+  if (contactTestMatch && request.method === 'POST') {
+    if (!validateAdminMethod(request, response)) return true;
+    const session = await getAdminSession(request, response);
+    if (!session) return true;
+    const contactId = contactTestMatch[1];
+    const cRes = await pool.query('select * from public.staff_alert_contacts where id = $1', [contactId]);
+    if (cRes.rowCount === 0) {
+      sendJson(response, 404, { error: 'contact_not_found' });
+      return true;
+    }
+    const contact = cRes.rows[0];
+    try {
+      const testResult = await sendAlert(contact, {
+        severity: 'normal',
+        departmentName: contact.department_name || 'DMCH Testing',
+        reason: 'Test verification alert dispatched from DMCH Admin Dashboard',
+        language: 'en'
+      });
+      await recordAuditEvent(pool, {
+        actorId: session.user.id,
+        action: 'alert_contact.test_dispatched',
+        summary: `Sent test alert to ${contact.name} (${contact.phone_e164}).`,
+        targetType: 'alert_contact',
+        targetId: contactId,
+        metadata: { messageId: testResult.messageId, dryRun: testResult.dryRun }
+      });
+      sendJson(response, 200, { ok: true, test: true, result: testResult });
+    } catch (sendErr) {
+      sendJson(response, 502, { error: 'test_alert_failed', message: sendErr.message });
+    }
+    return true;
+  }
+
+  const contactDeleteMatch = pathname.match(/^\/api\/admin\/alert-contacts\/([0-9a-f-]+)$/i);
+  if (contactDeleteMatch && request.method === 'DELETE') {
+    if (!validateAdminMethod(request, response)) return true;
+    const session = await getAdminSession(request, response);
+    if (!session) return true;
+    const contactId = contactDeleteMatch[1];
+    const deleted = await pool.query('delete from public.staff_alert_contacts where id = $1 returning name', [contactId]);
+    if (deleted.rowCount === 0) {
+      sendJson(response, 404, { error: 'contact_not_found' });
+      return true;
+    }
+    await recordAuditEvent(pool, {
+      actorId: session.user.id,
+      action: 'alert_contact.deleted',
+      summary: `Deleted alert contact ${deleted.rows[0].name}.`,
+      targetType: 'alert_contact',
+      targetId: contactId
+    });
+    sendJson(response, 200, { ok: true, deleted: true });
+    return true;
+  }
+
 
   if (pathname === '/api/check') {
     if (request.method !== 'POST') {
@@ -612,4 +1007,4 @@ export async function handleNeonApi(request, response, url) {
   return pathname.startsWith('/api/');
 }
 
-export { authNodeHandler, pool };
+export { authNodeHandler, pool, startAlertWorker, stopAlertWorker };

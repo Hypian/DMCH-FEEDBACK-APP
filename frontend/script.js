@@ -11,7 +11,7 @@ const ld = (k, d) => {
 const sv = (k, v) => {
   try {
     localStorage.setItem(k, JSON.stringify(v));
-  } catch (e) {}
+  } catch (e) { }
 };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -40,6 +40,13 @@ let auditLoading = false;
 let auditLoaded = false;
 let auditError = '';
 let auditRefreshInProgress = false;
+let feedbackAlerts = [];
+let feedbackAlertFilter = 'all';
+let alertContacts = [];
+let alertContactsLoading = false;
+let alertContactsLoaded = false;
+let alertContactsError = '';
+let showAddContactModal = false;
 const g = (a) => a[IX[S.lang]] || a[0];
 const API_ORIGIN = typeof window === 'undefined'
   ? ''
@@ -278,11 +285,13 @@ async function loadAdminData() {
   adminError = '';
   admin();
   try {
-    const [responses, departments] = await Promise.all([
+    const [responses, departments, alerts] = await Promise.all([
       apiRequest('/api/responses'),
-      apiRequest('/api/departments?all=1')
+      apiRequest('/api/departments?all=1'),
+      apiRequest('/api/admin/alerts').catch(() => [])
     ]);
     feedbackResponses = responses.map(toFeedbackResponse);
+    feedbackAlerts = Array.isArray(alerts) ? alerts : [];
     cfg.depts = departments.map((department) => ({
       id: department.id,
       n: department.labels,
@@ -304,7 +313,11 @@ async function refreshDashboardFeedback() {
   if (!adminSession || location.hash !== '#admin' || !adminDataLoaded || adminLoading || dashboardFeedbackRefreshInProgress) return;
   dashboardFeedbackRefreshInProgress = true;
   try {
-    const responses = await apiRequest('/api/responses', 'GET', undefined, { background: true });
+    const [responses, alerts] = await Promise.all([
+      apiRequest('/api/responses', 'GET', undefined, { background: true }),
+      apiRequest('/api/admin/alerts', 'GET', undefined, { background: true }).catch(() => [])
+    ]);
+    if (Array.isArray(alerts)) feedbackAlerts = alerts;
     const updatedResponses = responses.map(toFeedbackResponse);
     const previousIds = feedbackResponses.map(({ id, t }) => [id, t]);
     const updatedIds = updatedResponses.map(({ id, t }) => [id, t]);
@@ -387,7 +400,7 @@ function render(animate = true) {
     }
   }
 
-  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class="top"><div class="top-row"><img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class="ghost" onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class="bar"><i style="width:${(i / f.length) * 100}%"></i></div><div class="top-title"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}</div></div>${b}</div>`;
+  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class="top"><div class="top-row"><img src="logo.svg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class="ghost" onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class="bar"><i style="width:${(i / f.length) * 100}%"></i></div><div class="top-title"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}</div></div>${b}</div>`;
 }
 
 const up_ = () => {
@@ -397,7 +410,7 @@ const up_ = () => {
 };
 
 function renderIntro(animate = true) {
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo-optimized.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
 }
 
 function storeCompletion(submittedAt = Date.now()) {
@@ -446,6 +459,8 @@ function hideSplash(callback) {
     callback();
     return;
   }
+  const vid = splash.querySelector?.('video');
+  if (vid && typeof vid.pause === 'function') vid.pause();
   callback();
   splash.classList.add('off');
   setTimeout(() => {
@@ -773,7 +788,7 @@ function renderVisualBars(items, maxValue, unit = '') {
         </div>
       </div>`;
     }).join('') +
-  `</div>`;
+    `</div>`;
 }
 
 let activeSliceNavigation = null;
@@ -870,7 +885,7 @@ function togglePresentationFullscreen() {
     } else if (typeof document !== 'undefined') {
       document.documentElement?.requestFullscreen?.();
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 function openChartDetailModal(chartKey, itemKey = 'all') {
@@ -1311,12 +1326,12 @@ function renderSwitchableBreakdownCard({ chartKey, title, subtitle, items, maxVa
         </div>
       </div>
       ${normalizedItems.length ? renderDonutChart({
-        title: '',
-        subtitle: '',
-        items: normalizedItems,
-        centerValue: cVal,
-        centerLabel: cLbl
-      }) : '<p class="hint">–</p>'}
+      title: '',
+      subtitle: '',
+      items: normalizedItems,
+      centerValue: cVal,
+      centerLabel: cLbl
+    }) : '<p class="hint">–</p>'}
     </div>`;
   }
 
@@ -1598,7 +1613,7 @@ function chartsUI() {
 function admin() {
   const h = `<div class="wrap adm"><div class="adm-header">
     <div class="adm-brand">
-      <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
+      <img src="logo.svg" alt="DMC" width="760" height="221" decoding="async">
       <div class="adm-title">
         <span>Executive Quality Dashboard</span>
         <h2>Patient Experience & OPD Performance</h2>
@@ -1640,22 +1655,28 @@ function admin() {
     ['depts', `<i class='bx bx-cog'></i> Manage Services`],
     ['audit', `<i class='bx bx-history'></i> Activity Log`]
   ];
-  if (adminSession.isAdmin) tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
-  if (!adminSession.isAdmin && tab === 'users') tab = 'stats';
+  if (adminSession.isAdmin) {
+    tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
+    tabs.push(['alerts', `<i class='bx bxl-whatsapp'></i> WhatsApp Contacts`]);
+  }
+  if (!adminSession.isAdmin && (tab === 'users' || tab === 'alerts')) tab = 'stats';
+  if (tab === 'alerts' && !alertContactsLoading && !alertContactsLoaded && !alertContactsError) {
+    loadAlertContacts();
+  }
   if (adminSession.isAdmin && tab === 'users' && !userManagementLoading && !userManagementLoaded && !userManagementError) {
     loadUserManagement();
   }
   if (tab === 'audit' && !auditLoading && !auditLoaded && !auditError) loadAuditEvents();
-  $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${
-    tab === 'stats' ? stats() :
+  $('app').innerHTML = h + `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="tab='${k}';admin()">${n}</button>`).join('')}</div>${adminError ? `<div class="card" role="alert"><p class="error">${esc(adminError)}</p></div>` : ''}${tab === 'stats' ? stats() :
     tab === 'charts' ? chartsUI() :
-    tab === 'depts_perf' ? deptsPerfUI() :
-    tab === 'feedbacks' ? feedbacksUI() :
-    tab === 'export' ? exportUI() :
-    tab === 'audit' ? auditUI() :
-    tab === 'users' ? userManagementUI() :
-    deptUI()
-  }</div>`;
+      tab === 'depts_perf' ? deptsPerfUI() :
+        tab === 'feedbacks' ? feedbacksUI() :
+          tab === 'export' ? exportUI() :
+            tab === 'audit' ? auditUI() :
+              tab === 'users' ? userManagementUI() :
+                tab === 'alerts' ? alertContactsUI() :
+                  deptUI()
+    }</div>`;
 }
 
 function renderUserManagementContent() {
@@ -1663,38 +1684,34 @@ function renderUserManagementContent() {
     return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
   }
   const refresh = `<button class="adm-btn" onclick="loadUserManagement()"><i class='bx bx-refresh'></i> Refresh</button>`;
-  const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${
-    activeUsers.length
-      ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role status-approved approved"><i class='bx bx-check-circle'></i> Active</span></article>`).join('')}</div>`
-      : '<p class="hint">There are no approved users to display.</p>'
-  }</section>`;
-  const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${
-    adminDirectory.length
-      ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
-      : '<p class="hint">There are no administrators to display.</p>'
-  }</section>`;
+  const approvedUsers = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Approved accounts</p><h3>Active users (${activeUsers.length})</h3></div>${refresh}</div>${activeUsers.length
+    ? `<div class="pending-user-list">${activeUsers.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role status-approved approved"><i class='bx bx-check-circle'></i> Active</span></article>`).join('')}</div>`
+    : '<p class="hint">There are no approved users to display.</p>'
+    }</section>`;
+  const directory = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Authorized dashboard users</p><h3>Admin directory</h3></div>${refresh}</div>${adminDirectory.length
+    ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
+    : '<p class="hint">There are no administrators to display.</p>'
+    }</section>`;
   if (!adminSession.isSupremeAdmin) {
     const accounts = managedUsers.map((user) => `<tr id="user-row-${/^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : ''}">
       <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
       <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
       <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
     </tr>`).join('');
-    const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${
-      managedUsers.length
-        ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
-        : '<p class="hint">There are no accounts to display.</p>'
-    }</section>`;
+    const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${managedUsers.length
+      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
+      : '<p class="hint">There are no accounts to display.</p>'
+      }</section>`;
     return approvedUsers + directory + accountList;
   }
   const pendingUsers = managedUsers.filter((u) => u.status === 'pending');
-  const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${
-    pendingUsers.length
-      ? `<div class="pending-user-list">${pendingUsers.map((user) => {
-          const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
-          return `<article class="pending-user" id="pending-user-${safeId}"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" id="pending-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="pending-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>` : ''}</div></article>`;
-        }).join('')}</div>`
-      : '<p class="hint">There are no pending accounts awaiting review.</p>'
-  }</section>`;
+  const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${pendingUsers.length
+    ? `<div class="pending-user-list">${pendingUsers.map((user) => {
+      const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+      return `<article class="pending-user" id="pending-user-${safeId}"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><div class="user-role-actions">${safeId ? `<button class="adm-btn primary" id="pending-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="pending-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>` : ''}</div></article>`;
+    }).join('')}</div>`
+    : '<p class="hint">There are no pending accounts awaiting review.</p>'
+    }</section>`;
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
     const adminAction = `<button class="adm-btn" id="user-admin-btn-${safeId}" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
@@ -1706,19 +1723,17 @@ function renderUserManagementContent() {
         : '';
     const deleteAction = `<button class="adm-btn danger" id="user-del-btn-${safeId}" onclick="deleteUser('${safeId}','${esc(user.username || user.name || '')}')"><i class='bx bx-trash'></i> Delete</button>`;
     const actions = safeId && user.user_id !== adminSession.user.id
-      ? `<div class="user-role-actions">${
-          user.status === 'pending'
-            ? `<button class="adm-btn primary" id="user-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="user-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
-            : ''
-        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
+      ? `<div class="user-role-actions">${user.status === 'pending'
+        ? `<button class="adm-btn primary" id="user-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="user-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
+        : ''
+      }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
       : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
     return `<tr id="user-row-${safeId}"><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
   }).join('');
-  const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${
-    managedUsers.length
-      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : '<p class="hint">There are no accounts to display.</p>'
-  }</section>`;
+  const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${managedUsers.length
+    ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<p class="hint">There are no accounts to display.</p>'
+    }</section>`;
   return pendingSection + approvedUsers + directory + accounts;
 }
 
@@ -1903,12 +1918,12 @@ async function loadUserManagement(silent = false) {
 
     const usersPromise = adminSession.isAdmin
       ? apiRequest('/api/admin/users').then((res) => {
-          if (!silent) {
-            userManagementProgressPct = 95;
-            userManagementStatusText = 'Finalizing user accounts…';
-          }
-          return res;
-        })
+        if (!silent) {
+          userManagementProgressPct = 95;
+          userManagementStatusText = 'Finalizing user accounts…';
+        }
+        return res;
+      })
       : Promise.resolve({ users: [] });
 
     const [directory, approved, users] = await Promise.all([dirPromise, activePromise, usersPromise]);
@@ -1978,7 +1993,7 @@ async function reviewUser(userId, status) {
     updateUserManagementUI();
     loadUserManagement(true).then(() => {
       updateUserManagementUI();
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error) {
     console.error('Could not review account request:', error);
     if (pendingCard && typeof pendingCard.classList?.remove === 'function') {
@@ -2031,7 +2046,7 @@ async function setUserStatus(userId, status) {
     updateUserManagementUI();
     loadUserManagement(true).then(() => {
       updateUserManagementUI();
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error) {
     console.error(`Could not set status to ${status}:`, error);
     userManagementError = error.details?.error === 'last_admin_cannot_be_removed'
@@ -2069,7 +2084,7 @@ async function setUserRole(userId, role, enabled) {
     updateUserManagementUI();
     loadUserManagement(true).then(() => {
       updateUserManagementUI();
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error) {
     console.error(`Could not ${action} the ${role} role:`, error);
     userManagementError = error.details?.error === 'last_supreme_admin_cannot_be_removed'
@@ -2169,7 +2184,7 @@ async function executeDeleteUser(userId) {
 
     loadUserManagement(true).then(() => {
       updateUserManagementUI();
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (error) {
     console.error('Could not delete account:', error);
     if (userRow && typeof userRow.classList?.remove === 'function') {
@@ -2247,6 +2262,23 @@ function feedbacksUI() {
     R = R.filter((r) => (r.detectedLang || r.l) === feedbackLanguageFilter);
   }
 
+  if (feedbackAlertFilter === 'flagged') {
+    R = R.filter((r) => {
+      const alerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
+      return alerts.length > 0 || r.urgent;
+    });
+  } else if (feedbackAlertFilter === 'unacknowledged') {
+    R = R.filter((r) => {
+      const alerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
+      return alerts.some((a) => !a.acknowledged_at && a.status !== 'failed');
+    });
+  } else if (feedbackAlertFilter === 'failed') {
+    R = R.filter((r) => {
+      const alerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
+      return alerts.some((a) => a.status === 'failed');
+    });
+  }
+
   if (feedbackSearchQuery.trim()) {
     const q = feedbackSearchQuery.trim().toLowerCase();
     R = R.filter((r) => {
@@ -2285,6 +2317,9 @@ function feedbacksUI() {
 
   const dateBarHtml = renderDateFilterBar('Feedback Records');
   const urgentCount = dateFiltered.filter((r) => r.urgent).length;
+  const flaggedCount = dateFiltered.filter((r) => feedbackAlerts.some((a) => a.feedback_id === r.id) || r.urgent).length;
+  const unackCount = dateFiltered.filter((r) => feedbackAlerts.some((a) => a.feedback_id === r.id && !a.acknowledged_at && a.status !== 'failed')).length;
+  const failedCount = dateFiltered.filter((r) => feedbackAlerts.some((a) => a.feedback_id === r.id && a.status === 'failed')).length;
 
   const controlsHtml = `
     <div class="fb-controls-bar">
@@ -2315,11 +2350,30 @@ function feedbacksUI() {
         <button class="date-pill ${feedbackRatingFilter === 'neu' ? 'active' : ''}" onclick="feedbackRatingFilter='neu';feedbackPage=1;admin()">3★ Neutral</button>
         <button class="date-pill ${feedbackRatingFilter === 'diss' ? 'active' : ''}" onclick="feedbackRatingFilter='diss';feedbackPage=1;admin()">1-2★ Issues</button>
       </div>
+      <div class="fb-alert-chips-row">
+        <span style="font-size:12px;font-weight:700;color:var(--ink-2);margin-right:4px"><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alerts:</span>
+        <button class="date-pill ${feedbackAlertFilter === 'all' ? 'active' : ''}" onclick="feedbackAlertFilter='all';feedbackPage=1;admin()">All Alerts</button>
+        <button class="date-pill ${feedbackAlertFilter === 'flagged' ? 'active alert-pill-active' : ''}" onclick="feedbackAlertFilter=feedbackAlertFilter==='flagged'?'all':'flagged';feedbackPage=1;admin()"><i class='bx bx-bell'></i> Flagged Attention (${flaggedCount})</button>
+        <button class="date-pill ${feedbackAlertFilter === 'unacknowledged' ? 'active unack-pill-active' : ''}" onclick="feedbackAlertFilter=feedbackAlertFilter==='unacknowledged'?'all':'unacknowledged';feedbackPage=1;admin()"><i class='bx bx-time'></i> Unacknowledged (${unackCount})</button>
+        <button class="date-pill ${feedbackAlertFilter === 'failed' ? 'active failed-pill-active' : ''}" onclick="feedbackAlertFilter=feedbackAlertFilter==='failed'?'all':'failed';feedbackPage=1;admin()"><i class='bx bx-error-circle'></i> Delivery Failed (${failedCount})</button>
+      </div>
     </div>`;
 
   const itemsHtml = pageItems.length ? pageItems.map((r, idx) => {
     const timeStr = r.t ? new Date(r.t).toLocaleString() : 'N/A';
     const sScore = r.a?.q8 != null ? 5 - r.a.q8 : null;
+    const itemAlerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
+    const hasAlerts = itemAlerts.length > 0;
+    const highestSev = itemAlerts[0]?.severity || (r.urgent ? 'critical' : null);
+    const isNeedsAttention = hasAlerts || r.urgent;
+    const isAllAcked = hasAlerts && itemAlerts.every((a) => a.acknowledged_at);
+
+    const attentionBadge = isNeedsAttention
+      ? `<span class="badge-attention"><i class='bx bx-bell'></i> Needs Attention</span>`
+      : '';
+    const severityBadge = highestSev
+      ? `<span class="badge-severity badge-severity-${highestSev}"><i class='bx ${highestSev === 'critical' ? 'bxs-error-circle' : highestSev === 'high' ? 'bxs-error' : 'bx-info-circle'}'></i> ${highestSev.toUpperCase()}</span>`
+      : '';
     const scoreBadge = sScore != null
       ? `<span class="badge-score ${sScore <= 2 ? 'badge-low' : sScore >= 4 ? 'badge-high' : 'badge-mid'}">${sScore}/5 – ${esc(Q.q8.o[r.a.q8][0])}</span>`
       : '';
@@ -2343,9 +2397,11 @@ function feedbacksUI() {
       ${r.urgent ? `<div class="urgent-banner"><i class='bx bxs-bell-ring'></i> <strong>URGENT ATTENTION REQUIRED:</strong> ${esc(r.reason || 'Flagged for immediate review')}</div>` : ''}
       <div class="fb-meta">
         <span><b>#${globalIdx} • ${esc(r.dn || 'OPD Service')}</b> ${catBadge} ${timeSlot ? `• <small>${esc(timeSlot)}</small>` : ''}</span>
-        <span class="fb-meta-right"><span class="fb-view-hint"><i class='bx bx-expand-alt'></i> View details</span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="event.stopPropagation();deleteFeedback('${safeId}')" onkeydown="event.stopPropagation()">Delete feedback</button>` : ''}</span>
+        <span class="fb-meta-right">${hasAlerts && !isAllAcked ? `<button class="adm-btn adm-btn-ack" onclick="event.stopPropagation();acknowledgeAlert('${r.id}')" title="Acknowledge this feedback"><i class='bx bx-check-double'></i> Acknowledge</button>` : isAllAcked ? `<span class="badge-ack"><i class='bx bx-check-circle'></i> Acknowledged</span>` : ''}<span class="fb-view-hint"><i class='bx bx-expand-alt'></i> View details</span><i class='bx bx-calendar'></i> ${esc(timeStr)} ${safeId ? `<button class="adm-btn danger" onclick="event.stopPropagation();deleteFeedback('${safeId}')" onkeydown="event.stopPropagation()">Delete feedback</button>` : ''}</span>
       </div>
       <div style="margin:8px 0;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+        ${attentionBadge}
+        ${severityBadge}
         ${urgentBadge}
         ${scoreBadge}
         ${sentimentBadge}
@@ -2357,6 +2413,43 @@ function feedbacksUI() {
       ${r.a?.q9 ? `<div class="cm" style="margin-top:6px"><b>Requested additional services:</b> ${esc(r.a.q9)}</div>` : ''}
       ${r.a?.q10 ? `<div class="cm" style="margin-top:6px"><b>Comments / Suggestions:</b> ${esc(r.a.q10)}</div>` : ''}
       ${r.reason && !r.urgent ? `<div class="hint" style="margin-top:6px;font-style:italic"><i class='bx bx-info-circle'></i> ${esc(r.reason)}</div>` : ''}
+      ${itemAlerts.map((a) => {
+      const isSent = a.sent_at || ['sent', 'delivered', 'read', 'acknowledged'].includes(a.status);
+      const isDelivered = a.delivered_at || ['delivered', 'read', 'acknowledged'].includes(a.status);
+      const isRead = a.read_at || ['read', 'acknowledged'].includes(a.status);
+      const isAck = a.acknowledged_at || a.status === 'acknowledged';
+      const isFailed = a.status === 'failed';
+      const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+      return `<div class="alert-timeline-card" onclick="event.stopPropagation()">
+          <div class="alert-timeline-header">
+            <span class="alert-timeline-contact"><i class='bx bxl-whatsapp' style="color:#25d366;font-size:16px"></i> <b>${esc(a.recipient_name || 'Staff Contact')}</b> <small style="color:var(--ink-2)">(${esc(a.recipient_phone || '')})</small></span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="alert-timeline-status status-${esc(a.status)}">${esc(a.status)}</span>
+              ${!isAck ? `<button class="adm-btn adm-btn-ack" onclick="event.stopPropagation();acknowledgeAlert('${a.id}')"><i class='bx bx-check-double'></i> Acknowledge</button>` : `<span class="badge-ack"><i class='bx bx-check-circle'></i> Ack</span>`}
+            </div>
+          </div>
+          <div class="alert-timeline-track">
+            <div class="at-step ${isSent ? 'done' : isFailed ? 'failed' : ''}">
+              <span class="at-dot"></span>
+              <span class="at-lbl">Sent${a.sent_at ? `<br><small>${fmtTime(a.sent_at)}</small>` : ''}</span>
+            </div>
+            <div class="at-step ${isDelivered ? 'done' : ''}">
+              <span class="at-dot"></span>
+              <span class="at-lbl">Delivered${a.delivered_at ? `<br><small>${fmtTime(a.delivered_at)}</small>` : ''}</span>
+            </div>
+            <div class="at-step ${isRead ? 'done' : ''}">
+              <span class="at-dot"></span>
+              <span class="at-lbl">Read${a.read_at ? `<br><small>${fmtTime(a.read_at)}</small>` : ''}</span>
+            </div>
+            <div class="at-step ${isAck ? 'done' : ''}">
+              <span class="at-dot"></span>
+              <span class="at-lbl">Acknowledged${a.acknowledged_at ? `<br><small>${fmtTime(a.acknowledged_at)}</small>` : ''}</span>
+            </div>
+          </div>
+          ${a.last_error ? `<div class="alert-error-hint"><i class='bx bx-error-circle'></i> <b>Delivery issue:</b> ${esc(a.last_error)}</div>` : ''}
+          ${a.acknowledged_at ? `<div class="alert-ack-note"><i class='bx bx-check-shield'></i> Acknowledged by <b>${esc(a.acknowledged_by || 'Staff')}</b> on ${new Date(a.acknowledged_at).toLocaleString()}</div>` : ''}
+        </div>`;
+    }).join('')}
     </div>`;
   }).join('') : `<div style="text-align:center;padding:32px 16px"><p class="hint">No feedback submissions match your active filter criteria.</p><button class="adm-btn" onclick="feedbackSearchQuery='';feedbackServiceFilter='all';feedbackRatingFilter='all';feedbackUrgentFilter='all';feedbackSentimentFilter='all';feedbackLanguageFilter='all';cohortFilter='all';setDateFilter('all');">Reset all filters</button></div>`;
 
@@ -2450,6 +2543,53 @@ function openFeedbackDetail(respIdx, displayNum) {
       ${r.reason ? `<div class="fbd-reason-box"><i class='bx bx-info-circle'></i> <span><strong>Analysis Reason:</strong> ${esc(r.reason)}</span></div>` : ''}
       ${r.signals && r.signals.length ? `<div class="fbd-signals-row"><span class="fbd-signals-label">Triggered Signals:</span> ${r.signals.map((s) => `<span class="fbd-signal-chip">${esc(s)}</span>`).join('')}</div>` : ''}
     </section>
+    ${(() => {
+      const itemAlerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
+      if (!itemAlerts.length) return '';
+      return `<section class="fbd-section fbd-whatsapp-alert-section">
+        <h4><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alert & Delivery Tracking</h4>
+        ${itemAlerts.map((a) => {
+        const isSent = a.sent_at || ['sent', 'delivered', 'read', 'acknowledged'].includes(a.status);
+        const isDelivered = a.delivered_at || ['delivered', 'read', 'acknowledged'].includes(a.status);
+        const isRead = a.read_at || ['read', 'acknowledged'].includes(a.status);
+        const isAck = a.acknowledged_at || a.status === 'acknowledged';
+        const isFailed = a.status === 'failed';
+        const fmtTime = (ts) => ts ? new Date(ts).toLocaleString() : '';
+        return `<div class="alert-timeline-card" style="margin-bottom:12px">
+            <div class="alert-timeline-header">
+              <div>
+                <strong>${esc(a.recipient_name || 'Staff Contact')}</strong> (${esc(a.recipient_phone || 'WhatsApp')})
+                <span class="badge-severity badge-severity-${esc(a.severity || 'normal')}" style="margin-left:6px">${esc((a.severity || 'normal').toUpperCase())}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="alert-timeline-status status-${esc(a.status)}">${esc(a.status)}</span>
+                ${!isAck ? `<button class="adm-btn adm-btn-ack" onclick="acknowledgeAlert('${a.id}');closeFeedbackDetail();"><i class='bx bx-check-double'></i> Acknowledge Alert</button>` : `<span class="badge-ack"><i class='bx bx-check-circle'></i> Acknowledged</span>`}
+              </div>
+            </div>
+            <div class="alert-timeline-track">
+              <div class="at-step ${isSent ? 'done' : isFailed ? 'failed' : ''}">
+                <span class="at-dot"></span>
+                <span class="at-lbl">Sent${a.sent_at ? `<br><small>${fmtTime(a.sent_at)}</small>` : ''}</span>
+              </div>
+              <div class="at-step ${isDelivered ? 'done' : ''}">
+                <span class="at-dot"></span>
+                <span class="at-lbl">Delivered${a.delivered_at ? `<br><small>${fmtTime(a.delivered_at)}</small>` : ''}</span>
+              </div>
+              <div class="at-step ${isRead ? 'done' : ''}">
+                <span class="at-dot"></span>
+                <span class="at-lbl">Read${a.read_at ? `<br><small>${fmtTime(a.read_at)}</small>` : ''}</span>
+              </div>
+              <div class="at-step ${isAck ? 'done' : ''}">
+                <span class="at-dot"></span>
+                <span class="at-lbl">Acknowledged${a.acknowledged_at ? `<br><small>${fmtTime(a.acknowledged_at)}</small>` : ''}</span>
+              </div>
+            </div>
+            ${a.last_error ? `<div class="alert-error-hint"><i class='bx bx-error-circle'></i> <b>Error:</b> ${esc(a.last_error)}</div>` : ''}
+            ${a.acknowledged_at ? `<div class="alert-ack-note"><i class='bx bx-check-shield'></i> Acknowledged by ${esc(a.acknowledged_by || 'Staff')} at ${new Date(a.acknowledged_at).toLocaleString()}</div>` : ''}
+          </div>`;
+      }).join('')}
+      </section>`;
+    })()}
     <section class="fbd-section"><h4><i class='bx bx-list-check'></i> Survey Responses</h4>
       ${['q1', 'q2', 'q3'].map(singleRow).join('')}
       ${multiRow('q4')}
@@ -2537,8 +2677,8 @@ function renderDeptRows() {
       </div>
       <div class="svc-actions">
         ${d.active
-          ? `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',false)"><i class='bx bx-pause'></i> Deactivate</button>`
-          : `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',true)"><i class='bx bx-revision'></i> Restore</button>`}
+        ? `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',false)"><i class='bx bx-pause'></i> Deactivate</button>`
+        : `<button class="adm-btn" type="button" id="svc-toggle-btn-${safeId}" onclick="setDepartmentActive('${safeId}',true)"><i class='bx bx-revision'></i> Restore</button>`}
         <button class="adm-btn danger" type="button" id="svc-del-btn-${safeId}" onclick="deleteDepartment('${safeId}')"><i class='bx bx-trash'></i> Delete</button>
       </div>
     </article>`;
@@ -2875,7 +3015,7 @@ function exportUI() {
   const dateBarHtml = renderDateFilterBar('Export Center');
   return dateBarHtml + `<div class="card">
     <div class="export-banner">
-      <img src="logo-optimized.jpg" alt="DMC" width="760" height="221" decoding="async">
+      <img src="logo.svg" alt="DMC" width="760" height="221" decoding="async">
       <div>
         <h3>DMC Hospital — Data &amp; Presentation Export Center</h3>
         <p>Download executive Excel workbooks and PowerPoint presentations with the official DMC logo, brand colors, visual charts, and active date filters applied (${filtered.length} records • ${esc(dateLabel)}).</p>
@@ -3913,7 +4053,7 @@ function renderPresentationMode() {
               <td><b>${r[1]}</b></td>
               <td><span class="cohort-badge new">${r[2]}</span></td>
               <td><span class="cohort-badge ret">${r[3]}</span></td>
-              <td><span class="badge-score ${ parseFloat(r[4]) < 3 ? 'badge-low' : parseFloat(r[4]) >= 4 ? 'badge-high' : 'badge-mid' }">${esc(r[4])} / 5</span></td>
+              <td><span class="badge-score ${parseFloat(r[4]) < 3 ? 'badge-low' : parseFloat(r[4]) >= 4 ? 'badge-high' : 'badge-mid'}">${esc(r[4])} / 5</span></td>
               <td style="color:#03543f;font-weight:700">${esc(r[6])}</td>
               <td style="color:#c81e1e;font-weight:700">${esc(r[8])}</td>
               <td>${esc(r[10])}</td>
@@ -3957,7 +4097,7 @@ function renderPresentationMode() {
   return `<div class="pres-deck-wrap" role="region" aria-label="Executive Presentation Mode">
     <div class="pres-topbar">
       <div class="pres-brand">
-        <img src="logo-optimized.jpg" alt="DMC" width="120" height="35">
+        <img src="logo.svg" alt="DMC" width="120" height="35">
         <div>
           <span class="pres-badge"><i class='bx bx-tv'></i> PRESENTATION MODE</span>
           <h3>DMC Hospital Executive Deck</h3>
@@ -4126,12 +4266,272 @@ addEventListener('hashchange', () => {
 });
 addEventListener('focus', refreshDashboardFeedback);
 addEventListener('dmc-auth-state-change', (event) => {
-if (event.detail.event === 'SIGNED_OUT') {
-  adminSession = null;
-  stopDashboardFeedbackRefresh();
-  feedbackResponses = [];
-  adminDataLoaded = false;
-  if (location.hash === '#admin') location.assign('login.html');
-}
+  if (event.detail.event === 'SIGNED_OUT') {
+    adminSession = null;
+    stopDashboardFeedbackRefresh();
+    feedbackResponses = [];
+    adminDataLoaded = false;
+    if (location.hash === '#admin') location.assign('login.html');
+  }
 });
 startApp();
+
+/* ==========================================================================
+   WhatsApp Alerts & Staff Contacts Management Client Logic
+   ========================================================================== */
+
+async function acknowledgeAlert(alertOrFeedbackId) {
+  try {
+    await apiRequest('/api/admin/alerts/' + encodeURIComponent(alertOrFeedbackId) + '/acknowledge', 'POST', {});
+    feedbackAlerts = feedbackAlerts.map((a) => {
+      if (a.id === alertOrFeedbackId || a.feedback_id === alertOrFeedbackId) {
+        return {
+          ...a,
+          status: 'acknowledged',
+          acknowledged_at: new Date().toISOString(),
+          acknowledged_by: adminSession?.user?.name || adminSession?.user?.username || 'Dashboard Staff'
+        };
+      }
+      return a;
+    });
+    admin();
+  } catch (err) {
+    console.error('Failed to acknowledge alert:', err);
+    alert('Could not acknowledge alert: ' + (err.message || 'Unknown error'));
+  }
+}
+
+async function loadAlertContacts() {
+  alertContactsLoading = true;
+  alertContactsError = '';
+  admin();
+  try {
+    const contacts = await apiRequest('/api/admin/alert-contacts');
+    alertContacts = Array.isArray(contacts) ? contacts : [];
+    alertContactsLoaded = true;
+  } catch (err) {
+    console.error('Failed to load alert contacts:', err);
+    alertContactsError = 'Could not load alert contacts. Please check your admin permissions.';
+  } finally {
+    alertContactsLoading = false;
+    admin();
+  }
+}
+
+function openAddContactModal() {
+  showAddContactModal = true;
+  admin();
+}
+
+function closeAddContactModal() {
+  showAddContactModal = false;
+  admin();
+}
+
+async function handleSaveAlertContact(event) {
+  event.preventDefault();
+  const form = event.target;
+  const name = form.name.value.trim();
+  const phone = form.phone.value.trim();
+  const deptId = form.department_id.value || null;
+  const role = form.role.value.trim();
+  const isDutyMgr = form.is_duty_manager.checked;
+  const minSev = form.min_severity.value;
+  const alertEnabled = form.alert_enabled.checked;
+  const optIn = form.opt_in.checked;
+
+  if (!name || !phone) {
+    alert('Please enter both name and phone number.');
+    return;
+  }
+
+  if (!/^\+250\d{9}$/.test(phone.replace(/\s+/g, '')) && !/^\+[1-9]\d{7,14}$/.test(phone.replace(/\s+/g, ''))) {
+    alert('Phone number must be in E.164 format (e.g. +250788123456).');
+    return;
+  }
+
+  try {
+    await apiRequest('/api/admin/alert-contacts', 'POST', {
+      name,
+      phone_e164: phone.replace(/\s+/g, ''),
+      department_id: deptId,
+      role: role || 'Staff',
+      is_duty_manager: isDutyMgr,
+      min_severity: minSev,
+      alert_enabled: alertEnabled,
+      opt_in: optIn
+    });
+    showAddContactModal = false;
+    await loadAlertContacts();
+  } catch (err) {
+    console.error('Failed to save alert contact:', err);
+    alert('Could not save alert contact: ' + (err.message || 'Error occurred'));
+  }
+}
+
+async function handleDeleteAlertContact(id, name) {
+  if (!confirm('Are you sure you want to delete alert contact ' + name + '?')) return;
+  try {
+    await apiRequest('/api/admin/alert-contacts/' + encodeURIComponent(id), 'DELETE');
+    alertContacts = alertContacts.filter((c) => c.id !== id);
+    admin();
+  } catch (err) {
+    console.error('Failed to delete alert contact:', err);
+    alert('Could not delete contact: ' + (err.message || 'Error occurred'));
+  }
+}
+
+async function handleToggleAlertContact(id, currentEnabled) {
+  const contact = alertContacts.find((c) => c.id === id);
+  if (!contact) return;
+  try {
+    await apiRequest('/api/admin/alert-contacts', 'POST', {
+      id: contact.id,
+      name: contact.name,
+      phone_e164: contact.phone_e164,
+      department_id: contact.department_id,
+      role: contact.role,
+      is_duty_manager: contact.is_duty_manager,
+      min_severity: contact.min_severity,
+      alert_enabled: !currentEnabled,
+      opt_in: Boolean(contact.whatsapp_opt_in_at)
+    });
+    contact.alert_enabled = !currentEnabled;
+    admin();
+  } catch (err) {
+    console.error('Failed to toggle contact:', err);
+    alert('Could not update contact status: ' + (err.message || 'Error occurred'));
+  }
+}
+
+async function handleTestAlertContact(id, name) {
+  try {
+    const res = await apiRequest('/api/admin/alert-contacts/' + encodeURIComponent(id) + '/test', 'POST', {});
+    const dryRun = res.result?.dryRun;
+    alert('Test alert dispatched to ' + name + '!\n' +
+      (dryRun ? '(System is in DRY-RUN mode; logged to server without charging WhatsApp).' : 'Delivered via Meta WhatsApp API.') +
+      '\nMessage ID: ' + (res.result?.messageId || 'simulated'));
+  } catch (err) {
+    console.error('Test alert failed:', err);
+    alert('Test alert failed: ' + (err.message || 'Error sending test'));
+  }
+}
+
+function alertContactsUI() {
+  if (alertContactsLoading) {
+    return `<div class="card" style="text-align:center;padding:40px"><span class="um-pulse-dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--red)"></span><p class="hint" style="margin-top:12px">Loading alert contacts...</p></div>`;
+  }
+  if (alertContactsError) {
+    return `<div class="card" role="alert"><p class="error">${esc(alertContactsError)}</p><button class="adm-btn" onclick="loadAlertContacts()">Retry</button></div>`;
+  }
+
+  const deptList = (cfg.depts || []).filter((d) => d.active);
+
+  const modalHtml = showAddContactModal ? `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px" onclick="if(event.target===this)closeAddContactModal()">
+      <div class="card" style="max-width:500px;width:100%;margin:0;box-shadow:var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
+          <h3 style="margin:0"><i class='bx bxl-whatsapp' style="color:#25d366"></i> Add WhatsApp Alert Contact</h3>
+          <button class="dialog-close-btn" type="button" onclick="closeAddContactModal()">&times;</button>
+        </div>
+        <form onsubmit="handleSaveAlertContact(event)" style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Full Name</label>
+            <input type="text" name="name" required placeholder="e.g. Dr. Keza Alice or Sister Marie" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">E.164 WhatsApp Phone Number</label>
+            <input type="tel" name="phone" required placeholder="+250788123456" pattern="^\+[1-9]\d{7,14}$" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+            <small class="hint" style="font-size:11.5px">Must include country code, e.g. +250 for Rwanda followed by 9 digits.</small>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Assigned Department</label>
+            <select name="department_id" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+              <option value="">All Departments (Hospital-Wide / Duty Pool)</option>
+              ${deptList.map((d) => `<option value="${esc(d.id)}">${esc(d.n[0])}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Role / Title</label>
+            <input type="text" name="role" placeholder="e.g. Head Nurse, Quality Manager, Duty Physician" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Minimum Severity Threshold</label>
+            <select name="min_severity" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+              <option value="normal">Normal (All flagged feedback: critical, high & normal)</option>
+              <option value="high">High (High & Critical severity only)</option>
+              <option value="critical">Critical Only (Safety alarms, abuse, clinical harm)</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;padding:8px 0">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" name="is_duty_manager" value="1">
+              <span><b>Duty Manager:</b> Receives all Critical alerts hospital-wide & unacknowledged escalations.</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" name="opt_in" value="1" checked>
+              <span><b>WhatsApp Opt-In Consent:</b> Staff member consented to receive alerts at this number.</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" name="alert_enabled" value="1" checked>
+              <span><b>Enable Alerts:</b> Actively dispatch notifications to this contact.</span>
+            </label>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+            <button type="button" class="adm-btn" onclick="closeAddContactModal()">Cancel</button>
+            <button type="submit" class="adm-btn primary"><i class='bx bx-check'></i> Save Contact</button>
+          </div>
+        </form>
+      </div>
+    </div>` : '';
+
+  const contactsHtml = alertContacts.length ? `
+    <div class="contacts-grid">
+      ${alertContacts.map((c) => `
+        <div class="contact-card ${c.alert_enabled ? '' : 'disabled'}">
+          <div class="contact-card-top">
+            <div>
+              <h4 class="contact-card-title">${esc(c.name)}</h4>
+              <div class="contact-card-meta">
+                <span><i class='bx bxl-whatsapp' style="color:#25d366"></i> <strong>${esc(c.phone_e164)}</strong></span>
+                <span><i class='bx bx-buildings'></i> ${esc(c.department_name || 'Hospital-Wide / All Departments')}</span>
+                <span><i class='bx bx-id-card'></i> ${esc(c.role || 'Staff')}</span>
+              </div>
+            </div>
+          </div>
+          <div class="contact-card-badges">
+            ${c.is_duty_manager ? '<span class="badge-duty-mgr"><i class=\'bx bx-shield-quarter\'></i> Duty Manager</span>' : ''}
+            <span class="badge-severity badge-severity-${esc(c.min_severity || 'normal')}">Min: ${esc(c.min_severity || 'normal')}</span>
+            ${c.whatsapp_opt_in_at ? '<span class="badge-optin-yes"><i class=\'bx bx-check\'></i> Opted-In</span>' : '<span class="badge-optin-no"><i class=\'bx bx-error\'></i> Opt-in Pending</span>'}
+            <span class="user-role status-${c.alert_enabled ? 'approved' : 'deactivated'}" style="font-size:11px">${c.alert_enabled ? 'Alerts ON' : 'Paused'}</span>
+          </div>
+          <div class="contact-card-actions">
+            <button class="adm-btn adm-btn-test-alert" onclick="handleTestAlertContact('${c.id}', '${esc(c.name)}')"><i class='bx bx-send'></i> Send Test Alert</button>
+            <button class="adm-btn" onclick="handleToggleAlertContact('${c.id}', ${c.alert_enabled})">${c.alert_enabled ? 'Pause' : 'Resume'}</button>
+            <button class="adm-btn danger" onclick="handleDeleteAlertContact('${c.id}', '${esc(c.name)}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>`).join('')}
+    </div>` : `
+    <div style="text-align:center;padding:48px 16px;background:var(--surface-2);border-radius:var(--radius-md);border:1px dashed var(--border)">
+      <i class='bx bxl-whatsapp' style="font-size:48px;color:#25d366;margin-bottom:8px"></i>
+      <h3 style="margin:4px 0">No WhatsApp Alert Contacts Configured</h3>
+      <p class="hint" style="max-width:440px;margin:4px auto 16px">Add on-duty nurses, departmental supervisors, and duty managers to receive instant alerts when patients report critical concerns.</p>
+      <button class="adm-btn primary" onclick="openAddContactModal()"><i class='bx bx-plus'></i> Add First Contact</button>
+    </div>`;
+
+  return `
+    ${modalHtml}
+    <div class="card">
+      <div class="contacts-header-bar">
+        <div>
+          <h3 style="margin:0"><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alert Contacts (${alertContacts.length})</h3>
+          <p class="hint" style="margin:2px 0 0">Route negative and urgent patient feedback to authorized hospital staff via WhatsApp Cloud API. Messages contain NO patient names or text.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="adm-btn" onclick="loadAlertContacts()"><i class='bx bx-refresh'></i> Refresh</button>
+          <button class="adm-btn primary" onclick="openAddContactModal()"><i class='bx bx-user-plus'></i> Add Contact</button>
+        </div>
+      </div>
+      ${contactsHtml}
+    </div>`;
+}

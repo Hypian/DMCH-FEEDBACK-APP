@@ -752,7 +752,7 @@ test('activity log prints user full names on frontend while keeping account hash
 test('intro language changes in place and loads departments from the Node API', async () => {
   const { app, context, storage, backendState } = makeContext();
   vm.runInContext('renderIntro(false)', context);
-  assert.match(app.innerHTML, /<img class="intro-logo" src="logo-optimized\.jpg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async">/);
+  assert.match(app.innerHTML, /<img class="intro-logo" src="logo\.svg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async">/);
   assert.doesNotMatch(app.innerHTML, /✦/);
   const rendersBeforeLanguageChange = app.renderCount;
 
@@ -1050,4 +1050,38 @@ test('Presentation Mode opens, navigates slides, switches chart styles, and expo
   assert.equal(pptxReports[2].rows[0][0], 'General medicine');
   assert.equal(pptxReports[3].rows.length, 2);
   assert.equal(backendState.reportExports.filter((e) => e.format === 'pptx').length, 4);
+});
+
+test('both feedback app and admin dashboard use logo.svg for the hospital logo', () => {
+  const indexHtml = fs.readFileSync(frontendPath('index.html'), 'utf8');
+  assert.match(indexHtml, /<img src="logo\.svg" alt="DMC"/);
+
+  const loginHtml = fs.readFileSync(frontendPath('login.html'), 'utf8');
+  assert.match(loginHtml, /<img src="logo\.svg"/);
+
+  const signupHtml = fs.readFileSync(frontendPath('signup.html'), 'utf8');
+  assert.match(signupHtml, /<img src="logo\.svg"/);
+
+  const { app, context } = makeContext();
+  vm.runInContext('renderIntro(false)', context);
+  assert.match(app.innerHTML, /<img class="intro-logo" src="logo\.svg"/);
+
+  vm.runInContext("S={lang:'en',dept:null,a:{}}; i=0; render(false)", context);
+  assert.match(app.innerHTML, /<div class="top-row"><img src="logo\.svg"/);
+
+  vm.runInContext('admin()', context);
+  assert.match(app.innerHTML, /<div class="adm-brand">\s*<img src="logo\.svg"/);
+
+  const exportHtml = vm.runInContext('exportUI()', context);
+  assert.match(exportHtml, /<div class="export-banner">\s*<img src="logo\.svg"/);
+
+  const presHtml = vm.runInContext('renderPresentationMode()', context);
+  assert.match(presHtml, /<div class="pres-brand">\s*<img src="logo\.svg"/);
+
+  vm.runInContext('renderComplete()', context);
+  assert.doesNotMatch(app.innerHTML, /brand-reveal-video/);
+  assert.match(indexHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
+  assert.match(loginHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
+  assert.match(signupHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4" poster="logo\.svg"/);
+  assert.equal(fs.existsSync(frontendPath('logo-reveal.mp4')), true);
 });

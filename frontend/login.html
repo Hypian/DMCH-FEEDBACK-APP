@@ -13,6 +13,8 @@
   <title>Sign in – DMC Hospital</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMzIgNTJDMzIgNTIgMTAgMzggMTAgMjRjMC03LjcgNi4zLTE0IDE0LTE0IDMuOCAwIDcuMiAxLjggOCAzLjIuOC0xLjQgNC4yLTMuMiA4LTMuMiA3LjcgMCAxNCA2LjMgMTQgMTQgMCAxNC0yMiAyOC0yMiAyOHoiIGZpbGw9IiNFNTRCMkIiLz48cmVjdCB4PSIyOSIgeT0iMTgiIHdpZHRoPSI2IiBoZWlnaHQ9IjE4IiByeD0iMiIgZmlsbD0iI2ZmZiIvPjxyZWN0IHg9IjIzIiB5PSIyNCIgd2lkdGg9IjE4IiBoZWlnaHQ9IjYiIHJ4PSIyIiBmaWxsPSIjZmZmIi8+PC9zdmc+">
   <link rel="apple-touch-icon" href="logo-optimized.jpg">
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+  <link rel="dns-prefetch" href="https://unpkg.com">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" media="print" onload="this.media='all'">
@@ -20,11 +22,12 @@
   <link rel="stylesheet" href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"></noscript>
   <link rel="stylesheet" href="styles.css">
+  <link rel="preload" as="image" href="logo.svg" type="image/svg+xml" fetchpriority="high">
 </head>
 
 <body data-auth-page="login">
   <main class="auth-card">
-    <a class="auth-brand" href="index.html"><img src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221"></a>
+    <a class="auth-brand brand-reveal-stage auth-logo-stage" href="index.html"><img src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221"><video class="brand-reveal-video" src="logo-reveal.mp4" poster="logo.svg" autoplay muted playsinline preload="metadata" aria-hidden="true" onplaying="this.parentElement.classList.add('video-playing')" onerror="this.parentElement.classList.remove('video-playing')"></video></a>
     <p class="eyebrow">Admin access</p>
     <h1>Sign in</h1>
     <p class="intro-copy">Sign in to your DMC account.</p>
