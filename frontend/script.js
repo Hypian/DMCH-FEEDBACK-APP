@@ -1680,6 +1680,119 @@ function admin() {
     }</div>`;
 }
 
+function getCategoryMeta(cat) {
+  if (cat === 'managing_director') {
+    return {
+      key: 'managing_director',
+      label: 'Managing Director (Executive Leadership & Escalations)',
+      shortLabel: 'Managing Director',
+      desc: 'Executive Leadership, Critical Escalations & Governance',
+      icon: 'bx-crown',
+      color: '#7c3aed'
+    };
+  }
+  if (cat === 'public_relations') {
+    return {
+      key: 'public_relations',
+      label: 'Public Relations (Customer Care, Reception, Billing)',
+      shortLabel: 'Public Relations',
+      desc: 'Reception, Billing, Wait Times, Cashier & Customer Care',
+      icon: 'bx-user-voice',
+      color: '#0284c7'
+    };
+  }
+  if (cat === 'all') {
+    return {
+      key: 'all',
+      label: 'All Categories (General Operations Lead)',
+      shortLabel: 'All Categories',
+      desc: 'Receives alerts across Clinical, PR, and Executive tracks',
+      icon: 'bx-buildings',
+      color: '#475569'
+    };
+  }
+  return {
+    key: 'clinical',
+    label: 'Clinical (Doctor, Nurse, Inpatient Care)',
+    shortLabel: 'Clinical',
+    desc: 'Doctors, Nursing Care, Diagnostics & Inpatient Medical Staff',
+    icon: 'bx-plus-medical',
+    color: '#059669'
+  };
+}
+
+function buildUpdatePhoneModalInnerHtml() {
+  if (!editingUserPhone) return '';
+  const curCat = editingUserPhone.category || 'clinical';
+  const catOptions = ['clinical', 'public_relations', 'managing_director'].map((key) => {
+    const m = getCategoryMeta(key);
+    const active = curCat === key ? 'active' : '';
+    return `<button type="button" class="pm-cat-card ${active}" data-cat="${key}" onclick="selectPhoneModalCategory('${key}')">
+      <span class="pm-cat-icon"><i class='bx ${m.icon}'></i></span>
+      <span class="pm-cat-info">
+        <span class="pm-cat-title">${esc(m.shortLabel)}</span>
+        <span class="pm-cat-desc">${esc(m.desc)}</span>
+      </span>
+      <span class="pm-cat-check"><i class='bx bx-check'></i></span>
+    </button>`;
+  }).join('');
+
+  return `
+    <div class="pm-modal-header">
+      <div class="pm-modal-header-main">
+        <div class="pm-modal-badge-icon" aria-hidden="true"><i class='bx bx-phone-call'></i></div>
+        <div>
+          <span class="pm-modal-eyebrow">SMS & AI Routing Profile</span>
+          <h3 class="pm-modal-title" id="user-phone-dialog-title">Update Phone & Category Tag</h3>
+          <p class="pm-modal-subtitle">Set the InTouch SMS destination and Gemini AI feedback routing category for <b>${esc(editingUserPhone.name)}</b>.</p>
+        </div>
+      </div>
+      <button class="dialog-close-btn" type="button" onclick="closeUpdatePhoneModal()" aria-label="Close dialog">&times;</button>
+    </div>
+    <form onsubmit="handleSaveUserPhone(event)">
+      <div class="pm-modal-body">
+        <div class="pm-error-banner" id="user-phone-modal-error" role="alert" hidden>
+          <i class='bx bx-error-circle'></i>
+          <span id="user-phone-modal-error-text"></span>
+        </div>
+        <div class="pm-field">
+          <label class="pm-label" for="user-phone-input">
+            <span>Phone Number (InTouch SMS)</span>
+            <span class="pm-label-tag"><i class='bx bx-broadcast'></i> Sender: 0788766853</span>
+          </label>
+          <div class="pm-input-wrap">
+            <i class='bx bx-phone pm-input-icon' aria-hidden="true"></i>
+            <input type="tel" id="user-phone-input" name="phone" class="pm-input" value="${esc(editingUserPhone.phone || '')}" placeholder="0788123456 or +250788123456" autocomplete="tel" oninput="const err=$('user-phone-modal-error');if(err)err.hidden=true;">
+          </div>
+          <p class="pm-hint">Rwanda mobile format (078 / 079 / 072 / 073) or international (+250...). Leave blank to disable SMS alerts for this account.</p>
+        </div>
+        <div class="pm-field">
+          <label class="pm-label" for="user-phone-category-select">
+            <span>Hospital Routing Category</span>
+            <span class="pm-label-tag"><i class='bx bx-bot'></i> Gemini AI Tag</span>
+          </label>
+          <div class="dmc-select-wrap">
+            <i class='bx bx-category-alt dmc-select-icon' aria-hidden="true"></i>
+            <select name="category" id="user-phone-category-select" class="dmc-select" onchange="selectPhoneModalCategory(this.value)">
+              <option value="clinical" ${curCat === 'clinical' ? 'selected' : ''}>Clinical (Doctor, Nurse, Inpatient Care)</option>
+              <option value="public_relations" ${curCat === 'public_relations' ? 'selected' : ''}>Public Relations (Customer Care, Reception, Billing)</option>
+              <option value="managing_director" ${curCat === 'managing_director' ? 'selected' : ''}>Managing Director (Executive Leadership & Escalations)</option>
+            </select>
+            <i class='bx bx-chevron-down dmc-select-arrow' aria-hidden="true"></i>
+          </div>
+          <div class="pm-category-cards" role="radiogroup" aria-label="Select routing category tag">
+            ${catOptions}
+          </div>
+          <p class="pm-hint">Gemini AI classifies urgent patient complaints and dispatches real-time SMS summaries to staff tagged with the matching category.</p>
+        </div>
+      </div>
+      <div class="pm-modal-footer">
+        <button type="button" class="adm-btn" onclick="closeUpdatePhoneModal()">Cancel</button>
+        <button type="submit" class="adm-btn primary"><i class='bx bx-check-shield'></i> Save Phone & Tag</button>
+      </div>
+    </form>`;
+}
+
 function renderUserManagementContent() {
   if (userManagementError) {
     return `<section class="card" role="alert"><p class="error">${esc(userManagementError)}</p><button class="btn" onclick="loadUserManagement()">Try again</button></section>`;
@@ -1693,34 +1806,11 @@ function renderUserManagementContent() {
     ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
     : '<p class="hint">There are no administrators to display.</p>'
     }</section>`;
-  const phoneModalHtml = editingUserPhone ? `
-    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px" onclick="if(event.target===this)closeUpdatePhoneModal()">
-      <div class="card" style="max-width:480px;width:100%;margin:0;box-shadow:var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
-          <h3 style="margin:0"><i class='bx bx-phone' style="color:var(--red)"></i> Update Phone & Category</h3>
-          <button class="dialog-close-btn" type="button" onclick="closeUpdatePhoneModal()">&times;</button>
-        </div>
-        <p class="hint" style="margin-top:-6px;margin-bottom:14px">Set the InTouch SMS destination and Gemini feedback routing category for <b>${esc(editingUserPhone.name)}</b>.</p>
-        <form onsubmit="handleSaveUserPhone(event)" style="display:flex;flex-direction:column;gap:12px">
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Phone Number (InTouch SMS)</label>
-            <input type="tel" name="phone" value="${esc(editingUserPhone.phone || '')}" placeholder="0788123456 or +250788123456" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-            <small class="hint" style="font-size:11.5px">Rwanda mobile format (078/079/072/073) or international (+250...). Leave blank to disable SMS alerts.</small>
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Hospital Routing Category (Gemini AI)</label>
-            <select name="category" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-              <option value="clinical" ${editingUserPhone.category === 'clinical' ? 'selected' : ''}>Clinical (Doctor, Nurse, Inpatient Care)</option>
-              <option value="public_relations" ${editingUserPhone.category === 'public_relations' ? 'selected' : ''}>Public Relations (Customer Care, Reception, Billing)</option>
-              <option value="managing_director" ${editingUserPhone.category === 'managing_director' ? 'selected' : ''}>Managing Director (Executive Leadership & Escalations)</option>
-            </select>
-            <small class="hint" style="font-size:11.5px">Gemini classifies incoming patient feedback and routes alerts to the appropriate category staff.</small>
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-            <button type="button" class="adm-btn" onclick="closeUpdatePhoneModal()">Cancel</button>
-            <button type="submit" class="adm-btn primary"><i class='bx bx-check'></i> Save</button>
-          </div>
-        </form>
+  const hasNativePhoneDialog = Boolean($('user-phone-dialog') && typeof $('user-phone-dialog').showModal === 'function');
+  const phoneModalHtml = editingUserPhone && !hasNativePhoneDialog ? `
+    <div class="pm-modal-overlay-fallback" onclick="if(event.target===this)closeUpdatePhoneModal()">
+      <div class="pm-modal-card">
+        ${buildUpdatePhoneModalInnerHtml()}
       </div>
     </div>` : '';
 
@@ -2007,7 +2097,18 @@ async function loadUserManagement(silent = false) {
 }
 
 async function reviewUser(userId, status) {
-  if (status === 'rejected' && !confirm('Decline this account request?')) return;
+  if (status === 'rejected') {
+    const ok = await showActionDialog({
+      icon: 'bx-user-x',
+      tone: 'danger',
+      badge: 'Account Review',
+      title: 'Decline Account Request?',
+      description: 'This pending account request will be declined and will not receive dashboard access.',
+      confirmLabel: 'Decline request',
+      confirmIcon: 'bx-x'
+    });
+    if (!ok) return;
+  }
   const approveBtn = $(`pending-approve-btn-${userId}`) || $(`user-approve-btn-${userId}`);
   const declineBtn = $(`pending-decline-btn-${userId}`) || $(`user-decline-btn-${userId}`);
   const pendingCard = $(`pending-user-${userId}`);
@@ -2072,16 +2173,38 @@ async function reviewUser(userId, status) {
       declineBtn.disabled = false;
       declineBtn.innerHTML = "<i class='bx bx-x'></i> Decline";
     }
-    alert('The account request could not be updated. Please try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Review Failed',
+      title: 'Could Not Update Account',
+      description: 'The account request could not be updated. Please try again.'
+    });
   }
 }
 
 async function setUserStatus(userId, status) {
   const isDeactivate = status === 'deactivated';
-  const confirmMsg = isDeactivate
-    ? 'Are you sure you want to deactivate this account? The user will immediately lose access.'
-    : 'Reactivate this account and restore access?';
-  if (!confirm(confirmMsg)) return;
+  const ok = await showActionDialog(isDeactivate
+    ? {
+      icon: 'bx-block',
+      tone: 'danger',
+      badge: 'Account Access',
+      title: 'Deactivate User Account?',
+      description: 'Are you sure you want to deactivate this account? The user will immediately lose dashboard access.',
+      confirmLabel: 'Deactivate account',
+      confirmIcon: 'bx-block'
+    }
+    : {
+      icon: 'bx-check-shield',
+      tone: 'success',
+      badge: 'Account Access',
+      title: 'Reactivate User Account?',
+      description: 'Reactivate this account and restore dashboard access?',
+      confirmLabel: 'Reactivate account',
+      confirmIcon: 'bx-check-shield'
+    });
+  if (!ok) return;
 
   const btn = $(`user-status-btn-${userId}`);
   if (btn) {
@@ -2125,7 +2248,19 @@ async function setUserStatus(userId, status) {
 async function setUserRole(userId, role, enabled) {
   const targetUser = managedUsers.find((u) => u.user_id === userId);
   const action = enabled ? 'grant' : 'remove';
-  if (!enabled && !confirm(`Are you sure you want to ${action} this ${role === 'supreme' ? 'supreme-admin' : 'administrator'} role?`)) return;
+  if (!enabled) {
+    const roleLabel = role === 'supreme' ? 'supreme-admin' : 'administrator';
+    const ok = await showActionDialog({
+      icon: 'bx-shield-x',
+      tone: 'warning',
+      badge: 'Role Permission',
+      title: `Remove ${role === 'supreme' ? 'Supreme Admin' : 'Admin'} Role?`,
+      description: `Are you sure you want to remove this ${roleLabel} role from ${targetUser?.name || targetUser?.username || 'this account'}?`,
+      confirmLabel: 'Remove role',
+      confirmIcon: 'bx-shield-x'
+    });
+    if (!ok) return;
+  }
 
   const btn = $(`user-${role}-btn-${userId}`);
   if (btn) {
@@ -2176,7 +2311,16 @@ async function deleteUser(userId, username) {
     return;
   }
   const label = username ? `@${username}` : 'this user';
-  if (!confirm(`Are you sure you want to permanently delete the account ${label}? This cannot be undone.`)) return;
+  const ok = await showActionDialog({
+    icon: 'bx-user-x',
+    tone: 'danger',
+    badge: 'Delete Account',
+    title: 'Delete User Account?',
+    description: `Are you sure you want to permanently delete the account ${label}? This cannot be undone.`,
+    confirmLabel: 'Delete account',
+    confirmIcon: 'bx-trash'
+  });
+  if (!ok) return;
   await executeDeleteUser(userId);
 }
 
@@ -2265,7 +2409,32 @@ async function executeDeleteUser(userId) {
           : error.details?.error === 'supreme_admin_must_be_demoted_first'
             ? 'Remove the supreme-admin role before deleting this account.'
             : 'The account could not be deleted. Refresh and try again.';
-    alert(msg);
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Delete Blocked',
+      title: 'Could Not Delete Account',
+      description: msg
+    });
+  }
+}
+
+function selectPhoneModalCategory(category) {
+  if (editingUserPhone) {
+    editingUserPhone.category = category;
+  }
+  const selectEl = $('user-phone-category-select');
+  if (selectEl && selectEl.value !== category) {
+    selectEl.value = category;
+  }
+  if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+    document.querySelectorAll('.pm-cat-card').forEach((card) => {
+      if (card.getAttribute('data-cat') === category) {
+        card.classList.add('active');
+      } else {
+        card.classList.remove('active');
+      }
+    });
   }
 }
 
@@ -2276,11 +2445,27 @@ function openUpdatePhoneModal(userId, name, currentPhone, currentCategory) {
     phone: currentPhone || '',
     category: currentCategory || 'clinical'
   };
+  const dialog = $('user-phone-dialog');
+  if (dialog && typeof dialog.showModal === 'function') {
+    dialog.innerHTML = buildUpdatePhoneModalInnerHtml();
+    if (!dialog.open) dialog.showModal();
+    const input = $('user-phone-input');
+    if (input && typeof input.focus === 'function') {
+      setTimeout(() => input.focus(), 30);
+    }
+    return;
+  }
   updateUserManagementUI();
 }
 
 function closeUpdatePhoneModal() {
   editingUserPhone = null;
+  const dialog = $('user-phone-dialog');
+  if (dialog && typeof dialog.close === 'function') {
+    if (dialog.open) dialog.close();
+    dialog.innerHTML = '';
+    return;
+  }
   updateUserManagementUI();
 }
 
@@ -2289,7 +2474,24 @@ async function handleSaveUserPhone(event) {
   if (!editingUserPhone) return;
   const form = event.target;
   const rawPhone = (form.phone?.value || '').trim();
-  const category = form.category?.value || 'clinical';
+  const category = form.category?.value || editingUserPhone.category || 'clinical';
+
+  const showInlinePhoneError = (msg) => {
+    const errBanner = $('user-phone-modal-error');
+    const errText = $('user-phone-modal-error-text');
+    if (errBanner && errText) {
+      errText.textContent = msg;
+      errBanner.hidden = false;
+    } else {
+      showNoticeDialog({
+        icon: 'bx-error-circle',
+        tone: 'warning',
+        badge: 'Invalid Phone Format',
+        title: 'Check Phone Number',
+        description: msg
+      });
+    }
+  };
 
   let cleanPhone = rawPhone.replace(/[\s\-\(\)\.]/g, '');
   if (cleanPhone) {
@@ -2300,20 +2502,20 @@ async function handleSaveUserPhone(event) {
     } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
       cleanPhone = '+250' + cleanPhone;
     } else if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
-      alert('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
+      showInlinePhoneError('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
       return;
     }
   }
 
   const userId = editingUserPhone.userId;
-  const submitBtn = form.querySelector('button[type="submit"]');
+  const submitBtn = typeof form.querySelector === 'function' ? form.querySelector('button[type="submit"]') : null;
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Saving…";
   }
 
   try {
-    const res = await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/phone`, 'PATCH', {
+    await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/phone`, 'PATCH', {
       phone: cleanPhone || '',
       category
     });
@@ -2330,16 +2532,45 @@ async function handleSaveUserPhone(event) {
 
     const userName = editingUserPhone?.name || 'user';
     closeUpdatePhoneModal();
+    updateUserManagementUI();
     if (typeof loadAlertContacts === 'function') {
       loadAlertContacts();
     }
-    alert(`Phone number and category updated for ${userName}.\nUrgent alerts for ${category.replace('_', ' ').toUpperCase()} will route here via InTouch SMS.`);
+
+    const meta = getCategoryMeta(category);
+    const detailsHtml = `<div class="action-summary-card">
+      <div class="action-summary-row">
+        <span class="action-summary-label"><i class='bx bx-user'></i> Staff Member</span>
+        <span class="action-summary-val">${esc(userName)}</span>
+      </div>
+      <div class="action-summary-row">
+        <span class="action-summary-label"><i class='bx bx-phone'></i> InTouch SMS Number</span>
+        <span class="action-summary-val">${cleanPhone ? `<span style="color:#2563eb">${esc(cleanPhone)}</span>` : '<span class="hint">Disabled (No phone)</span>'}</span>
+      </div>
+      <div class="action-summary-row">
+        <span class="action-summary-label"><i class='bx bx-purchase-tag-alt'></i> Issued Routing Tag</span>
+        <span class="action-summary-val"><span class="user-role" style="background:${meta.color}15;color:${meta.color};border:1px solid ${meta.color}40;font-size:11.5px"><i class='bx ${meta.icon}'></i> ${esc(meta.shortLabel)}</span></span>
+      </div>
+    </div>`;
+
+    await showNoticeDialog({
+      icon: 'bx-check-shield',
+      tone: 'success',
+      badge: 'Profile & Tag Issued',
+      title: cleanPhone ? 'Phone & Category Tag Saved' : 'Category Tag Updated',
+      description: cleanPhone
+        ? `Urgent patient feedback classified under ${meta.shortLabel} will now be dispatched to ${userName} via InTouch SMS.`
+        : `Routing category tag updated to ${meta.shortLabel} for ${userName}.`,
+      detailsHtml,
+      buttonLabel: 'Done',
+      buttonIcon: 'bx-check'
+    });
   } catch (err) {
     console.error('Failed to update phone number:', err);
-    alert('Failed to update phone number: ' + (err.message || 'Error occurred'));
+    showInlinePhoneError('Failed to update phone number: ' + (err.message || 'Error occurred'));
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = "<i class='bx bx-check'></i> Save";
+      submitBtn.innerHTML = "<i class='bx bx-check-shield'></i> Save Phone & Tag";
     }
   }
 }
@@ -2855,27 +3086,51 @@ function deptUI() {
 
 let actionDialogResolve = null;
 
-function showActionDialog({ icon = 'bx-help-circle', tone = 'neutral', title, description, confirmLabel = 'Confirm', confirmIcon = '', cancelLabel = 'Cancel', input = null }) {
+function showActionDialog({ icon = 'bx-help-circle', tone = 'neutral', badge = '', title, description = '', detailsHtml = '', confirmLabel = 'Confirm', confirmIcon = '', cancelLabel = 'Cancel', hideCancel = false, input = null }) {
   const dialog = $('action-dialog');
-  if (!dialog || typeof dialog.showModal !== 'function') return Promise.resolve(null);
+  if (!dialog || typeof dialog.showModal !== 'function') {
+    if (hideCancel) return Promise.resolve(true);
+    if (input) return Promise.resolve(null);
+    return Promise.resolve(typeof confirm === 'function' ? Boolean(confirm(description || title)) : true);
+  }
   if (actionDialogResolve) actionDialogResolve(null);
 
   dialog.className = `feedback-delete-dialog action-dialog tone-${tone}`;
-  $('action-dialog-icon').className = `bx ${icon}`;
-  $('action-dialog-title').textContent = title;
-  $('action-dialog-description').textContent = description;
-  $('action-dialog-cancel').textContent = cancelLabel;
+  const iconEl = $('action-dialog-icon');
+  if (iconEl) iconEl.className = `bx ${icon}`;
+  const badgeEl = $('action-dialog-badge');
+  if (badgeEl) {
+    badgeEl.textContent = badge || '';
+    badgeEl.hidden = !badge;
+  }
+  const titleEl = $('action-dialog-title');
+  if (titleEl) titleEl.textContent = title || '';
+  const descEl = $('action-dialog-description');
+  if (descEl) descEl.textContent = description || '';
+  const detailsEl = $('action-dialog-details');
+  if (detailsEl) {
+    detailsEl.innerHTML = detailsHtml || '';
+    detailsEl.hidden = !detailsHtml;
+  }
+  const cancelBtn = $('action-dialog-cancel');
+  if (cancelBtn) {
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.hidden = Boolean(hideCancel);
+  }
   const confirmBtn = $('action-dialog-confirm');
-  confirmBtn.innerHTML = `${confirmIcon ? `<i class='bx ${confirmIcon}'></i> ` : ''}${esc(confirmLabel)}`;
-  confirmBtn.className = `adm-btn ${tone === 'danger' ? 'danger' : 'primary'}`;
+  if (confirmBtn) {
+    confirmBtn.innerHTML = `${confirmIcon ? `<i class='bx ${confirmIcon}'></i> ` : ''}${esc(confirmLabel)}`;
+    confirmBtn.className = `adm-btn ${tone === 'danger' ? 'danger' : 'primary'}`;
+  }
 
   const field = $('action-dialog-field');
   const inputEl = $('action-dialog-input');
   const errorEl = $('action-dialog-error');
-  errorEl.textContent = '';
-  field.hidden = !input;
-  if (input) {
-    $('action-dialog-label').textContent = input.label || '';
+  if (errorEl) errorEl.textContent = '';
+  if (field) field.hidden = !input;
+  if (input && inputEl) {
+    const labelEl = $('action-dialog-label');
+    if (labelEl) labelEl.textContent = input.label || '';
     inputEl.value = input.value || '';
     inputEl.placeholder = input.placeholder || '';
     inputEl.maxLength = input.maxLength || 120;
@@ -2884,8 +3139,22 @@ function showActionDialog({ icon = 'bx-help-circle', tone = 'neutral', title, de
   return new Promise((resolve) => {
     actionDialogResolve = resolve;
     dialog.showModal();
-    if (input) setTimeout(() => inputEl.focus(), 30);
-    else confirmBtn.focus();
+    if (input && inputEl) setTimeout(() => inputEl.focus(), 30);
+    else if (confirmBtn) confirmBtn.focus();
+  });
+}
+
+function showNoticeDialog({ icon = 'bx-info-circle', tone = 'neutral', badge = '', title, description = '', detailsHtml = '', buttonLabel = 'Done', buttonIcon = 'bx-check' }) {
+  return showActionDialog({
+    icon,
+    tone,
+    badge,
+    title,
+    description,
+    detailsHtml,
+    confirmLabel: buttonLabel,
+    confirmIcon: buttonIcon,
+    hideCancel: true
   });
 }
 
@@ -2894,7 +3163,7 @@ function submitActionDialog(event) {
   const dialog = $('action-dialog');
   const field = $('action-dialog-field');
   let value = true;
-  if (!field.hidden) {
+  if (field && !field.hidden) {
     value = $('action-dialog-input').value.trim();
     if (!value) {
       $('action-dialog-error').textContent = 'Please enter a name.';
@@ -2944,7 +3213,13 @@ async function setDepartmentActive(id, active) {
       toggleBtn.innerHTML = active ? "<i class='bx bx-revision'></i> Restore" : "<i class='bx bx-pause'></i> Deactivate";
     }
     if (delBtn) delBtn.disabled = false;
-    alert('The service could not be updated. Please try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Service Update Failed',
+      title: 'Could Not Update Service',
+      description: 'The service could not be updated. Please try again.'
+    });
   }
 }
 
@@ -2993,7 +3268,13 @@ async function deleteDepartment(id) {
       delBtn.innerHTML = "<i class='bx bx-trash'></i> Delete";
     }
     if (toggleBtn) toggleBtn.disabled = false;
-    alert('The service could not be deleted. Please try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Service Delete Failed',
+      title: 'Could Not Delete Service',
+      description: 'The service could not be deleted. Please try again.'
+    });
   }
 }
 
@@ -3026,7 +3307,13 @@ async function add() {
     updateDeptUI();
   } catch (error) {
     console.error('Could not add the service:', error);
-    alert('The service could not be added. Please try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Service Creation Failed',
+      title: 'Could Not Add Service',
+      description: 'The service could not be added. Please try again.'
+    });
   } finally {
     if (addBtn) {
       addBtn.disabled = false;
@@ -3456,7 +3743,16 @@ async function unseed() {
 }
 
 async function clearResponses() {
-  if (!confirm('Delete ALL responses? This cannot be undone.')) return;
+  const ok = await showActionDialog({
+    icon: 'bx-trash',
+    tone: 'danger',
+    badge: 'Destructive Action',
+    title: 'Delete All Feedback Responses?',
+    description: 'Delete ALL responses? This cannot be undone.',
+    confirmLabel: 'Delete all responses',
+    confirmIcon: 'bx-trash'
+  });
+  if (!ok) return;
   adminLoading = true;
   admin();
   try {
@@ -3645,12 +3941,24 @@ function buildReportData(type, R, dateStr) {
 
 function getReportData(type) {
   if (!['full', 'departments', 'patients'].includes(type)) {
-    alert('The selected report is not supported.');
+    showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'warning',
+      badge: 'Export Report',
+      title: 'Unsupported Report Type',
+      description: 'The selected report is not supported.'
+    });
     return null;
   }
   const filtered = getFilteredResponses();
   if (!filtered.length) {
-    alert(`No feedback records available to export for ${getDateFilterLabel()}.`);
+    showNoticeDialog({
+      icon: 'bx-info-circle',
+      tone: 'warning',
+      badge: 'No Matching Records',
+      title: 'No Records to Export',
+      description: `No feedback records available to export for ${getDateFilterLabel()}.`
+    });
     return null;
   }
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -3683,7 +3991,13 @@ async function exportExcel(type = 'full') {
     await recordReportExport(type, 'xlsx');
   } catch (error) {
     console.error('Could not create Excel export:', error);
-    alert('The Excel workbook could not be created. Check your connection and try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Excel Export Failed',
+      title: 'Could Not Create Workbook',
+      description: 'The Excel workbook could not be created. Check your connection and try again.'
+    });
   }
 }
 
@@ -4031,7 +4345,13 @@ function buildPptxReportData(type, R, dateStr) {
 
 function getPptxReportData(type = 'visuals') {
   if (!['visuals', 'executive', 'full', 'departments', 'patients'].includes(type)) {
-    alert('The selected presentation report is not supported.');
+    showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'warning',
+      badge: 'Export Presentation',
+      title: 'Unsupported Presentation Type',
+      description: 'The selected presentation report is not supported.'
+    });
     return null;
   }
   const dateFiltered = getFilteredResponses();
@@ -4042,7 +4362,13 @@ function getPptxReportData(type = 'visuals') {
       : dateFiltered;
 
   if (!R.length) {
-    alert(`No feedback records available to export for ${getDateFilterLabel()}.`);
+    showNoticeDialog({
+      icon: 'bx-info-circle',
+      tone: 'warning',
+      badge: 'No Matching Records',
+      title: 'No Records to Export',
+      description: `No feedback records available to export for ${getDateFilterLabel()}.`
+    });
     return null;
   }
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -4066,7 +4392,13 @@ async function exportPptx(type = 'visuals') {
     await recordReportExport(type, 'pptx');
   } catch (error) {
     console.error('Could not create PowerPoint export:', error);
-    alert('The PowerPoint presentation could not be created. Check your connection and try again.');
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'PowerPoint Export Failed',
+      title: 'Could Not Create Presentation',
+      description: 'The PowerPoint presentation could not be created. Check your connection and try again.'
+    });
   }
 }
 
@@ -4434,7 +4766,13 @@ async function acknowledgeAlert(alertOrFeedbackId) {
     admin();
   } catch (err) {
     console.error('Failed to acknowledge alert:', err);
-    alert('Could not acknowledge alert: ' + (err.message || 'Unknown error'));
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Alert Action Failed',
+      title: 'Could Not Acknowledge Alert',
+      description: 'Could not acknowledge alert: ' + (err.message || 'Unknown error')
+    });
   }
 }
 
@@ -4455,13 +4793,156 @@ async function loadAlertContacts() {
   }
 }
 
+function buildAddContactModalInnerHtml() {
+  const deptList = (cfg.depts || []).filter((d) => d.active);
+  return `
+    <div class="pm-modal-header">
+      <div class="pm-modal-header-main">
+        <div class="pm-modal-badge-icon" aria-hidden="true"><i class='bx bx-bell-plus'></i></div>
+        <div>
+          <span class="pm-modal-eyebrow">InTouch SMS & Nodemailer Dispatch</span>
+          <h3 class="pm-modal-title" id="alert-contact-dialog-title">Add Staff Alert Contact</h3>
+          <p class="pm-modal-subtitle">Configure real-time SMS and Email routing for hospital staff by department, severity threshold, and Gemini AI category tag.</p>
+        </div>
+      </div>
+      <button class="dialog-close-btn" type="button" onclick="closeAddContactModal()" aria-label="Close dialog">&times;</button>
+    </div>
+    <form onsubmit="handleSaveAlertContact(event)">
+      <div class="pm-modal-body">
+        <div class="pm-error-banner" id="alert-contact-modal-error" role="alert" hidden>
+          <i class='bx bx-error-circle'></i>
+          <span id="alert-contact-modal-error-text"></span>
+        </div>
+        <div class="pm-form-grid-2">
+          <div class="pm-field">
+            <label class="pm-label" for="ac-name-input"><span>Staff Full Name</span></label>
+            <div class="pm-input-wrap">
+              <i class='bx bx-user pm-input-icon' aria-hidden="true"></i>
+              <input type="text" id="ac-name-input" name="name" class="pm-input" required placeholder="e.g. Dr. Keza Alice">
+            </div>
+          </div>
+          <div class="pm-field">
+            <label class="pm-label" for="ac-role-input"><span>Staff Role / Title</span></label>
+            <div class="pm-input-wrap">
+              <i class='bx bx-id-card pm-input-icon' aria-hidden="true"></i>
+              <input type="text" id="ac-role-input" name="role" class="pm-input" placeholder="e.g. Head Nurse, Quality Lead">
+            </div>
+          </div>
+        </div>
+        <div class="pm-form-grid-2">
+          <div class="pm-field">
+            <label class="pm-label" for="ac-phone-input">
+              <span>Phone (InTouch SMS)</span>
+              <span class="pm-label-tag">Urgent</span>
+            </label>
+            <div class="pm-input-wrap">
+              <i class='bx bx-phone pm-input-icon' aria-hidden="true"></i>
+              <input type="tel" id="ac-phone-input" name="phone" class="pm-input" placeholder="0788123456 or +250...">
+            </div>
+          </div>
+          <div class="pm-field">
+            <label class="pm-label" for="ac-email-input">
+              <span>Email (Nodemailer)</span>
+              <span class="pm-label-tag">Standard</span>
+            </label>
+            <div class="pm-input-wrap">
+              <i class='bx bx-envelope pm-input-icon' aria-hidden="true"></i>
+              <input type="email" id="ac-email-input" name="email" class="pm-input" placeholder="staff@dmchospital.org">
+            </div>
+          </div>
+        </div>
+        <div class="pm-field">
+          <label class="pm-label" for="ac-dept-select">
+            <span>Assigned Department</span>
+            <span class="pm-label-tag">Scope</span>
+          </label>
+          <div class="dmc-select-wrap">
+            <i class='bx bx-buildings dmc-select-icon' aria-hidden="true"></i>
+            <select name="department_id" id="ac-dept-select" class="dmc-select">
+              <option value="">All Departments (Hospital-Wide / Duty Pool)</option>
+              ${deptList.map((d) => `<option value="${esc(d.id)}">${esc(d.n[0])}</option>`).join('')}
+            </select>
+            <i class='bx bx-chevron-down dmc-select-arrow' aria-hidden="true"></i>
+          </div>
+        </div>
+        <div class="pm-form-grid-2">
+          <div class="pm-field">
+            <label class="pm-label" for="ac-category-select">
+              <span>Routing Category Tag</span>
+              <span class="pm-label-tag"><i class='bx bx-bot'></i> AI</span>
+            </label>
+            <div class="dmc-select-wrap">
+              <i class='bx bx-category-alt dmc-select-icon' aria-hidden="true"></i>
+              <select name="target_category" id="ac-category-select" class="dmc-select">
+                <option value="clinical">Clinical (Medical & Nursing)</option>
+                <option value="public_relations">Public Relations (Reception & Billing)</option>
+                <option value="managing_director">Managing Director (Executive)</option>
+                <option value="all">All Categories (Operations Lead)</option>
+              </select>
+              <i class='bx bx-chevron-down dmc-select-arrow' aria-hidden="true"></i>
+            </div>
+          </div>
+          <div class="pm-field">
+            <label class="pm-label" for="ac-severity-select">
+              <span>Minimum Severity</span>
+              <span class="pm-label-tag">Threshold</span>
+            </label>
+            <div class="dmc-select-wrap">
+              <i class='bx bx-shield-quarter dmc-select-icon' aria-hidden="true"></i>
+              <select name="min_severity" id="ac-severity-select" class="dmc-select">
+                <option value="normal">Normal (All flagged feedback)</option>
+                <option value="high">High (High & Critical only)</option>
+                <option value="critical">Critical Only (Safety alarms)</option>
+              </select>
+              <i class='bx bx-chevron-down dmc-select-arrow' aria-hidden="true"></i>
+            </div>
+          </div>
+        </div>
+        <div class="pm-toggle-list">
+          <label class="pm-toggle-item">
+            <input type="checkbox" name="is_duty_manager" value="1">
+            <span><b>Duty Manager:</b> Receives all Critical alerts hospital-wide & unacknowledged escalations.</span>
+          </label>
+          <label class="pm-toggle-item">
+            <input type="checkbox" name="opt_in" value="1" checked>
+            <span><b>Opt-In Consent:</b> Staff member consented to receive alerts at this phone and email.</span>
+          </label>
+          <label class="pm-toggle-item">
+            <input type="checkbox" name="alert_enabled" value="1" checked>
+            <span><b>Enable Alerts:</b> Actively dispatch notifications to this contact.</span>
+          </label>
+        </div>
+      </div>
+      <div class="pm-modal-footer">
+        <button type="button" class="adm-btn" onclick="closeAddContactModal()">Cancel</button>
+        <button type="submit" class="adm-btn primary"><i class='bx bx-check-shield'></i> Save Contact & Tag</button>
+      </div>
+    </form>`;
+}
+
 function openAddContactModal() {
   showAddContactModal = true;
+  const dialog = $('alert-contact-dialog');
+  if (dialog && typeof dialog.showModal === 'function') {
+    dialog.innerHTML = buildAddContactModalInnerHtml();
+    if (!dialog.open) dialog.showModal();
+    const input = $('ac-name-input');
+    if (input && typeof input.focus === 'function') {
+      setTimeout(() => input.focus(), 30);
+    }
+    return;
+  }
   admin();
 }
 
 function closeAddContactModal() {
   showAddContactModal = false;
+  const dialog = $('alert-contact-dialog');
+  if (dialog && typeof dialog.close === 'function') {
+    if (dialog.open) dialog.close();
+    dialog.innerHTML = '';
+    return;
+  }
   admin();
 }
 
@@ -4480,8 +4961,25 @@ async function handleSaveAlertContact(event) {
   const emailEnabled = form.email_enabled ? form.email_enabled.checked : true;
   const optIn = form.opt_in.checked;
 
+  const showContactError = (msg) => {
+    const errBanner = $('alert-contact-modal-error');
+    const errText = $('alert-contact-modal-error-text');
+    if (errBanner && errText) {
+      errText.textContent = msg;
+      errBanner.hidden = false;
+    } else {
+      showNoticeDialog({
+        icon: 'bx-error-circle',
+        tone: 'warning',
+        badge: 'Validation Error',
+        title: 'Check Contact Details',
+        description: msg
+      });
+    }
+  };
+
   if (!name) {
-    alert('Please enter staff full name.');
+    showContactError('Please enter staff full name.');
     return;
   }
 
@@ -4494,18 +4992,18 @@ async function handleSaveAlertContact(event) {
     } else if (cleanPhone.startsWith('2507') && cleanPhone.length === 12) {
       cleanPhone = '+' + cleanPhone;
     } else if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
-      alert('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
+      showContactError('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
       return;
     }
   }
 
   if (!cleanPhone && !email) {
-    alert('Please enter at least a phone number (for SMS) or email address (for Email alerts).');
+    showContactError('Please enter at least a phone number (for SMS) or email address (for Email alerts).');
     return;
   }
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    alert('Please enter a valid email address.');
+    showContactError('Please enter a valid email address.');
     return;
   }
 
@@ -4526,23 +5024,58 @@ async function handleSaveAlertContact(event) {
       email_enabled: emailEnabled,
       opt_in: optIn
     });
-    showAddContactModal = false;
+    closeAddContactModal();
     await loadAlertContacts();
+    const meta = getCategoryMeta(targetCategory);
+    await showNoticeDialog({
+      icon: 'bx-check-shield',
+      tone: 'success',
+      badge: 'Alert Contact Added',
+      title: 'Staff Alert Contact Saved',
+      description: `${name} has been registered for ${meta.shortLabel} alert routing.`,
+      detailsHtml: `<div class="action-summary-card">
+        <div class="action-summary-row">
+          <span class="action-summary-label"><i class='bx bx-user'></i> Contact</span>
+          <span class="action-summary-val">${esc(name)} (${esc(role || 'Staff')})</span>
+        </div>
+        ${cleanPhone ? `<div class="action-summary-row"><span class="action-summary-label"><i class='bx bx-phone'></i> InTouch SMS</span><span class="action-summary-val" style="color:#2563eb">${esc(cleanPhone)}</span></div>` : ''}
+        ${email ? `<div class="action-summary-row"><span class="action-summary-label"><i class='bx bx-envelope'></i> Email</span><span class="action-summary-val">${esc(email)}</span></div>` : ''}
+        <div class="action-summary-row">
+          <span class="action-summary-label"><i class='bx bx-purchase-tag-alt'></i> Category Tag</span>
+          <span class="action-summary-val"><span class="user-role" style="background:${meta.color}15;color:${meta.color};border:1px solid ${meta.color}40;font-size:11.5px"><i class='bx ${meta.icon}'></i> ${esc(meta.shortLabel)}</span></span>
+        </div>
+      </div>`
+    });
   } catch (err) {
     console.error('Failed to save alert contact:', err);
-    alert('Could not save alert contact: ' + (err.message || 'Error occurred'));
+    showContactError('Could not save alert contact: ' + (err.message || 'Error occurred'));
   }
 }
 
 async function handleDeleteAlertContact(id, name) {
-  if (!confirm('Are you sure you want to delete alert contact ' + name + '?')) return;
+  const ok = await showActionDialog({
+    icon: 'bx-trash',
+    tone: 'danger',
+    badge: 'Remove Alert Contact',
+    title: 'Delete Alert Contact?',
+    description: `Are you sure you want to delete alert contact ${name}? They will no longer receive SMS or Email notifications.`,
+    confirmLabel: 'Delete contact',
+    confirmIcon: 'bx-trash'
+  });
+  if (!ok) return;
   try {
     await apiRequest('/api/admin/alert-contacts/' + encodeURIComponent(id), 'DELETE');
     alertContacts = alertContacts.filter((c) => c.id !== id);
     admin();
   } catch (err) {
     console.error('Failed to delete alert contact:', err);
-    alert('Could not delete contact: ' + (err.message || 'Error occurred'));
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Delete Failed',
+      title: 'Could Not Delete Contact',
+      description: 'Could not delete contact: ' + (err.message || 'Error occurred')
+    });
   }
 }
 
@@ -4566,7 +5099,13 @@ async function handleToggleAlertContact(id, currentEnabled) {
     admin();
   } catch (err) {
     console.error('Failed to toggle contact:', err);
-    alert('Could not update contact status: ' + (err.message || 'Error occurred'));
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Status Update Failed',
+      title: 'Could Not Update Contact Status',
+      description: 'Could not update contact status: ' + (err.message || 'Error occurred')
+    });
   }
 }
 
@@ -4574,12 +5113,35 @@ async function handleTestAlertContact(id, name) {
   try {
     const res = await apiRequest('/api/admin/alert-contacts/' + encodeURIComponent(id) + '/test', 'POST', {});
     const dryRun = res.result?.dryRun;
-    alert('Test alert dispatched to ' + name + '!\n' +
-      (dryRun ? '(System is in DRY-RUN mode; logged to server without charging SMS/SMTP).' : 'Dispatched via InTouch SMS / Nodemailer.') +
-      '\nMessage ID: ' + (res.result?.messageId || 'simulated'));
+    const msgId = res.result?.messageId || 'simulated';
+    await showNoticeDialog({
+      icon: 'bx-check-shield',
+      tone: 'success',
+      badge: dryRun ? 'Dry-Run Mode' : 'Live Dispatch',
+      title: `Test Alert Sent to ${name}`,
+      description: dryRun
+        ? 'System is in DRY-RUN mode; test alert was logged to server without charging SMS or SMTP.'
+        : 'Test alert was dispatched via InTouch SMS / Nodemailer.',
+      detailsHtml: `<div class="action-summary-card">
+        <div class="action-summary-row">
+          <span class="action-summary-label"><i class='bx bx-user'></i> Recipient</span>
+          <span class="action-summary-val">${esc(name)}</span>
+        </div>
+        <div class="action-summary-row">
+          <span class="action-summary-label"><i class='bx bx-hash'></i> Message ID</span>
+          <span class="action-summary-val"><code>${esc(String(msgId))}</code></span>
+        </div>
+      </div>`
+    });
   } catch (err) {
     console.error('Test alert failed:', err);
-    alert('Test alert failed: ' + (err.message || 'Error sending test'));
+    await showNoticeDialog({
+      icon: 'bx-error-circle',
+      tone: 'danger',
+      badge: 'Dispatch Error',
+      title: 'Test Alert Failed',
+      description: 'Test alert failed: ' + (err.message || 'Error sending test')
+    });
   }
 }
 
@@ -4591,78 +5153,11 @@ function alertContactsUI() {
     return `<div class="card" role="alert"><p class="error">${esc(alertContactsError)}</p><button class="adm-btn" onclick="loadAlertContacts()">Retry</button></div>`;
   }
 
-  const deptList = (cfg.depts || []).filter((d) => d.active);
-
-  const modalHtml = showAddContactModal ? `
-    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px" onclick="if(event.target===this)closeAddContactModal()">
-      <div class="card" style="max-width:500px;width:100%;margin:0;box-shadow:var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
-          <h3 style="margin:0"><i class='bx bx-bell' style="color:var(--red)"></i> Add Alert Contact (SMS & Email)</h3>
-          <button class="dialog-close-btn" type="button" onclick="closeAddContactModal()">&times;</button>
-        </div>
-        <form onsubmit="handleSaveAlertContact(event)" style="display:flex;flex-direction:column;gap:12px">
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Full Name</label>
-            <input type="text" name="name" required placeholder="e.g. Dr. Keza Alice or Sister Marie" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Phone Number (InTouch SMS for Urgent/Immediate Alerts)</label>
-            <input type="tel" name="phone" placeholder="0788123456 or +250788123456" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-            <small class="hint" style="font-size:11.5px">Rwanda phone format (0788123456 or +250...). Triggers SMS when negative feedback needs immediate attention.</small>
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Email Address (Nodemailer Email Alerts)</label>
-            <input type="email" name="email" placeholder="staff@dmchospital.org" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-            <small class="hint" style="font-size:11.5px">Receives email alerts for normal negative feedback.</small>
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Assigned Department</label>
-            <select name="department_id" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-              <option value="">All Departments (Hospital-Wide / Duty Pool)</option>
-              ${deptList.map((d) => `<option value="${esc(d.id)}">${esc(d.n[0])}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Role / Title</label>
-            <input type="text" name="role" placeholder="e.g. Head Nurse, Quality Manager, Duty Physician" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Category / Routing Audience (Gemini AI)</label>
-            <select name="target_category" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-              <option value="clinical">Clinical (Doctors, Nurses & Inpatient Medical Staff)</option>
-              <option value="public_relations">Public Relations (Customer Care, Reception, Wait Times, Billing)</option>
-              <option value="managing_director">Managing Director (Executive Leadership, Malpractice, Legal)</option>
-              <option value="all">All Categories (General Operations Lead)</option>
-            </select>
-            <small class="hint" style="font-size:11.5px">Gemini classifies incoming patient feedback into Clinical, PR, or Managing Director and routes alerts accordingly.</small>
-          </div>
-          <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Minimum Severity Threshold</label>
-            <select name="min_severity" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-              <option value="normal">Normal (All flagged feedback: critical, high & normal)</option>
-              <option value="high">High (High & Critical severity only)</option>
-              <option value="critical">Critical Only (Safety alarms, abuse, clinical harm)</option>
-            </select>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px;padding:8px 0">
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-              <input type="checkbox" name="is_duty_manager" value="1">
-              <span><b>Duty Manager:</b> Receives all Critical alerts hospital-wide & unacknowledged escalations.</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-              <input type="checkbox" name="opt_in" value="1" checked>
-              <span><b>Opt-In Consent:</b> Staff member consented to receive alerts at this phone and email.</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-              <input type="checkbox" name="alert_enabled" value="1" checked>
-              <span><b>Enable Alerts:</b> Actively dispatch notifications to this contact.</span>
-            </label>
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-            <button type="button" class="adm-btn" onclick="closeAddContactModal()">Cancel</button>
-            <button type="submit" class="adm-btn primary"><i class='bx bx-check'></i> Save Contact</button>
-          </div>
-        </form>
+  const hasNativeContactDialog = Boolean($('alert-contact-dialog') && typeof $('alert-contact-dialog').showModal === 'function');
+  const modalHtml = showAddContactModal && !hasNativeContactDialog ? `
+    <div class="pm-modal-overlay-fallback" onclick="if(event.target===this)closeAddContactModal()">
+      <div class="pm-modal-card">
+        ${buildAddContactModalInnerHtml()}
       </div>
     </div>` : '';
 

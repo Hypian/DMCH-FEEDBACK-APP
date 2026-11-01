@@ -1089,3 +1089,49 @@ test('both feedback app and admin dashboard use logo.svg for the hospital logo',
   assert.match(app.innerHTML, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
   assert.equal(fs.existsSync(frontendPath('logo-reveal.mp4')), true);
 });
+
+test('tabs wrap cleanly and Update Phone & Category modal uses themed custom dropdown, tag cards, and custom dialogs without native alert()', async () => {
+  assert.match(styles, /\.tabs\s*\{[\s\S]*?flex-wrap:\s*wrap;/);
+  assert.match(styles, /\.dmc-select\s*\{/);
+  assert.match(styles, /\.pm-cat-card\.active\[data-cat="clinical"\]/);
+  assert.doesNotMatch(script, /\balert\s*\(/);
+
+  const indexHtml = fs.readFileSync(frontendPath('index.html'), 'utf8');
+  assert.match(indexHtml, /id="user-phone-dialog"/);
+  assert.match(indexHtml, /id="alert-contact-dialog"/);
+  assert.match(indexHtml, /id="action-dialog-details"/);
+
+  const signupHtml = fs.readFileSync(frontendPath('signup.html'), 'utf8');
+  assert.match(signupHtml, /class="dmc-select-wrap"/);
+  assert.match(signupHtml, /class="dmc-select"/);
+
+  const backendState = {
+    session: { user: { id: 'supreme-admin', name: 'Supreme Admin', username: 'supreme_admin' } },
+    isAdmin: true,
+    isSupremeAdmin: true,
+    managedUsers: [{
+      user_id: 'staff-1',
+      name: 'Dr. Alice Keza',
+      username: 'alice_keza',
+      phone: '',
+      category: 'clinical',
+      status: 'approved',
+      is_admin: false,
+      is_supreme_admin: false
+    }]
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'supreme-admin',name:'Supreme Admin',username:'supreme_admin'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;userManagementLoaded=true;managedUsers=[{user_id:'staff-1',name:'Dr. Alice Keza',username:'alice_keza',phone:'',category:'clinical',status:'approved',is_admin:false,is_supreme_admin:false}];tab='users';admin()",
+    context
+  );
+
+  assert.match(app.innerHTML, /<button class="tab on" onclick="tab='users';admin\(\)"><i class='bx bx-user-check'><\/i> User Management<\/button>/);
+
+  vm.runInContext("openUpdatePhoneModal('staff-1', 'Dr. Alice Keza', '0788123456', 'public_relations')", context);
+  assert.match(app.innerHTML, /Update Phone & Category Tag/);
+  assert.match(app.innerHTML, /class="dmc-select-wrap"/);
+  assert.match(app.innerHTML, /class="pm-category-cards"/);
+  assert.match(app.innerHTML, /Save Phone & Tag/);
+});
+

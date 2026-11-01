@@ -60,8 +60,10 @@
   <dialog class="feedback-delete-dialog action-dialog" id="action-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-description" oncancel="event.preventDefault();cancelActionDialog()" onclick="if(event.target===this)cancelActionDialog()">
     <form method="dialog" onsubmit="submitActionDialog(event)">
       <div class="approval-dialog-mark action-dialog-mark" aria-hidden="true"><i class="bx bx-help-circle" id="action-dialog-icon"></i></div>
+      <span class="chart-dialog-badge action-dialog-badge" id="action-dialog-badge" hidden></span>
       <h2 id="action-dialog-title">Are you sure?</h2>
       <p class="intro-copy" id="action-dialog-description"></p>
+      <div class="action-dialog-details" id="action-dialog-details" hidden></div>
       <div class="action-dialog-field" id="action-dialog-field" hidden>
         <label for="action-dialog-input" id="action-dialog-label">Name</label>
         <input type="text" id="action-dialog-input" autocomplete="off">
@@ -73,6 +75,8 @@
       </div>
     </form>
   </dialog>
+  <dialog class="chart-detail-dialog premium-form-dialog" id="user-phone-dialog" aria-labelledby="user-phone-dialog-title" oncancel="event.preventDefault();closeUpdatePhoneModal()" onclick="if(event.target===this)closeUpdatePhoneModal()"></dialog>
+  <dialog class="chart-detail-dialog premium-form-dialog" id="alert-contact-dialog" aria-labelledby="alert-contact-dialog-title" oncancel="event.preventDefault();closeAddContactModal()" onclick="if(event.target===this)closeAddContactModal()"></dialog>
   <dialog class="chart-detail-dialog" id="chart-detail-dialog" aria-labelledby="chart-detail-title">
     <div class="chart-dialog-inner">
       <div class="chart-dialog-header">
