@@ -5,6 +5,7 @@ import { username } from 'better-auth/plugins';
 import 'dotenv/config';
 import { createPendingApproval } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
+import { syncUserAlertContact, normalizePhoneE164 } from './services/contact-sync.mjs';
 
 const databaseUrl = process.env.NEON_DATABASE_URL;
 const authSecret = process.env.BETTER_AUTH_SECRET;
@@ -36,6 +37,12 @@ export const auth = betterAuth({
       partitioned: baseURL.startsWith('https://') && Boolean(frontendOrigin)
     }
   },
+  user: {
+    additionalFields: {
+      phone: { type: 'string', required: false },
+      category: { type: 'string', required: false, defaultValue: 'clinical' }
+    }
+  },
   databaseHooks: {
     user: {
       create: {
@@ -43,15 +50,31 @@ export const auth = betterAuth({
           if (typeof user.username !== 'string' || !user.username) {
             throw new Error('A username is required to create an account.');
           }
+          let cleanPhone = user.phone ? normalizePhoneE164(user.phone) : null;
+          const validCat = ['clinical', 'public_relations', 'managing_director'].includes(user.category)
+            ? user.category
+            : 'clinical';
+
           return {
             data: {
               ...user,
+              phone: cleanPhone,
+              category: validCat,
               email: `${user.username.toLowerCase()}@accounts.dmc.invalid`
             }
           };
         },
         after: async (user) => {
           await createPendingApproval(pool, user.id);
+          if (user.phone) {
+            await syncUserAlertContact(pool, {
+              userId: user.id,
+              name: user.name,
+              username: user.username,
+              phone: user.phone,
+              category: user.category || 'clinical'
+            }).catch((err) => console.warn('[CONTACT SYNC WARN]', err.message));
+          }
         }
       }
     },

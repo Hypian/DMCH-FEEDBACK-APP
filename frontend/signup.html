@@ -37,6 +37,16 @@
       <label for="username">Username</label>
       <input id="username" name="username" type="text" autocomplete="username" minlength="3" maxlength="30" pattern="[A-Za-z0-9_.]+" aria-describedby="username-help" required>
       <small id="username-help">3–30 letters, numbers, periods, or underscores.</small>
+      <label for="phone">Phone number</label>
+      <input id="phone" name="phone" type="tel" autocomplete="tel" placeholder="0788123456 or +250788123456" aria-describedby="phone-help">
+      <small id="phone-help">Rwanda mobile (078/079/072/073) or international (+250...). Used for InTouch SMS alerts.</small>
+      <label for="category">Staff department / category</label>
+      <select id="category" name="category" aria-describedby="category-help" style="width:100%;padding:10px 12px;border:1px solid var(--border,#e2e8f0);border-radius:8px;font-family:inherit;font-size:14px;background:var(--surface,#fff);margin-bottom:6px">
+        <option value="clinical">Clinical (Doctor, Nurse, Inpatient Care)</option>
+        <option value="public_relations">Public Relations (Customer Care, Reception, Billing)</option>
+        <option value="managing_director">Managing Director (Executive Leadership & Escalations)</option>
+      </select>
+      <small id="category-help">Feedback classified by Gemini AI will be routed to your category.</small>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
       <label for="confirm-password">Confirm password</label>

@@ -1,4 +1,6 @@
 import { recordAuditEvent } from './audit-log.mjs';
+import { syncUserAlertContact, normalizePhoneE164 } from './services/contact-sync.mjs';
+import { isValidIntouchPhone, isValidE164 } from './services/intouch.js';
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -341,21 +343,42 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     }
     if (!await requireAdmin(request, response, pool, getAuthSession)) return true;
     await ensurePendingApprovals(pool);
-    const result = await pool.query(
-      `select auth_user.id as user_id, auth_user.name, auth_user.username,
-              case when approval.status = 'deactivated' then 'deactivated'
-                   when admin.user_id is not null then 'approved'
-                   else coalesce(approval.status, 'pending')
-              end as status,
-              approval.created_at,
-              admin.user_id is not null as is_admin,
-              supreme.user_id is not null as is_supreme_admin
-       from public."user" as auth_user
-       left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
-       left join public.feedback_admins as admin on admin.user_id = auth_user.id
-       left join public.feedback_supreme_admins as supreme on supreme.user_id = auth_user.id
-       order by auth_user.name asc, auth_user.username asc`
-    );
+    let result;
+    try {
+      result = await pool.query(
+        `select auth_user.id as user_id, auth_user.name, auth_user.username,
+                coalesce(auth_user.phone, '') as phone,
+                coalesce(auth_user.category, 'clinical') as category,
+                case when approval.status = 'deactivated' then 'deactivated'
+                     when admin.user_id is not null then 'approved'
+                     else coalesce(approval.status, 'pending')
+                end as status,
+                approval.created_at,
+                admin.user_id is not null as is_admin,
+                supreme.user_id is not null as is_supreme_admin
+         from public."user" as auth_user
+         left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
+         left join public.feedback_admins as admin on admin.user_id = auth_user.id
+         left join public.feedback_supreme_admins as supreme on supreme.user_id = auth_user.id
+         order by auth_user.name asc, auth_user.username asc`
+      );
+    } catch {
+      result = await pool.query(
+        `select auth_user.id as user_id, auth_user.name, auth_user.username,
+                case when approval.status = 'deactivated' then 'deactivated'
+                     when admin.user_id is not null then 'approved'
+                     else coalesce(approval.status, 'pending')
+                end as status,
+                approval.created_at,
+                admin.user_id is not null as is_admin,
+                supreme.user_id is not null as is_supreme_admin
+         from public."user" as auth_user
+         left join public.feedback_account_approvals as approval on approval.user_id = auth_user.id
+         left join public.feedback_admins as admin on admin.user_id = auth_user.id
+         left join public.feedback_supreme_admins as supreme on supreme.user_id = auth_user.id
+         order by auth_user.name asc, auth_user.username asc`
+      );
+    }
     sendJson(response, 200, { users: result.rows });
     return true;
   }
@@ -482,6 +505,119 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     } finally {
       client.release();
     }
+  }
+
+  const phoneMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/(phone|profile)$/);
+  if (phoneMatch) {
+    if (request.method !== 'PATCH') {
+      response.setHeader('Allow', 'PATCH');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return true;
+    }
+    const session = await getAuthSession(request.headers || request);
+    if (!session?.user) {
+      sendJson(response, 401, { error: 'authentication_required' });
+      return true;
+    }
+    const targetUserId = phoneMatch[1];
+    const isSelf = targetUserId === session.user.id;
+    const adminCheck = await pool.query('select 1 from public.feedback_admins where user_id = $1', [session.user.id]);
+    const isAdmin = adminCheck.rowCount > 0;
+
+    if (!isSelf && !isAdmin) {
+      sendJson(response, 403, { error: 'admin_access_required' });
+      return true;
+    }
+    if (!requireTrustedOrigin(request, response)) return true;
+
+    let body;
+    try {
+      body = await readJson(request, response);
+    } catch (err) {
+      sendJson(response, 413, { error: 'request_body_too_large' });
+      return true;
+    }
+    if (!body) {
+      sendJson(response, 400, { error: 'invalid_json' });
+      return true;
+    }
+
+    let phone = body.phone !== undefined ? String(body.phone || '').trim() : null;
+    let category = body.category !== undefined ? String(body.category || '').trim() : null;
+
+    if (phone) {
+      phone = normalizePhoneE164(phone);
+      if (!isValidIntouchPhone(phone) && !isValidE164(phone)) {
+        sendJson(response, 400, {
+          error: 'invalid_phone',
+          message: 'Please provide a valid Rwandan (078...) or international (+250...) mobile number.'
+        });
+        return true;
+      }
+    }
+
+    const validCategories = ['clinical', 'public_relations', 'managing_director'];
+    if (category && !validCategories.includes(category)) {
+      category = 'clinical';
+    }
+
+    const userRes = await pool.query(
+      'select id, name, username, coalesce(phone, \'\') as phone, coalesce(category, \'clinical\') as category from public."user" where id = $1',
+      [targetUserId]
+    );
+    if (userRes.rowCount === 0) {
+      sendJson(response, 404, { error: 'user_not_found' });
+      return true;
+    }
+
+    const existingUser = userRes.rows[0];
+    const newPhone = phone !== null ? phone : existingUser.phone;
+    const newCategory = category !== null ? category : existingUser.category;
+
+    await pool.query(
+      `update public."user"
+       set phone = $1, category = $2
+       where id = $3`,
+      [newPhone, newCategory, targetUserId]
+    ).catch(async () => {
+      return pool.query(
+        `update public."user"
+         set phone = $1
+         where id = $2`,
+        [newPhone, targetUserId]
+      );
+    });
+
+    if (newPhone) {
+      await syncUserAlertContact(pool, {
+        userId: targetUserId,
+        name: existingUser.name,
+        username: existingUser.username,
+        phone: newPhone,
+        category: newCategory
+      }).catch((err) => console.warn('[CONTACT SYNC WARN]', err.message));
+    } else {
+      await pool.query('update public.staff_alert_contacts set alert_enabled = false where user_id = $1', [targetUserId]).catch(() => {});
+    }
+
+    await recordAuditEvent(pool, {
+      actorId: session.user.id,
+      action: 'user.phone_updated',
+      summary: `Updated phone number for @${existingUser.username} to ${newPhone || 'none'} (${newCategory}).`,
+      targetType: 'account',
+      targetId: targetUserId,
+      metadata: { phone: newPhone, category: newCategory }
+    });
+
+    sendJson(response, 200, {
+      ok: true,
+      user: {
+        id: targetUserId,
+        phone: newPhone,
+        category: newCategory
+      }
+    });
+    return true;
   }
 
   const roleMatch = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]+)\/(admin|supreme)$/);

@@ -61,6 +61,25 @@ const EN_FR_RULES = {
 
 export const KEYWORD_RULES = { ...EN_FR_RULES, rw: RW_RULES };
 
+// ─── Target Category Keywords for Routing Safety Net ──────────────────────────
+const MD_KEYWORDS = {
+  en: ['lawyer', 'attorney', 'legal', 'lawsuit', 'sue', 'bribery', 'bribe', 'extortion', 'court', 'malpractice', 'gross negligence', 'corruption', 'death', 'died', 'dying'],
+  fr: ['avocat', 'juridique', 'proces', 'justice', 'poursuite judiciaire', 'pot de vin', 'corruption', 'faute medicale', 'mort', 'deces', 'mourant'],
+  rw: ['munyamategeko', 'urukiko', 'kurega', 'ikirego', 'ruswa', 'gupfa', 'urupfu', 'uburangare bukomeye']
+};
+
+const CLINICAL_KEYWORDS = {
+  en: ['emergency', 'bleeding', 'bleed', 'pain', 'doctor', 'nurse', 'medicine', 'medication', 'dose', 'infection', 'breathe', 'breathing', 'faint', 'collapse', 'unconscious', 'allergy', 'allergic', 'shock', 'wound', 'sepsis', 'surgery', 'triage', 'treatment', 'denied care', 'refused care', 'physician', 'prescription', 'injection', 'iv', 'lab', 'laboratory'],
+  fr: ['urgence', 'urgent', 'saignement', 'saigne', 'douleur', 'docteur', 'medecin', 'infirmiere', 'medicament', 'dose', 'infection', 'respirer', 'evanoui', 'inconscient', 'allergie', 'soins', 'traitement', 'refus de soins', 'etat critique', 'chirurgie', 'pansement', 'laboratoire'],
+  rw: ['ihutirwa', 'ndembe', 'amaraso', 'kuva amaraso', 'ububabare', 'kubabara', 'umuti', 'imiti', 'kunanirwa guhumeka', 'kubura umwuka', 'guta ubwenge', 'kuvura', 'kwanga kuvura', 'banze kuvura', 'banze kumvura', 'indembe', 'abaganga', 'umuganga', 'umusekirite']
+};
+
+const PR_KEYWORDS = {
+  en: ['wait', 'waited', 'waiting', 'slow', 'delay', 'delayed', 'late', 'dirty', 'filthy', 'clean', 'cold', 'noisy', 'expensive', 'overcharged', 'billing', 'bill', 'receipt', 'caisse', 'refund', 'reception', 'attitude', 'rude', 'polite', 'kind', 'friendly', 'thank', 'thanks', 'great', 'good', 'welcome', 'hospitality', 'queue'],
+  fr: ['attente', 'attendu', 'lent', 'lenteur', 'retard', 'sale', 'propre', 'froid', 'bruit', 'cher', 'facture', 'surfacture', 'remboursement', 'accueil', 'impoli', 'gentil', 'merci', 'bon', 'satisfait', 'chaleureux'],
+  rw: ['tinda', 'tinze', 'tegereje', 'tegereza', 'umwanda', 'isuku', 'imbeho', 'urusaku', 'bihenze', 'amafaranga', 'kwishyuzwa', 'gusubizwa amafaranga', 'yakiriye', 'urugwiro', 'murakoze', 'neza', 'byiza', 'kaze']
+};
+
 // ─── Text Normalization ───────────────────────────────────────────────────────
 // Lowercases, standardizes whitespace and apostrophes, and strips unicode
 // diacritics/accents so "négligence" and "negligence" match identically.
@@ -80,6 +99,7 @@ export function normalizeText(text) {
 export function redactPII(text) {
   if (typeof text !== 'string') return '';
   let cleaned = text;
+
   // Emails
   cleaned = cleaned.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
   // International and local phone numbers
@@ -260,6 +280,46 @@ export function evaluateKeywords(text, options = {}) {
     else if (margin <= -2) sentiment = 'negative';
   }
 
+  // Target Category determination (Rule-based safety net)
+  let targetCategory = 'public_relations';
+  let mdScore = 0;
+  let clinicalScore = 0;
+  let prScore = 0;
+  const lowerHaystack = ` ${normalized} `;
+
+  for (const lang of ['en', 'fr', 'rw']) {
+    for (const kw of MD_KEYWORDS[lang]) {
+      if (lowerHaystack.includes(` ${kw} `) || lowerHaystack.includes(kw)) {
+        mdScore += 2;
+        signals.push(`category:md:${lang}:${kw}`);
+      }
+    }
+    for (const kw of CLINICAL_KEYWORDS[lang]) {
+      if (lowerHaystack.includes(` ${kw} `) || lowerHaystack.includes(kw)) {
+        clinicalScore += 1;
+        signals.push(`category:clinical:${lang}:${kw}`);
+      }
+    }
+    for (const kw of PR_KEYWORDS[lang]) {
+      if (lowerHaystack.includes(` ${kw} `) || lowerHaystack.includes(kw)) {
+        prScore += 1;
+        signals.push(`category:pr:${lang}:${kw}`);
+      }
+    }
+  }
+
+  if (mdScore > 0) {
+    targetCategory = 'managing_director';
+  } else if (clinicalScore > 0 && (clinicalScore > prScore || urgentHit)) {
+    targetCategory = 'clinical';
+  } else if (prScore > 0) {
+    targetCategory = 'public_relations';
+  } else if (urgentHit) {
+    targetCategory = 'clinical';
+  } else {
+    targetCategory = 'public_relations';
+  }
+
   const fallbackLang = ['en', 'fr', 'rw'].includes(options.language) ? options.language : 'en';
   return {
     urgent: urgentHit,
@@ -269,6 +329,7 @@ export function evaluateKeywords(text, options = {}) {
     langScores,
     positiveCount,
     negativeCount,
+    targetCategory,
     signals
   };
 }
@@ -281,12 +342,13 @@ const KINYARWANDA_GUIDE = `KINYARWANDA GUIDE (patients often type without diacri
 - Urgent: ihutirwa (emergency), indembe/ndembe (critically ill), kuva amaraso (bleeding), gupfa/urupfu (death), guta ubwenge (fainting), kubura umwuka (cannot breathe), ububabare bukabije (severe pain), uburangare (negligence), banze kunvura (refused to treat me), ruswa (bribe), kwiba (theft), guhohoterwa/gutotezwa/gukubitwa (abused/harassed/beaten), gusubizwa amafaranga (refund), kwishyuzwa amafaranga menshi (overcharged), kurega/urukiko/umunyamategeko (legal action).
 - Do NOT treat "amafaranga" (money) or "amaraso" (blood, e.g. a blood test) alone as urgent. "ntacyo" alone is ambiguous: judge from the following words.
 Examples:
-"Serivisi yari nziza cyane, murakoze" -> rw, positive, urgent=false
-"Ntabwo byari byiza, abaganga batinze cyane" -> rw, negative, urgent=false
-"Umurwayi wanjye yari ndembe ariko nta muntu wamwitayeho" -> rw, negative, urgent=true
-"Banze kumvura kuko ntari mfite amafaranga" -> rw, negative, urgent=true
-"Nta kibazo, byose byagenze neza" -> rw, positive, urgent=false
-"Abaganga ni beza ariko twategereje igihe kirekire" -> rw, neutral, urgent=false`;
+"Serivisi yari nziza cyane, murakoze" -> rw, positive, urgent=false, target_category=public_relations
+"Ntabwo byari byiza, abaganga batinze cyane" -> rw, negative, urgent=false, target_category=public_relations
+"Umurwayi wanjye yari ndembe ariko nta muntu wamwitayeho" -> rw, negative, urgent=true, target_category=clinical
+"Banze kumvura kuko ntari mfite amafaranga" -> rw, negative, urgent=true, target_category=clinical
+"Nta kibazo, byose byagenze neza" -> rw, positive, urgent=false, target_category=public_relations
+"Abaganga ni beza ariko twategereje igihe kirekire" -> rw, neutral, urgent=false, target_category=public_relations
+"Umuganga yansabye ruswa kugira ngo ampe imiti" -> rw, negative, urgent=true, target_category=managing_director`;
 
 function buildSystemInstruction() {
   return `You are an expert hospital clinical operations analyst evaluating patient feedback for Dream Medical Center Hospital (DMCH) in Kigali, Rwanda. Patients write in Kinyarwanda, French, or English, and sometimes mix them.
@@ -297,21 +359,27 @@ Required JSON schema:
   "language": "en" | "fr" | "rw" | "other",
   "sentiment": "positive" | "neutral" | "negative",
   "urgent": true | false,
+  "needs_attention": true | false,
+  "severity": "critical" | "high" | "normal" | "none",
+  "target_category": "clinical" | "public_relations" | "managing_director",
   "reason": "one short factual sentence in English explaining the judgment"
 }
 
-Classification rules:
-1. "urgent" MUST be true if the feedback describes:
-   - Medical or safety emergencies (e.g. active bleeding, severe pain, danger, collapse).
-   - Staff negligence or medical malpractice.
-   - Rude, abusive, or harassing staff conduct.
-   - Severe billing disputes, fraud, theft, bribery, or demands for a refund.
-   - Legal threats or threats of lawsuits/regulators.
-   - Strong anger, distress, or refusal/denial of care.
-2. "urgent" is false for mild dissatisfaction (e.g., slow service, wait time, cold room, dirty floor). Mild dissatisfaction is "negative" but NOT "urgent".
+Target Category definitions:
+- "clinical": Medical care, physician/nurse attention, clinical harm, emergencies, severe pain, bleeding, wound care, medication errors, wrong dosage, medical equipment, triage, diagnosis, inpatient/maternity care.
+- "public_relations": Patient hospitality, reception and registration staff attitude, wait times, service delays, billing/pricing questions, room cleanliness, cafeteria, noise, general complaints, and patient compliments and praise.
+- "managing_director": Hospital executive leadership matters, extreme medical malpractice, gross negligence, legal threats/lawsuits/lawyers, bribery/corruption/extortion, loss of life, or severe hospital-wide systemic failures.
+
+Severity & Attention classification rules:
+1. "severity":
+   - "critical": Active life/safety threats, medical emergencies (severe bleeding, collapse, asphyxiation), severe malpractice, loss of life, or urgent legal/regulatory threats. "needs_attention" is true and "urgent" is true. (Dispatches immediate Twilio SMS).
+   - "high": Severe pain, staff misconduct, abuse, bribery, or extreme dissatisfaction. "needs_attention" is true and "urgent" is false (unless immediate crisis). (Dispatches immediate Twilio SMS).
+   - "normal": Service delays, wait times, billing questions, room temperature, cleanliness, mild dissatisfaction. "needs_attention" is true and "urgent" is false. (Dispatches Nodemailer Email alert).
+   - "none": Pure positive feedback, compliments, or neutral informational comments with no issues. "needs_attention" is false and "urgent" is false. (No alert).
+2. "urgent" MUST be true if the feedback describes life/safety emergency, severe harm, active bleeding, or acute clinical crisis.
 3. Negation: Handle negative modifiers correctly ("not good", "pas bon", "ntabwo byari byiza", "ntacyo bakoze").
-4. Mixed feedback: Praise mixed with a serious complaint or emergency MUST still be classified as urgent and negative. Praise mixed with a mild complaint is "neutral".
-5. Sarcasm / unclear: Lean neutral with a note in reason. If an unclear message mentions harm, distress, or safety, lean urgent.
+4. Mixed feedback: Praise mixed with a serious complaint or emergency MUST still be classified as negative and urgent. Praise mixed with a mild complaint is "neutral".
+5. Sarcasm / unclear: Lean neutral with a note in reason. If an unclear message mentions harm, distress, or safety, lean urgent and clinical.
 6. Language: Return "en" for English, "fr" for French, "rw" for Kinyarwanda, or "other". If mixed, choose the dominant language. Judge the language of the text itself; the survey language is only a hint.
 7. Output format: Only output valid JSON matching the exact schema. No markdown backticks.
 
@@ -395,10 +463,22 @@ ${payloadText}
     throw new Error('Missing reason in response.');
   }
 
+  const validCategories = ['clinical', 'public_relations', 'managing_director'];
+  const targetCategory = validCategories.includes(parsed.target_category) ? parsed.target_category : null;
+
+  const validSeverities = ['critical', 'high', 'normal', 'none'];
+  const severity = validSeverities.includes(parsed.severity) ? parsed.severity : null;
+  const needsAttention = typeof parsed.needs_attention === 'boolean'
+    ? parsed.needs_attention
+    : (parsed.urgent || parsed.sentiment === 'negative');
+
   return {
     language: parsed.language,
     sentiment: parsed.sentiment,
     urgent: parsed.urgent,
+    needs_attention: needsAttention,
+    severity,
+    target_category: targetCategory,
     reason: parsed.reason.trim()
   };
 }
@@ -464,6 +544,25 @@ export async function analyzeFeedback(rawText, options = {}) {
   // urgent = LLM says urgent OR a urgent keyword matched.
   const isUrgent = Boolean((llmResult && llmResult.urgent) || keywordResult.urgent);
 
+  // Category determination
+  let finalTargetCategory = llmResult?.target_category || keywordResult.targetCategory || 'clinical';
+  if (keywordResult.targetCategory === 'managing_director' && finalTargetCategory !== 'managing_director') {
+    // Safety net override: executive leadership matters (lawsuits/bribery/death) must reach Managing Director
+    finalTargetCategory = 'managing_director';
+    signals.push('reconcile:category:managing_director');
+  }
+
+  const finalNeedsAttention = (llmResult && typeof llmResult.needs_attention === 'boolean')
+    ? llmResult.needs_attention
+    : (isUrgent || finalSentiment === 'negative');
+
+  let finalSeverity = llmResult?.severity;
+  if (!finalSeverity) {
+    if (isUrgent) finalSeverity = 'critical';
+    else if (finalSentiment === 'negative') finalSeverity = 'normal';
+    else finalSeverity = 'none';
+  }
+
   // If fallback was used or LLM failed, construct a short informative reason
   if (!finalReason) {
     if (keywordResult.urgent) {
@@ -485,6 +584,9 @@ export async function analyzeFeedback(rawText, options = {}) {
     language: finalLanguage,
     sentiment: finalSentiment,
     urgent: isUrgent,
+    needs_attention: finalNeedsAttention,
+    severity: finalSeverity,
+    target_category: finalTargetCategory,
     reason: finalReason,
     signals,
     analysis_source: analysisSource

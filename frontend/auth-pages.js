@@ -126,14 +126,35 @@ form?.addEventListener('submit', (event) => {
     const fullName = String(values.get('full_name') || '').trim();
     const password = String(values.get('password') || '');
     const confirmPassword = String(values.get('confirm_password') || '');
+    const rawPhone = String(values.get('phone') || '').trim();
+    const category = String(values.get('category') || 'clinical').trim();
+
     if (fullName.length < 2) return showMessage('Enter your full name.');
     if (!/^[a-zA-Z0-9_.]{3,30}$/.test(username)) {
       return showMessage('Use a username with 3–30 letters, numbers, periods, or underscores.');
     }
+
+    let cleanPhone = rawPhone.replace(/[\s\-\(\)\.]/g, '');
+    if (cleanPhone) {
+      if (cleanPhone.startsWith('07') && cleanPhone.length === 10) {
+        cleanPhone = '+250' + cleanPhone.slice(1);
+      } else if (cleanPhone.startsWith('2507') && cleanPhone.length === 12) {
+        cleanPhone = '+' + cleanPhone;
+      } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+        cleanPhone = '+250' + cleanPhone;
+      } else if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
+        return showMessage('Enter a valid Rwandan mobile (e.g. 0788123456) or international (+250...).');
+      }
+    }
+
     if (password.length < 8) return showMessage('Password must be at least 8 characters.');
     if (password !== confirmPassword) return showMessage('Passwords do not match.');
     return runRequest('Creating account…', 'signup', async () => {
-      const { error } = await signUp(username, password, { fullName });
+      const { error } = await signUp(username, password, {
+        fullName,
+        phone: cleanPhone || undefined,
+        category: category || 'clinical'
+      });
       if (error) throw error;
       showApprovalDialog('pending', true);
     });

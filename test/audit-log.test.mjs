@@ -5,7 +5,7 @@ import test from 'node:test';
 import { recordAuditEvent } from '../backend/audit-log.mjs';
 
 const migration = fs.readFileSync(
-  path.join(import.meta.dirname, '..', 'backend', 'neon', 'audit-log-migration.sql'),
+  path.join(import.meta.dirname, '..', 'backend', 'neon', 'all-migrations.sql'),
   'utf8'
 );
 const authBackend = fs.readFileSync(

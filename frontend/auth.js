@@ -206,14 +206,18 @@ function emitAuthState(event, session = null) {
   }));
 }
 
-export async function signUp(username, password, { fullName } = {}) {
+export async function signUp(username, password, { fullName, phone, category } = {}) {
   const normalizedUsername = username.trim().toLowerCase();
-  const data = await request('sign-up/email', {
-    name: fullName.trim(),
+  const payload = {
+    name: fullName ? fullName.trim() : normalizedUsername,
     email: `${normalizedUsername}@accounts.dmc.invalid`,
     username: normalizedUsername,
-    password,
-  });
+    password
+  };
+  if (phone) payload.phone = phone;
+  if (category) payload.category = category;
+
+  const data = await request('sign-up/email', payload);
   emitAuthState('SIGNED_UP', data);
   return { data, error: null };
 }

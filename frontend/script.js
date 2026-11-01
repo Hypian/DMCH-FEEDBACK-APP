@@ -31,6 +31,7 @@ let adminError = '';
 let adminDirectory = [];
 let activeUsers = [];
 let managedUsers = [];
+let editingUserPhone = null;
 let pendingFeedbackDeleteId = null;
 let userManagementLoading = false;
 let userManagementLoaded = false;
@@ -1692,17 +1693,61 @@ function renderUserManagementContent() {
     ? `<div class="pending-user-list">${adminDirectory.map((user) => `<article class="pending-user"><div class="pending-user-details"><h4>${esc(user.name || 'Unnamed user')}</h4><p>@${esc(user.username || '')}</p></div><span class="user-role ${user.is_supreme_admin ? 'role-supreme' : 'role-admin'}"><i class='bx ${user.is_supreme_admin ? 'bx-crown' : 'bx-shield-quarter'}'></i> ${user.is_supreme_admin ? 'Supreme admin' : 'Admin'}</span></article>`).join('')}</div>`
     : '<p class="hint">There are no administrators to display.</p>'
     }</section>`;
+  const phoneModalHtml = editingUserPhone ? `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px" onclick="if(event.target===this)closeUpdatePhoneModal()">
+      <div class="card" style="max-width:480px;width:100%;margin:0;box-shadow:var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
+          <h3 style="margin:0"><i class='bx bx-phone' style="color:var(--red)"></i> Update Phone & Category</h3>
+          <button class="dialog-close-btn" type="button" onclick="closeUpdatePhoneModal()">&times;</button>
+        </div>
+        <p class="hint" style="margin-top:-6px;margin-bottom:14px">Set the InTouch SMS destination and Gemini feedback routing category for <b>${esc(editingUserPhone.name)}</b>.</p>
+        <form onsubmit="handleSaveUserPhone(event)" style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Phone Number (InTouch SMS)</label>
+            <input type="tel" name="phone" value="${esc(editingUserPhone.phone || '')}" placeholder="0788123456 or +250788123456" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+            <small class="hint" style="font-size:11.5px">Rwanda mobile format (078/079/072/073) or international (+250...). Leave blank to disable SMS alerts.</small>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Hospital Routing Category (Gemini AI)</label>
+            <select name="category" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+              <option value="clinical" ${editingUserPhone.category === 'clinical' ? 'selected' : ''}>Clinical (Doctor, Nurse, Inpatient Care)</option>
+              <option value="public_relations" ${editingUserPhone.category === 'public_relations' ? 'selected' : ''}>Public Relations (Customer Care, Reception, Billing)</option>
+              <option value="managing_director" ${editingUserPhone.category === 'managing_director' ? 'selected' : ''}>Managing Director (Executive Leadership & Escalations)</option>
+            </select>
+            <small class="hint" style="font-size:11.5px">Gemini classifies incoming patient feedback and routes alerts to the appropriate category staff.</small>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+            <button type="button" class="adm-btn" onclick="closeUpdatePhoneModal()">Cancel</button>
+            <button type="submit" class="adm-btn primary"><i class='bx bx-check'></i> Save</button>
+          </div>
+        </form>
+      </div>
+    </div>` : '';
+
   if (!adminSession.isSupremeAdmin) {
-    const accounts = managedUsers.map((user) => `<tr id="user-row-${/^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : ''}">
-      <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
-      <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
-      <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
-    </tr>`).join('');
+    const accounts = managedUsers.map((user) => {
+      const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+      const cat = user.category || 'clinical';
+      const catLabel = cat === 'managing_director' ? 'Managing Director' : cat === 'public_relations' ? 'Public Relations' : 'Clinical';
+      const catColor = cat === 'managing_director' ? '#8b5cf6' : cat === 'public_relations' ? '#0284c7' : '#059669';
+      const catBadge = `<span class="user-role" style="background:${catColor}15;color:${catColor};border:1px solid ${catColor}40;font-size:11px"><i class='bx ${cat === 'managing_director' ? 'bx-crown' : cat === 'public_relations' ? 'bx-user-voice' : 'bx-plus-medical'}'></i> ${catLabel}</span>`;
+      const phoneDisplay = user.phone
+        ? `<span style="font-size:12px;display:inline-flex;align-items:center;gap:4px"><i class='bx bx-phone' style="color:#2563eb"></i> <b>${esc(user.phone)}</b></span>`
+        : `<span class="hint" style="font-size:12px;font-style:italic"><i class='bx bx-phone'></i> No phone</span>`;
+      const phoneAction = `<button class="adm-btn" id="user-phone-btn-${safeId}" onclick="openUpdatePhoneModal('${safeId}','${esc(user.name || user.username || '')}','${esc(user.phone || '')}','${esc(user.category || 'clinical')}')"><i class='bx bx-phone'></i> Update Phone</button>`;
+      return `<tr id="user-row-${safeId}">
+        <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
+        <td><div>${phoneDisplay}</div><div style="margin-top:3px">${catBadge}</div></td>
+        <td><span class="user-role status-${esc(user.status)} ${esc(user.status)}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
+        <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
+        <td>${phoneAction}</td>
+      </tr>`;
+    }).join('');
     const accountList = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Registered accounts</p><h3>All accounts (${managedUsers.length})</h3></div>${refresh}</div>${managedUsers.length
-      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th></tr></thead><tbody>${accounts}</tbody></table></div>`
+      ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Phone & Category</th><th>Approval</th><th>Access</th><th>Action</th></tr></thead><tbody>${accounts}</tbody></table></div>`
       : '<p class="hint">There are no accounts to display.</p>'
       }</section>`;
-    return approvedUsers + directory + accountList;
+    return phoneModalHtml + approvedUsers + directory + accountList;
   }
   const pendingUsers = managedUsers.filter((u) => u.status === 'pending');
   const pendingSection = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Review queue</p><h3>Pending review (${pendingUsers.length})</h3></div>${refresh}</div>${pendingUsers.length
@@ -1714,6 +1759,14 @@ function renderUserManagementContent() {
     }</section>`;
   const rows = managedUsers.map((user) => {
     const safeId = /^[A-Za-z0-9_-]+$/.test(user.user_id) ? user.user_id : '';
+    const cat = user.category || 'clinical';
+    const catLabel = cat === 'managing_director' ? 'Managing Director' : cat === 'public_relations' ? 'Public Relations' : 'Clinical';
+    const catColor = cat === 'managing_director' ? '#8b5cf6' : cat === 'public_relations' ? '#0284c7' : '#059669';
+    const catBadge = `<span class="user-role" style="background:${catColor}15;color:${catColor};border:1px solid ${catColor}40;font-size:11px"><i class='bx ${cat === 'managing_director' ? 'bx-crown' : cat === 'public_relations' ? 'bx-user-voice' : 'bx-plus-medical'}'></i> ${catLabel}</span>`;
+    const phoneDisplay = user.phone
+      ? `<span style="font-size:12px;display:inline-flex;align-items:center;gap:4px"><i class='bx bx-phone' style="color:#2563eb"></i> <b>${esc(user.phone)}</b></span>`
+      : `<span class="hint" style="font-size:12px;font-style:italic"><i class='bx bx-phone'></i> No phone</span>`;
+    const phoneAction = `<button class="adm-btn" id="user-phone-btn-${safeId}" onclick="openUpdatePhoneModal('${safeId}','${esc(user.name || user.username || '')}','${esc(user.phone || '')}','${esc(user.category || 'clinical')}')"><i class='bx bx-phone'></i> Phone</button>`;
     const adminAction = `<button class="adm-btn" id="user-admin-btn-${safeId}" onclick="setUserRole('${safeId}','admin',${!user.is_admin})">${user.is_admin ? 'Remove admin' : 'Make admin'}</button>`;
     const supremeAction = `<button class="adm-btn" id="user-supreme-btn-${safeId}" onclick="setUserRole('${safeId}','supreme',${!user.is_supreme_admin})">${user.is_supreme_admin ? 'Remove supreme' : 'Make supreme'}</button>`;
     const statusAction = user.status === 'deactivated'
@@ -1722,19 +1775,28 @@ function renderUserManagementContent() {
         ? `<button class="adm-btn danger" id="user-status-btn-${safeId}" onclick="setUserStatus('${safeId}','deactivated')"><i class='bx bx-block'></i> Deactivate</button>`
         : '';
     const deleteAction = `<button class="adm-btn danger" id="user-del-btn-${safeId}" onclick="deleteUser('${safeId}','${esc(user.username || user.name || '')}')"><i class='bx bx-trash'></i> Delete</button>`;
-    const actions = safeId && user.user_id !== adminSession.user.id
-      ? `<div class="user-role-actions">${user.status === 'pending'
-        ? `<button class="adm-btn primary" id="user-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="user-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
-        : ''
-      }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}</div>`
-      : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>';
-    return `<tr id="user-row-${safeId}"><td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td><td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td><td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td><td>${actions}</td></tr>`;
+    const actions = safeId
+      ? `<div class="user-role-actions">${phoneAction}${user.user_id !== adminSession.user.id
+        ? `${user.status === 'pending'
+          ? `<button class="adm-btn primary" id="user-approve-btn-${safeId}" onclick="reviewUser('${safeId}','approved')"><i class='bx bx-check'></i> Approve</button><button class="adm-btn danger" id="user-decline-btn-${safeId}" onclick="reviewUser('${safeId}','rejected')"><i class='bx bx-x'></i> Decline</button>`
+          : ''
+        }${user.is_supreme_admin ? supremeAction + adminAction : adminAction + supremeAction}${statusAction}${deleteAction}`
+        : '<span class="badge-current-user"><i class=\'bx bx-shield-quarter\'></i> Current account</span>'
+      }</div>`
+      : '';
+    return `<tr id="user-row-${safeId}">
+      <td><b>${esc(user.name || 'Unnamed user')}</b><br><span class="hint">@${esc(user.username || '')}</span></td>
+      <td><div>${phoneDisplay}</div><div style="margin-top:3px">${catBadge}</div></td>
+      <td><span class="user-role status-${esc(user.status)} ${esc(user.status)} ${user.status === 'deactivated' ? 'danger' : ''}">${user.status === 'approved' ? `<i class='bx bx-check-circle'></i> ` : user.status === 'pending' ? `<i class='bx bx-time'></i> ` : user.status === 'deactivated' ? `<i class='bx bx-block'></i> ` : ''}${esc(user.status)}</span></td>
+      <td>${user.is_supreme_admin ? 'Supreme admin' : user.is_admin ? 'Admin' : 'User'}</td>
+      <td>${actions}</td>
+    </tr>`;
   }).join('');
   const accounts = `<section class="card user-management"><div class="user-management-heading"><div><p class="eyebrow">Supreme admin controls</p><h3>Accounts & permissions</h3></div>${refresh}</div><p class="hint">Grant dashboard access and manage the supreme-admin role. At least one supreme admin must remain.</p>${managedUsers.length
-    ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="admin-user-table-wrap"><table class="admin-user-table"><thead><tr><th>Account</th><th>Phone & Category</th><th>Approval</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<p class="hint">There are no accounts to display.</p>'
     }</section>`;
-  return pendingSection + approvedUsers + directory + accounts;
+  return phoneModalHtml + pendingSection + approvedUsers + directory + accounts;
 }
 
 function userManagementUI() {
@@ -2204,6 +2266,81 @@ async function executeDeleteUser(userId) {
             ? 'Remove the supreme-admin role before deleting this account.'
             : 'The account could not be deleted. Refresh and try again.';
     alert(msg);
+  }
+}
+
+function openUpdatePhoneModal(userId, name, currentPhone, currentCategory) {
+  editingUserPhone = {
+    userId,
+    name: name || 'User',
+    phone: currentPhone || '',
+    category: currentCategory || 'clinical'
+  };
+  updateUserManagementUI();
+}
+
+function closeUpdatePhoneModal() {
+  editingUserPhone = null;
+  updateUserManagementUI();
+}
+
+async function handleSaveUserPhone(event) {
+  event.preventDefault();
+  if (!editingUserPhone) return;
+  const form = event.target;
+  const rawPhone = (form.phone?.value || '').trim();
+  const category = form.category?.value || 'clinical';
+
+  let cleanPhone = rawPhone.replace(/[\s\-\(\)\.]/g, '');
+  if (cleanPhone) {
+    if (cleanPhone.startsWith('07') && cleanPhone.length === 10) {
+      cleanPhone = '+250' + cleanPhone.slice(1);
+    } else if (cleanPhone.startsWith('2507') && cleanPhone.length === 12) {
+      cleanPhone = '+' + cleanPhone;
+    } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+      cleanPhone = '+250' + cleanPhone;
+    } else if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
+      alert('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
+      return;
+    }
+  }
+
+  const userId = editingUserPhone.userId;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Saving…";
+  }
+
+  try {
+    const res = await apiRequest(`/api/admin/users/${encodeURIComponent(userId)}/phone`, 'PATCH', {
+      phone: cleanPhone || '',
+      category
+    });
+
+    const updateTarget = (u) => {
+      if (u.user_id === userId) {
+        u.phone = cleanPhone || '';
+        u.category = category;
+      }
+    };
+    managedUsers.forEach(updateTarget);
+    activeUsers.forEach(updateTarget);
+    adminDirectory.forEach(updateTarget);
+
+    const userName = editingUserPhone?.name || 'user';
+    closeUpdatePhoneModal();
+    if (typeof loadAlertContacts === 'function') {
+      loadAlertContacts();
+    }
+    alert(`Phone number and category updated for ${userName}.\nUrgent alerts for ${category.replace('_', ' ').toUpperCase()} will route here via InTouch SMS.`);
+  } catch (err) {
+    console.error('Failed to update phone number:', err);
+    alert('Failed to update phone number: ' + (err.message || 'Error occurred'));
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<i class='bx bx-check'></i> Save";
+    }
   }
 }
 
@@ -4333,32 +4470,60 @@ async function handleSaveAlertContact(event) {
   const form = event.target;
   const name = form.name.value.trim();
   const phone = form.phone.value.trim();
+  const email = (form.email?.value || '').trim();
   const deptId = form.department_id.value || null;
   const role = form.role.value.trim();
   const isDutyMgr = form.is_duty_manager.checked;
   const minSev = form.min_severity.value;
   const alertEnabled = form.alert_enabled.checked;
+  const smsEnabled = form.sms_enabled ? form.sms_enabled.checked : true;
+  const emailEnabled = form.email_enabled ? form.email_enabled.checked : true;
   const optIn = form.opt_in.checked;
 
-  if (!name || !phone) {
-    alert('Please enter both name and phone number.');
+  if (!name) {
+    alert('Please enter staff full name.');
     return;
   }
 
-  if (!/^\+250\d{9}$/.test(phone.replace(/\s+/g, '')) && !/^\+[1-9]\d{7,14}$/.test(phone.replace(/\s+/g, ''))) {
-    alert('Phone number must be in E.164 format (e.g. +250788123456).');
+  let cleanPhone = phone.replace(/[\s\-\(\)\.]/g, '');
+  if (cleanPhone) {
+    if (/^07[2389]\d{7}$/.test(cleanPhone)) {
+      cleanPhone = '+250' + cleanPhone.slice(1);
+    } else if (/^7[2389]\d{7}$/.test(cleanPhone)) {
+      cleanPhone = '+250' + cleanPhone;
+    } else if (cleanPhone.startsWith('2507') && cleanPhone.length === 12) {
+      cleanPhone = '+' + cleanPhone;
+    } else if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
+      alert('Phone number must be a valid Rwanda mobile (e.g. 0788123456) or international (+250...).');
+      return;
+    }
+  }
+
+  if (!cleanPhone && !email) {
+    alert('Please enter at least a phone number (for SMS) or email address (for Email alerts).');
     return;
   }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    alert('Please enter a valid email address.');
+    return;
+  }
+
+  const targetCategory = form.target_category ? form.target_category.value : 'clinical';
 
   try {
     await apiRequest('/api/admin/alert-contacts', 'POST', {
       name,
-      phone_e164: phone.replace(/\s+/g, ''),
+      phone_e164: cleanPhone,
+      email,
       department_id: deptId,
       role: role || 'Staff',
       is_duty_manager: isDutyMgr,
       min_severity: minSev,
+      target_category: targetCategory,
       alert_enabled: alertEnabled,
+      sms_enabled: smsEnabled,
+      email_enabled: emailEnabled,
       opt_in: optIn
     });
     showAddContactModal = false;
@@ -4393,8 +4558,9 @@ async function handleToggleAlertContact(id, currentEnabled) {
       role: contact.role,
       is_duty_manager: contact.is_duty_manager,
       min_severity: contact.min_severity,
+      target_category: contact.target_category || 'clinical',
       alert_enabled: !currentEnabled,
-      opt_in: Boolean(contact.whatsapp_opt_in_at)
+      opt_in: Boolean(contact.whatsapp_opt_in_at || contact.sms_opt_in_at)
     });
     contact.alert_enabled = !currentEnabled;
     admin();
@@ -4409,7 +4575,7 @@ async function handleTestAlertContact(id, name) {
     const res = await apiRequest('/api/admin/alert-contacts/' + encodeURIComponent(id) + '/test', 'POST', {});
     const dryRun = res.result?.dryRun;
     alert('Test alert dispatched to ' + name + '!\n' +
-      (dryRun ? '(System is in DRY-RUN mode; logged to server without charging WhatsApp).' : 'Delivered via Meta WhatsApp API.') +
+      (dryRun ? '(System is in DRY-RUN mode; logged to server without charging SMS/SMTP).' : 'Dispatched via InTouch SMS / Nodemailer.') +
       '\nMessage ID: ' + (res.result?.messageId || 'simulated'));
   } catch (err) {
     console.error('Test alert failed:', err);
@@ -4431,7 +4597,7 @@ function alertContactsUI() {
     <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px" onclick="if(event.target===this)closeAddContactModal()">
       <div class="card" style="max-width:500px;width:100%;margin:0;box-shadow:var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
-          <h3 style="margin:0"><i class='bx bxl-whatsapp' style="color:#25d366"></i> Add WhatsApp Alert Contact</h3>
+          <h3 style="margin:0"><i class='bx bx-bell' style="color:var(--red)"></i> Add Alert Contact (SMS & Email)</h3>
           <button class="dialog-close-btn" type="button" onclick="closeAddContactModal()">&times;</button>
         </div>
         <form onsubmit="handleSaveAlertContact(event)" style="display:flex;flex-direction:column;gap:12px">
@@ -4440,9 +4606,14 @@ function alertContactsUI() {
             <input type="text" name="name" required placeholder="e.g. Dr. Keza Alice or Sister Marie" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
           </div>
           <div>
-            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">E.164 WhatsApp Phone Number</label>
-            <input type="tel" name="phone" required placeholder="+250788123456" pattern="^\+[1-9]\d{7,14}$" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
-            <small class="hint" style="font-size:11.5px">Must include country code, e.g. +250 for Rwanda followed by 9 digits.</small>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Phone Number (InTouch SMS for Urgent/Immediate Alerts)</label>
+            <input type="tel" name="phone" placeholder="0788123456 or +250788123456" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+            <small class="hint" style="font-size:11.5px">Rwanda phone format (0788123456 or +250...). Triggers SMS when negative feedback needs immediate attention.</small>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Email Address (Nodemailer Email Alerts)</label>
+            <input type="email" name="email" placeholder="staff@dmchospital.org" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+            <small class="hint" style="font-size:11.5px">Receives email alerts for normal negative feedback.</small>
           </div>
           <div>
             <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Assigned Department</label>
@@ -4454,6 +4625,16 @@ function alertContactsUI() {
           <div>
             <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Role / Title</label>
             <input type="text" name="role" placeholder="e.g. Head Nurse, Quality Manager, Duty Physician" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Staff Category / Routing Audience (Gemini AI)</label>
+            <select name="target_category" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);box-sizing:border-box">
+              <option value="clinical">Clinical (Doctors, Nurses & Inpatient Medical Staff)</option>
+              <option value="public_relations">Public Relations (Customer Care, Reception, Wait Times, Billing)</option>
+              <option value="managing_director">Managing Director (Executive Leadership, Malpractice, Legal)</option>
+              <option value="all">All Categories (General Operations Lead)</option>
+            </select>
+            <small class="hint" style="font-size:11.5px">Gemini classifies incoming patient feedback into Clinical, PR, or Managing Director and routes alerts accordingly.</small>
           </div>
           <div>
             <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:4px">Minimum Severity Threshold</label>
@@ -4470,7 +4651,7 @@ function alertContactsUI() {
             </label>
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
               <input type="checkbox" name="opt_in" value="1" checked>
-              <span><b>WhatsApp Opt-In Consent:</b> Staff member consented to receive alerts at this number.</span>
+              <span><b>Opt-In Consent:</b> Staff member consented to receive alerts at this phone and email.</span>
             </label>
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
               <input type="checkbox" name="alert_enabled" value="1" checked>
@@ -4487,22 +4668,29 @@ function alertContactsUI() {
 
   const contactsHtml = alertContacts.length ? `
     <div class="contacts-grid">
-      ${alertContacts.map((c) => `
+      ${alertContacts.map((c) => {
+        const cat = c.target_category || 'clinical';
+        const catLabel = cat === 'managing_director' ? 'Managing Director' : cat === 'public_relations' ? 'Public Relations' : cat === 'all' ? 'All Categories' : 'Clinical';
+        const catIcon = cat === 'managing_director' ? 'bx-crown' : cat === 'public_relations' ? 'bx-user-voice' : cat === 'all' ? 'bx-buildings' : 'bx-plus-medical';
+        const catColor = cat === 'managing_director' ? '#8b5cf6' : cat === 'public_relations' ? '#0284c7' : cat === 'all' ? '#475569' : '#059669';
+
+        return `
         <div class="contact-card ${c.alert_enabled ? '' : 'disabled'}">
           <div class="contact-card-top">
             <div>
               <h4 class="contact-card-title">${esc(c.name)}</h4>
               <div class="contact-card-meta">
-                <span><i class='bx bxl-whatsapp' style="color:#25d366"></i> <strong>${esc(c.phone_e164)}</strong></span>
+                ${c.phone_e164 ? `<span><i class='bx bx-message-rounded-dots' style="color:#2563eb"></i> SMS: <strong>${esc(c.phone_e164)}</strong></span>` : ''}
+                ${c.email ? `<span><i class='bx bx-envelope' style="color:#ea580c"></i> Email: <strong>${esc(c.email)}</strong></span>` : ''}
                 <span><i class='bx bx-buildings'></i> ${esc(c.department_name || 'Hospital-Wide / All Departments')}</span>
                 <span><i class='bx bx-id-card'></i> ${esc(c.role || 'Staff')}</span>
               </div>
             </div>
           </div>
           <div class="contact-card-badges">
+            <span class="user-role" style="background:${catColor}15;color:${catColor};border:1px solid ${catColor}40"><i class='bx ${catIcon}'></i> ${catLabel}</span>
             ${c.is_duty_manager ? '<span class="badge-duty-mgr"><i class=\'bx bx-shield-quarter\'></i> Duty Manager</span>' : ''}
             <span class="badge-severity badge-severity-${esc(c.min_severity || 'normal')}">Min: ${esc(c.min_severity || 'normal')}</span>
-            ${c.whatsapp_opt_in_at ? '<span class="badge-optin-yes"><i class=\'bx bx-check\'></i> Opted-In</span>' : '<span class="badge-optin-no"><i class=\'bx bx-error\'></i> Opt-in Pending</span>'}
             <span class="user-role status-${c.alert_enabled ? 'approved' : 'deactivated'}" style="font-size:11px">${c.alert_enabled ? 'Alerts ON' : 'Paused'}</span>
           </div>
           <div class="contact-card-actions">
@@ -4510,12 +4698,13 @@ function alertContactsUI() {
             <button class="adm-btn" onclick="handleToggleAlertContact('${c.id}', ${c.alert_enabled})">${c.alert_enabled ? 'Pause' : 'Resume'}</button>
             <button class="adm-btn danger" onclick="handleDeleteAlertContact('${c.id}', '${esc(c.name)}')"><i class='bx bx-trash'></i></button>
           </div>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
     </div>` : `
     <div style="text-align:center;padding:48px 16px;background:var(--surface-2);border-radius:var(--radius-md);border:1px dashed var(--border)">
-      <i class='bx bxl-whatsapp' style="font-size:48px;color:#25d366;margin-bottom:8px"></i>
-      <h3 style="margin:4px 0">No WhatsApp Alert Contacts Configured</h3>
-      <p class="hint" style="max-width:440px;margin:4px auto 16px">Add on-duty nurses, departmental supervisors, and duty managers to receive instant alerts when patients report critical concerns.</p>
+      <i class='bx bx-bell' style="font-size:48px;color:var(--red);margin-bottom:8px"></i>
+      <h3 style="margin:4px 0">No Staff Alert Contacts Configured</h3>
+      <p class="hint" style="max-width:480px;margin:4px auto 16px">Add on-duty nurses, supervisors, and managing directors to receive instant InTouch SMS for immediate concerns and Nodemailer Email alerts for normal negative feedback.</p>
       <button class="adm-btn primary" onclick="openAddContactModal()"><i class='bx bx-plus'></i> Add First Contact</button>
     </div>`;
 
@@ -4524,8 +4713,8 @@ function alertContactsUI() {
     <div class="card">
       <div class="contacts-header-bar">
         <div>
-          <h3 style="margin:0"><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alert Contacts (${alertContacts.length})</h3>
-          <p class="hint" style="margin:2px 0 0">Route negative and urgent patient feedback to authorized hospital staff via WhatsApp Cloud API. Messages contain NO patient names or text.</p>
+          <h3 style="margin:0"><i class='bx bx-bell' style="color:var(--red)"></i> Staff Alert Contacts (${alertContacts.length})</h3>
+          <p class="hint" style="margin:2px 0 0">Route patient feedback to authorized hospital staff via InTouch SMS and Nodemailer Email based on Gemini AI category classification (Clinical, Public Relations, Managing Director). Payloads contain NO patient names or text.</p>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="adm-btn" onclick="loadAlertContacts()"><i class='bx bx-refresh'></i> Refresh</button>

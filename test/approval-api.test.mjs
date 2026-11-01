@@ -99,8 +99,19 @@ class ApprovalPool {
       const user = this.users.find((u) => u.user_id === values[0]);
       return {
         rowCount: user ? 1 : 0,
-        rows: user ? [{ id: user.user_id, name: user.name, username: user.username, '?column?': 1 }] : []
+        rows: user ? [{ id: user.user_id, name: user.name, username: user.username, phone: user.phone || '', category: user.category || 'clinical', '?column?': 1 }] : []
       };
+    }
+    if (sql.includes('update public."user"') && (sql.includes('phone') || sql.includes('category'))) {
+      const target = this.users.find((u) => u.user_id === (values[2] || values[1]));
+      if (target) {
+        target.phone = values[0];
+        if (values[2]) target.category = values[1];
+      }
+      return { rowCount: target ? 1 : 0, rows: [] };
+    }
+    if (sql.includes('staff_alert_contacts')) {
+      return { rowCount: 1, rows: [{ id: 'contact-sync-mock' }] };
     }
     if (sql.includes('count(*)::int as total from public.feedback_admins')) {
       return { rowCount: 1, rows: [{ total: this.admins.size }] };
@@ -130,6 +141,8 @@ class ApprovalPool {
           user_id: user.user_id,
           name: user.name,
           username: user.username,
+          phone: user.phone || '',
+          category: user.category || 'clinical',
           status: this.approvals.get(user.user_id)?.status || (this.admins.has(user.user_id) ? 'approved' : 'pending'),
           created_at: user.created_at,
           is_admin: this.admins.has(user.user_id),
@@ -759,6 +772,45 @@ test('session expires after 1 hour of inactivity on the backend with audit loggi
   assert.equal(pool.sessionActivity.has('sandra-user'), false);
   assert.equal(pool.auditEvents.some((e) => e.action === 'auth.session_timeout' && e.actorId === 'sandra-user'), true);
 });
+
+test('admin can update phone number and category for an existing user', async () => {
+  const pool = new ApprovalPool();
+
+  // 1. Admin updates user's phone and category
+  const res = await call(pool, 'PATCH', '/api/admin/users/pending-user/phone', 'sandra-user', {
+    phone: '0785971082',
+    category: 'public_relations'
+  });
+
+  assert.equal(res.response.status, 200);
+  assert.equal(res.data.ok, true);
+  assert.equal(res.data.user.phone, '+250785971082', 'Phone is normalized to +250...');
+  assert.equal(res.data.user.category, 'public_relations');
+
+  // Verify user updated in pool
+  const user = pool.users.find((u) => u.user_id === 'pending-user');
+  assert.equal(user.phone, '+250785971082');
+  assert.equal(user.category, 'public_relations');
+
+  // Verify audit event recorded
+  const audit = pool.auditEvents.at(-1);
+  assert.equal(audit.action, 'user.phone_updated');
+  assert.equal(audit.targetId, 'pending-user');
+
+  // 2. Reject invalid phone number
+  const invalidRes = await call(pool, 'PATCH', '/api/admin/users/pending-user/phone', 'sandra-user', {
+    phone: '12345'
+  });
+  assert.equal(invalidRes.response.status, 400);
+  assert.equal(invalidRes.data.error, 'invalid_phone');
+
+  // 3. Non-admin cannot update another user's phone
+  const forbiddenRes = await call(pool, 'PATCH', '/api/admin/users/regular-admin/phone', 'pending-user', {
+    phone: '0782300441'
+  });
+  assert.equal(forbiddenRes.response.status, 403);
+});
+
 
 
 

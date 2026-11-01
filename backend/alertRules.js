@@ -192,9 +192,34 @@ export function needsAttention(feedback = {}, sentiment = null) {
     }
   }
 
+  // 6. Target category routing logic:
+  // Categories: 'clinical' | 'public_relations' | 'managing_director'
+  let targetCategory = sentiment?.target_category;
+
+  // Check for MD triggers (Lawsuit/legal, bribery/corruption, death, gross malpractice)
+  const isMdTrigger =
+    /\b(lawyer|attorney|lawsuit|sue|bribery|bribe|extortion|court|malpractice|corruption|death|died|dying|avocat|juridique|proces|justice|pot de vin|deces|mort|munyamategeko|urukiko|kurega|ikirego|ruswa|gupfa|urupfu)\b/i.test(normText) ||
+    signals.some((s) => s.startsWith('category:md:') || s.includes('ruswa') || s.includes('urukiko') || s.includes('kurega'));
+
+  if (isMdTrigger) {
+    targetCategory = 'managing_director';
+  } else if (!targetCategory || !['clinical', 'public_relations', 'managing_director'].includes(targetCategory)) {
+    // If not set by Gemini, infer based on clinical keywords vs general PR
+    if (matchedCriticalKw || severity === 'critical') {
+      targetCategory = 'clinical';
+    } else if (matchedHighKw && /\b(pain|doctor|nurse|medicine|care|soins|douleur|amaraso|ububabare)\b/i.test(normText)) {
+      targetCategory = 'clinical';
+    } else if (matchedNormalKw || isLowestRating) {
+      targetCategory = 'public_relations';
+    } else {
+      targetCategory = 'public_relations';
+    }
+  }
+
   return {
     flag,
     severity,
+    targetCategory,
     reasons: flag ? (reasons.length > 0 ? reasons : ['General review']) : []
   };
 }

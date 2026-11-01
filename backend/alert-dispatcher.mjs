@@ -1,10 +1,16 @@
 /**
  * alert-dispatcher.mjs
- * Implements the transactional Outbox Pattern, recipient routing, retry backoff,
- * deduplication, rate-limiting, and escalation for hospital feedback WhatsApp alerts.
+ * Implements the transactional Outbox Pattern, InTouch SMS and Nodemailer Email routing,
+ * retry backoff, deduplication, rate-limiting, and escalation for hospital patient feedback.
+ *
+ * ROUTING RULES:
+ * - Immediate Attention (Severity 'critical' or 'high'): Dispatches direct SMS via InTouch SMS (Rwanda).
+ * - Normal Attention (Negative sentiment, no immediate clinical harm): Dispatches Email via Nodemailer.
+ * - Positive or Neutral: No immediate alert dispatched.
  */
 
-import { sendAlert, isValidE164, sanitizeE164 } from './services/whatsapp.js';
+import { sendIntouchSms, isValidIntouchPhone, isValidE164, sanitizeE164, formatIntouchRecipient, extractFeedbackSummary } from './services/intouch.js';
+import { sendAlertEmail, isValidEmail } from './services/mailer.js';
 import { recordAuditEvent } from './audit-log.mjs';
 
 export const BACKOFF_SCHEDULE_MINUTES = [1, 5, 15, 30, 60];
@@ -13,6 +19,26 @@ export const RATE_LIMIT_WINDOW_MINUTES = 30;
 export function calculateRetryBackoff(attempt) {
   const index = Math.max(0, Math.min(Math.max(1, attempt) - 1, BACKOFF_SCHEDULE_MINUTES.length - 1));
   return BACKOFF_SCHEDULE_MINUTES[index] * 60 * 1000;
+}
+
+/**
+ * Unified dispatch interface.
+ * Routes to InTouch SMS or Nodemailer Email based on payload severity and channel.
+ *
+ * @param {object} recipient Staff contact { id, name, phone_e164, email }
+ * @param {object} payload Alert details { feedbackId, severity, departmentName, reason, language, dashboardUrl, channel, provider }
+ * @returns {Promise<{ ok: boolean, messageId?: string, dryRun?: boolean, error?: string }>}
+ */
+export async function sendAlert(recipient, payload = {}, options = {}) {
+  const severity = payload.severity || 'normal';
+  const isImmediateAttention = severity === 'critical' || severity === 'high';
+  const channel = payload.channel || (isImmediateAttention ? 'sms' : 'email');
+
+  if (channel === 'email') {
+    return sendAlertEmail(recipient, payload, options);
+  }
+
+  return sendIntouchSms(recipient, payload, options);
 }
 
 /**
@@ -32,61 +58,140 @@ export async function queueFeedbackAlerts(client, {
   departmentId,
   departmentName,
   language = 'en',
-  decision
+  decision,
+  answers = {},
+  metadata = {}
 }) {
   if (!decision || !decision.flag) return 0;
   if (!client || typeof client.query !== 'function') return 0;
 
   const severity = decision.severity || 'normal';
   const reason = decision.reasons?.[0] || 'Patient feedback requires review';
+  const targetCategory = decision.targetCategory || 'clinical';
+
+  const surveySummary = extractFeedbackSummary(answers);
+  const alertMetadata = {
+    ...(metadata || {}),
+    ...surveySummary,
+    ...(answers && typeof answers === 'object' ? { answers } : {})
+  };
+
+  // Immediate attention ('critical' | 'high') -> INTOUCH SMS (Rwanda)
+  // Normal attention ('normal') -> NODEMAILER EMAIL
+  const isImmediateAttention = severity === 'critical' || severity === 'high';
+  const channel = isImmediateAttention ? 'sms' : 'email';
+  const provider = isImmediateAttention ? (process.env.SMS_PROVIDER || 'intouch') : 'nodemailer';
 
   // 1. Fetch eligible staff contacts
-  // Matching rules:
-  // - alert_enabled = true
-  // - whatsapp_opt_in_at is not null (consent recorded)
-  // - Matches department OR is duty manager (for critical alerts)
-  // - Contact's min_severity threshold is satisfied
   const contactsResult = await client.query(
-    `select id, name, phone_e164, department_id, is_duty_manager, min_severity
+    `select id, name, phone_e164, coalesce(email, '') as email, department_id, is_duty_manager, min_severity,
+            coalesce(target_category, 'clinical') as target_category,
+            coalesce(sms_enabled, true) as sms_enabled, coalesce(email_enabled, true) as email_enabled
      from public.staff_alert_contacts
      where alert_enabled = true
-       and whatsapp_opt_in_at is not null
        and (
          department_id = $1
-         or (is_duty_manager = true and $2 = 'critical')
+         or department_id is null
+         or (is_duty_manager = true and ($2 = 'critical' or $3 = 'managing_director'))
+         or target_category = 'managing_director'
+         or target_category = 'public_relations'
        )`,
-    [departmentId, severity]
-  );
+    [departmentId, severity, targetCategory]
+  ).catch(async () => {
+    // Fallback if target_category not yet applied
+    return client.query(
+      `select id, name, phone_e164, coalesce(email, '') as email, department_id, is_duty_manager, min_severity,
+              'clinical' as target_category,
+              coalesce(sms_enabled, true) as sms_enabled, coalesce(email_enabled, true) as email_enabled
+       from public.staff_alert_contacts
+       where alert_enabled = true
+         and (
+           department_id = $1
+           or (is_duty_manager = true and $2 = 'critical')
+         )`,
+      [departmentId, severity]
+    ).catch(async () => {
+      // Fallback if email columns not yet applied
+      return client.query(
+        `select id, name, phone_e164, '' as email, department_id, is_duty_manager, min_severity,
+                'clinical' as target_category,
+                true as sms_enabled, true as email_enabled
+         from public.staff_alert_contacts
+         where alert_enabled = true
+           and (
+             department_id = $1
+             or (is_duty_manager = true and $2 = 'critical')
+           )`,
+        [departmentId, severity]
+      );
+    });
+  });
 
   const eligibleContacts = contactsResult.rows.filter((contact) => {
-    if (!isValidE164(contact.phone_e164)) return false;
+    // Check target category match
+    const contactCat = contact.target_category || 'clinical';
+    const categoryMatches =
+      contactCat === 'all' ||
+      contactCat === targetCategory ||
+      (targetCategory === 'managing_director' && contact.is_duty_manager);
+
+    if (!categoryMatches) return false;
+
+    // Check department matching
+    // Clinical contacts are department-specific unless they have no department assigned (hospital-wide) or are duty managers.
+    // Public relations and Managing Director are hospital-wide functions unless explicit department is specified.
+    if (contactCat === 'clinical' && contact.department_id && contact.department_id !== departmentId && !contact.is_duty_manager) {
+      return false;
+    }
+
     // Check severity threshold hierarchy: normal (all) < high < critical
     if (contact.min_severity === 'critical' && severity !== 'critical') return false;
     if (contact.min_severity === 'high' && severity === 'normal') return false;
-    return true;
+
+    if (channel === 'sms') {
+      return (contact.sms_enabled !== false) && (isValidIntouchPhone(contact.phone_e164) || isValidE164(contact.phone_e164));
+    }
+    // channel === 'email'
+    return (contact.email_enabled !== false) && isValidEmail(contact.email);
   });
 
   // 2. Fallback routing if no configured staff member matched
   if (eligibleContacts.length === 0) {
-    const fallbackPhone = sanitizeE164(process.env.ALERT_FALLBACK_PHONE || '');
-    if (isValidE164(fallbackPhone)) {
-      eligibleContacts.push({
-        id: null,
-        name: 'Duty Manager (Fallback)',
-        phone_e164: fallbackPhone,
-        department_id: departmentId,
-        is_duty_manager: true
-      });
+    if (channel === 'sms') {
+      const fallbackPhone = formatIntouchRecipient(process.env.ALERT_FALLBACK_PHONE || '') || sanitizeE164(process.env.ALERT_FALLBACK_PHONE || '');
+      if (isValidIntouchPhone(fallbackPhone) || isValidE164(fallbackPhone)) {
+        eligibleContacts.push({
+          id: null,
+          name: 'Duty Manager (Fallback)',
+          phone_e164: fallbackPhone,
+          email: '',
+          department_id: departmentId,
+          target_category: targetCategory,
+          is_duty_manager: true
+        });
+      }
+    } else {
+      const fallbackEmail = (process.env.ALERT_FALLBACK_EMAIL || process.env.EMAIL_FROM || '').trim();
+      if (isValidEmail(fallbackEmail)) {
+        eligibleContacts.push({
+          id: null,
+          name: 'Quality Lead (Fallback)',
+          phone_e164: '',
+          email: fallbackEmail,
+          department_id: departmentId,
+          target_category: targetCategory,
+          is_duty_manager: true
+        });
+      }
     }
   }
 
   if (eligibleContacts.length === 0) {
-    console.warn(`[ALERT DISPATCHER] No eligible WhatsApp contacts found for department: ${departmentName} (${severity}).`);
+    console.warn(`[ALERT DISPATCHER] No eligible ${channel.toUpperCase()} contacts found for department: ${departmentName} (${severity} / ${targetCategory}).`);
     return 0;
   }
 
   // 3. Rate limiting / deduplication for non-critical alerts
-  // If the same department received an alert within the window, normal/high alerts are rate-limited.
   // CRITICAL ALERTS ARE NEVER BATCHED OR DELAYED.
   if (severity !== 'critical') {
     const recentAlerts = await client.query(
@@ -96,7 +201,8 @@ export async function queueFeedbackAlerts(client, {
          and severity != 'critical'
          and created_at >= now() - ($2 || ' minutes')::interval`,
       [departmentId, RATE_LIMIT_WINDOW_MINUTES]
-    );
+    ).catch(() => ({ rows: [] }));
+
     if ((recentAlerts.rows[0]?.count || 0) >= 3) {
       console.log(`[ALERT RATE LIMIT] Department ${departmentName} has received 3+ alerts in last ${RATE_LIMIT_WINDOW_MINUTES}m. Suppressing duplicate.`);
       return 0;
@@ -108,22 +214,75 @@ export async function queueFeedbackAlerts(client, {
   for (const contact of eligibleContacts) {
     const insertRes = await client.query(
       `insert into public.alert_outbox
-        (feedback_id, recipient_id, recipient_phone, recipient_name, department_id, department_name, severity, reason, detected_language, status, next_retry_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', now())
-       on conflict (feedback_id, recipient_id) do nothing
+        (feedback_id, recipient_id, recipient_phone, recipient_email, recipient_name, department_id, department_name, severity, target_category, channel, provider, reason, detected_language, status, next_retry_at, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', now(), $14::jsonb)
+       on conflict do nothing
        returning id`,
       [
         feedbackId,
         contact.id,
-        contact.phone_e164,
+        contact.phone_e164 || '',
+        contact.email || '',
         contact.name,
         departmentId,
         departmentName,
         severity,
+        targetCategory,
+        channel,
+        provider,
         reason,
-        language
+        language,
+        JSON.stringify(alertMetadata)
       ]
-    );
+    ).catch(async () => {
+      // Fallback query if metadata column is not yet migrated
+      return client.query(
+        `insert into public.alert_outbox
+          (feedback_id, recipient_id, recipient_phone, recipient_email, recipient_name, department_id, department_name, severity, target_category, channel, provider, reason, detected_language, status, next_retry_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', now())
+         on conflict do nothing
+         returning id`,
+        [
+          feedbackId,
+          contact.id,
+          contact.phone_e164 || '',
+          contact.email || '',
+          contact.name,
+          departmentId,
+          departmentName,
+          severity,
+          targetCategory,
+          channel,
+          provider,
+          reason,
+          language
+        ]
+      ).catch(async () => {
+        // Fallback query if target_category is not yet migrated
+        return client.query(
+          `insert into public.alert_outbox
+            (feedback_id, recipient_id, recipient_phone, recipient_email, recipient_name, department_id, department_name, severity, channel, provider, reason, detected_language, status, next_retry_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', now())
+           on conflict do nothing
+           returning id`,
+          [
+            feedbackId,
+            contact.id,
+            contact.phone_e164 || '',
+            contact.email || '',
+            contact.name,
+            departmentId,
+            departmentName,
+            severity,
+            channel,
+            provider,
+            reason,
+            language
+          ]
+        );
+      });
+    });
+
     if (insertRes.rowCount > 0) queuedCount += 1;
   }
 
@@ -131,13 +290,16 @@ export async function queueFeedbackAlerts(client, {
   await recordAuditEvent(client, {
     actorId: null,
     action: 'feedback.alert_queued',
-    summary: `Queued ${queuedCount} WhatsApp alert(s) for ${departmentName} (${severity}).`,
+    summary: `Queued ${queuedCount} ${channel.toUpperCase()} alert(s) via ${provider} for ${departmentName} (${severity} / ${targetCategory}).`,
     targetType: 'feedback',
     targetId: feedbackId,
     metadata: {
       severity,
+      targetCategory,
+      channel,
+      provider,
       reason,
-      recipients: eligibleContacts.map((c) => ({ name: c.name, phone: c.phone_e164 }))
+      recipients: eligibleContacts.map((c) => ({ name: c.name, phone: c.phone_e164, email: c.email, category: c.target_category }))
     }
   });
 
@@ -146,7 +308,6 @@ export async function queueFeedbackAlerts(client, {
 
 /**
  * Processes pending alert outbox rows using row locking (FOR UPDATE SKIP LOCKED).
- * Can be invoked by long-running worker interval OR Vercel cron endpoint.
  *
  * @param {object} pool PostgreSQL pool connection
  * @param {object} options
@@ -165,8 +326,13 @@ export async function processPendingAlerts(pool, options = {}) {
 
     // Lock up to `limit` pending rows that are ready for delivery
     const outboxRows = await client.query(
-      `select id, feedback_id, recipient_id, recipient_phone, recipient_name,
-              department_name, severity, reason, detected_language, attempts, max_attempts
+      `select id, feedback_id, recipient_id, recipient_phone,
+              coalesce(recipient_email, '') as recipient_email, recipient_name,
+              department_name, severity, coalesce(target_category, 'clinical') as target_category,
+              coalesce(channel, case when severity in ('critical', 'high') then 'sms' else 'email' end) as channel,
+              coalesce(provider, case when severity in ('critical', 'high') then (process.env.SMS_PROVIDER || 'intouch') else 'nodemailer' end) as provider,
+              reason, detected_language, attempts, max_attempts,
+              coalesce(metadata, '{}'::jsonb) as metadata
        from public.alert_outbox
        where status in ('pending', 'failed')
          and attempts < max_attempts
@@ -175,29 +341,76 @@ export async function processPendingAlerts(pool, options = {}) {
        limit $1
        for update skip locked`,
       [limit]
-    );
+    ).catch(async () => {
+      return client.query(
+        `select id, feedback_id, recipient_id, recipient_phone,
+                coalesce(recipient_email, '') as recipient_email, recipient_name,
+                department_name, severity, coalesce(target_category, 'clinical') as target_category,
+                coalesce(channel, case when severity in ('critical', 'high') then 'sms' else 'email' end) as channel,
+                coalesce(provider, case when severity in ('critical', 'high') then (process.env.SMS_PROVIDER || 'intouch') else 'nodemailer' end) as provider,
+                reason, detected_language, attempts, max_attempts,
+                '{}'::jsonb as metadata
+         from public.alert_outbox
+         where status in ('pending', 'failed')
+           and attempts < max_attempts
+           and next_retry_at <= now()
+         order by created_at asc
+         limit $1
+         for update skip locked`,
+        [limit]
+      ).catch(async () => {
+        return client.query(
+          `select id, feedback_id, recipient_id, recipient_phone,
+                  '' as recipient_email, recipient_name,
+                  department_name, severity, 'clinical' as target_category, 'sms' as channel,
+                  coalesce(provider, 'intouch') as provider,
+                  reason, detected_language, attempts, max_attempts,
+                  '{}'::jsonb as metadata
+           from public.alert_outbox
+           where status in ('pending', 'failed')
+             and attempts < max_attempts
+             and next_retry_at <= now()
+           order by created_at asc
+           limit $1
+           for update skip locked`,
+          [limit]
+        );
+      });
+    });
 
-    await client.query('commit'); // release lock on selection query, process row-by-row
+    await client.query('commit'); // release transaction lock
 
     for (const row of outboxRows.rows) {
       processed += 1;
       const recipient = {
         id: row.recipient_id,
         name: row.recipient_name,
-        phone_e164: row.recipient_phone
+        phone_e164: row.recipient_phone,
+        email: row.recipient_email
       };
 
+      const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
       const payload = {
         feedbackId: row.feedback_id,
         severity: row.severity,
+        targetCategory: row.target_category,
         departmentName: row.department_name,
         reason: row.reason,
+        complaint: row.reason,
+        waitTime: meta.waitTime || '',
+        patientType: meta.patientType || '',
+        visitTime: meta.visitTime || '',
+        answers: meta.answers || meta,
+        metadata: meta,
         language: row.detected_language,
-        dashboardUrl: `${process.env.BETTER_AUTH_URL || 'https://dmc.rw'}#admin`
+        dashboardUrl: `${process.env.BETTER_AUTH_URL || 'https://dmc.rw'}#admin`,
+        channel: row.channel,
+        provider: row.provider
       };
 
       try {
         const sendResult = await sendAlert(recipient, payload);
+
         await pool.query(
           `update public.alert_outbox
            set status = 'sent',
@@ -224,12 +437,6 @@ export async function processPendingAlerts(pool, options = {}) {
            where id = $5`,
           [nextAttempt, isFinalFailure, backoffMinutes, err.message.slice(0, 500), row.id]
         );
-
-        // Optional Africa's Talking SMS fallback for critical alerts on final failure
-        if (isFinalFailure && row.severity === 'critical' && process.env.AFRICASTALKING_SMS_FALLBACK_ENABLED === 'true') {
-          console.warn(`[SMS FALLBACK] WhatsApp exhausted for critical alert ${row.id}. Triggering Africa's Talking fallback.`);
-          // Africa's Talking fallback hook (extensible via env)
-        }
       }
     }
   } catch (error) {
@@ -256,9 +463,9 @@ export async function processAlertEscalations(pool) {
   let escalatedCount = 0;
 
   try {
-    // Find sent alerts that have not been acknowledged within their threshold and not yet escalated
+    // Find sent SMS alerts that have not been acknowledged within their threshold and not yet escalated
     const unacked = await client.query(
-      `select id, feedback_id, recipient_phone, recipient_name, department_name, severity, reason, detected_language
+      `select id, feedback_id, recipient_phone, coalesce(recipient_email, '') as recipient_email, recipient_name, department_name, severity, reason, detected_language
        from public.alert_outbox
        where status in ('sent', 'delivered', 'read')
          and acknowledged_at is null
@@ -274,23 +481,24 @@ export async function processAlertEscalations(pool) {
     for (const alert of unacked.rows) {
       // Find duty manager contact for escalation
       const dutyManagerRes = await client.query(
-        `select id, name, phone_e164
+        `select id, name, phone_e164, coalesce(email, '') as email
          from public.staff_alert_contacts
          where is_duty_manager = true
            and alert_enabled = true
-           and whatsapp_opt_in_at is not null
          limit 1`
       );
 
       const dutyManager = dutyManagerRes.rows[0];
-      if (dutyManager && isValidE164(dutyManager.phone_e164)) {
+      if (dutyManager && (isValidIntouchPhone(dutyManager.phone_e164) || isValidE164(dutyManager.phone_e164))) {
         await sendAlert(dutyManager, {
           feedbackId: alert.feedback_id,
           severity: alert.severity,
           departmentName: alert.department_name,
           reason: `UNACKNOWLEDGED ESCALATION: ${alert.reason}`,
           language: alert.detected_language,
-          isEscalation: true
+          isEscalation: true,
+          channel: 'sms',
+          provider: process.env.SMS_PROVIDER || 'intouch'
         });
       }
 
@@ -313,12 +521,6 @@ export async function processAlertEscalations(pool) {
 
 let workerInterval = null;
 
-/**
- * Starts the in-process background polling worker for long-running hosting (Render, VM, Docker).
- *
- * @param {object} pool PostgreSQL database pool
- * @param {number} intervalMs Polling interval in milliseconds (default: 10,000)
- */
 export function startAlertWorker(pool, intervalMs = 10000) {
   if (workerInterval !== null) return;
   workerInterval = setInterval(async () => {

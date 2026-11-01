@@ -3,10 +3,10 @@ import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
 import { getAccountApproval, handleApprovalApi, requireApprovedAccount, validateSessionActivity } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
 import { analyzeFeedback } from './sentiment-analyzer.mjs';
-import { notifyUrgentFeedback } from './urgent-alert.mjs';
 import { needsAttention } from './alertRules.js';
-import { queueFeedbackAlerts, processPendingAlerts, processAlertEscalations, startAlertWorker, stopAlertWorker } from './alert-dispatcher.mjs';
-import { sendAlert, isValidE164, sanitizeE164 } from './services/whatsapp.js';
+import { queueFeedbackAlerts, processPendingAlerts, processAlertEscalations, startAlertWorker, stopAlertWorker, sendAlert } from './alert-dispatcher.mjs';
+import { isValidEmail } from './services/mailer.js';
+import { formatIntouchRecipient, isValidIntouchPhone, isValidE164, sanitizeE164 } from './services/intouch.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,86 +31,6 @@ async function readRawBody(request) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
-}
-
-async function handleWhatsAppWebhookEvent(pool, eventData) {
-  if (!eventData || !Array.isArray(eventData.entry)) return;
-  for (const entry of eventData.entry) {
-    if (!Array.isArray(entry.changes)) continue;
-    for (const change of entry.changes) {
-      const val = change.value;
-      if (!val) continue;
-
-      if (Array.isArray(val.statuses)) {
-        for (const st of val.statuses) {
-          const providerMsgId = st.id;
-          const status = st.status;
-          if (status === 'delivered') {
-            await pool.query(
-              `update public.alert_outbox
-               set status = 'delivered', delivered_at = now()
-               where provider_message_id = $1 and status = 'sent'`,
-              [providerMsgId]
-            ).catch(() => {});
-          } else if (status === 'read') {
-            await pool.query(
-              `update public.alert_outbox
-               set status = 'read', read_at = now()
-               where provider_message_id = $1 and status in ('sent', 'delivered')`,
-              [providerMsgId]
-            ).catch(() => {});
-          } else if (status === 'failed') {
-            const errObj = st.errors?.[0] || {};
-            await pool.query(
-              `update public.alert_outbox
-               set status = 'failed', last_error = $1
-               where provider_message_id = $2`,
-              [`Meta delivery error ${errObj.code || ''}: ${errObj.message || 'unknown'}`, providerMsgId]
-            ).catch(() => {});
-          }
-        }
-      }
-
-      if (Array.isArray(val.messages)) {
-        for (const msg of val.messages) {
-          const senderPhone = sanitizeE164(msg.from || '');
-          let ackFeedbackId = null;
-
-          if (msg.type === 'button') {
-            const payload = msg.button?.payload || '';
-            if (payload.startsWith('ack_')) ackFeedbackId = payload.slice(4);
-          }
-          if (msg.type === 'interactive') {
-            const replyId = msg.interactive?.button_reply?.id || '';
-            if (replyId.startsWith('ack_')) ackFeedbackId = replyId.slice(4);
-          }
-          if (msg.type === 'text') {
-            const text = (msg.text?.body || '').trim().toLowerCase();
-            if (['ok', 'ack', 'acknowledged', 'seen', 'done'].includes(text)) {
-              const latestAlert = await pool.query(
-                `select feedback_id from public.alert_outbox
-                 where recipient_phone = $1 and acknowledged_at is null
-                 order by created_at desc limit 1`,
-                [senderPhone]
-              ).catch(() => ({ rows: [] }));
-              ackFeedbackId = latestAlert.rows[0]?.feedback_id;
-            }
-          }
-
-          if (ackFeedbackId) {
-            await pool.query(
-              `update public.alert_outbox
-               set status = 'acknowledged',
-                   acknowledged_at = now(),
-                   acknowledged_by = $1
-               where feedback_id = $2 and acknowledged_at is null`,
-              [`WhatsApp (${val.contacts?.[0]?.wa_id || senderPhone})`, ackFeedbackId]
-            ).catch(() => {});
-          }
-        }
-      }
-    }
-  }
 }
 
 function sendJson(response, status, body) {
@@ -255,10 +175,17 @@ async function saveFeedback(body) {
       .join('\n');
     const analysis = await analyzeFeedback(feedbackText, { language: body.language });
 
+    const alertDecision = needsAttention(
+      { answers: body.answers, text: feedbackText, language: body.language, departmentName: labels[0] },
+      analysis
+    );
+
+    const targetCategory = alertDecision.targetCategory || analysis.target_category || 'clinical';
+
     const inserted = await client.query(
       `insert into public.feedback_responses
-        (language, department_id, department_name, answers, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language)
-       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
+        (language, department_id, department_name, answers, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language, target_category)
+       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
        returning id`,
       [
         body.language,
@@ -271,14 +198,31 @@ async function saveFeedback(body) {
         analysis.reason,
         JSON.stringify(analysis.signals),
         analysis.analysis_source,
-        analysis.language
+        analysis.language,
+        targetCategory
       ]
-    );
-
-    const alertDecision = needsAttention(
-      { answers: body.answers, text: feedbackText, language: body.language, departmentName: labels[0] },
-      analysis
-    );
+    ).catch(async () => {
+      // Fallback if target_category is not yet migrated in feedback_responses
+      return client.query(
+        `insert into public.feedback_responses
+          (language, department_id, department_name, answers, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language)
+         values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
+         returning id`,
+        [
+          body.language,
+          body.departmentId,
+          labels[0],
+          JSON.stringify(body.answers),
+          session?.user?.id || null,
+          analysis.sentiment,
+          analysis.urgent,
+          analysis.reason,
+          JSON.stringify(analysis.signals),
+          analysis.analysis_source,
+          analysis.language
+        ]
+      );
+    });
 
     if (alertDecision.flag) {
       try {
@@ -287,22 +231,12 @@ async function saveFeedback(body) {
           departmentId: body.departmentId,
           departmentName: labels[0],
           language: analysis.language || body.language,
-          decision: alertDecision
+          decision: alertDecision,
+          answers: body.answers
         });
       } catch (alertQueueErr) {
         console.warn('[ALERT QUEUE WARN]', alertQueueErr.message);
       }
-    }
-
-    if (analysis.urgent) {
-      await notifyUrgentFeedback(client, {
-        feedbackId: inserted.rows[0]?.id,
-        departmentId: body.departmentId,
-        departmentName: labels[0],
-        language: body.language,
-        text: feedbackText,
-        analysis
-      });
     }
 
     await recordAuditEvent(client, {
@@ -351,49 +285,70 @@ export async function handleNeonApi(request, response, url) {
   const pathname = url.pathname;
   if (await handleApprovalApi(request, response, url, { pool, getAuthSession })) return true;
 
-  // ─── WhatsApp Webhooks ──────────────────────────────────────────────────────
-  if (pathname === '/webhooks/whatsapp') {
-    if (request.method === 'GET') {
-      const mode = url.searchParams.get('hub.mode');
-      const token = url.searchParams.get('hub.verify_token');
-      const challenge = url.searchParams.get('hub.challenge');
-      const expectedToken = process.env.WA_VERIFY_TOKEN || '';
-      if (mode === 'subscribe' && token && token === expectedToken) {
-        response.writeHead(200, { 'Content-Type': 'text/plain' });
-        response.end(challenge || '');
-        return true;
-      }
-      sendJson(response, 403, { error: 'invalid_verify_token' });
-      return true;
-    }
-
-    if (request.method === 'POST') {
-      const rawBody = await readRawBody(request);
-      const appSecret = process.env.WA_APP_SECRET;
-      const signature = request.headers['x-hub-signature-256'];
-
-      if (appSecret) {
-        if (!signature || !signature.startsWith('sha256=')) {
-          sendJson(response, 401, { error: 'missing_or_invalid_signature' });
-          return true;
+  // ─── InTouch SMS Webhook (Delivery Receipts & Inbound) ─────────────────────
+  if (pathname === '/webhooks/intouch') {
+    if (request.method === 'POST' || request.method === 'GET') {
+      let params = {};
+      if (request.method === 'POST') {
+        const rawBody = await readRawBody(request);
+        try {
+          params = JSON.parse(rawBody.toString('utf8'));
+        } catch {
+          params = Object.fromEntries(new URLSearchParams(rawBody.toString('utf8')));
         }
-        const expectedSig = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
-        const sigBuf = Buffer.from(signature);
-        const expBuf = Buffer.from(expectedSig);
-        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-          sendJson(response, 403, { error: 'signature_verification_failed' });
-          return true;
+      } else {
+        params = Object.fromEntries(url.searchParams.entries());
+      }
+
+      const messageId = params.messageid || params.messageId || params.id || params.message_id;
+      const status = (params.status || params.status_description || '').toLowerCase();
+      const rawRecipient = params.recipient || params.phone || params.from || '';
+      const localPhone = formatIntouchRecipient(rawRecipient);
+      const bodyText = (params.message || params.text || '').trim().toLowerCase();
+
+      if (messageId) {
+        if (status.includes('deliver') || status === 'success' || status === 'sent') {
+          await pool.query(
+            `update public.alert_outbox
+             set status = 'delivered', delivered_at = now()
+             where provider_message_id = $1 and status in ('sent', 'pending')`,
+            [String(messageId)]
+          ).catch(() => {});
+        } else if (status.includes('fail') || status.includes('reject')) {
+          await pool.query(
+            `update public.alert_outbox
+             set status = 'failed', last_error = $1
+             where provider_message_id = $2`,
+            [`InTouch error: ${status}`, String(messageId)]
+          ).catch(() => {});
         }
       }
 
-      try {
-        const eventData = JSON.parse(rawBody.toString('utf8'));
-        await handleWhatsAppWebhookEvent(pool, eventData);
-      } catch (err) {
-        console.warn('[WEBHOOK PARSE WARN]', err.message);
+      // Handle staff reply "OK", "ACK", "DONE" via SMS
+      if (isValidIntouchPhone(localPhone) && ['ok', 'ack', 'acknowledged', 'seen', 'done'].includes(bodyText)) {
+        const e164Phone = localPhone.startsWith('0') ? '+250' + localPhone.slice(1) : localPhone;
+        const latestAlert = await pool.query(
+          `select feedback_id from public.alert_outbox
+           where (recipient_phone = $1 or recipient_phone = $2)
+             and acknowledged_at is null
+           order by created_at desc limit 1`,
+          [localPhone, e164Phone]
+        ).catch(() => ({ rows: [] }));
+
+        const ackFeedbackId = latestAlert.rows[0]?.feedback_id;
+        if (ackFeedbackId) {
+          await pool.query(
+            `update public.alert_outbox
+             set status = 'acknowledged',
+                 acknowledged_at = now(),
+                 acknowledged_by = $1
+             where feedback_id = $2 and acknowledged_at is null`,
+            [`InTouch SMS (${localPhone})`, ackFeedbackId]
+          ).catch(() => {});
+        }
       }
 
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, { ok: true, received: true });
       return true;
     }
 
@@ -404,10 +359,15 @@ export async function handleNeonApi(request, response, url) {
 
   // ─── Serverless / Cron Dispatcher ───────────────────────────────────────────
   if (pathname === '/api/cron/process-alerts') {
-    const cronSecret = request.headers['x-cron-secret'] || url.searchParams.get('secret');
-    if (process.env.CRON_SECRET && cronSecret !== process.env.CRON_SECRET) {
-      sendJson(response, 401, { error: 'unauthorized_cron' });
-      return true;
+    const cronSecret = String(request.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
+    const expectedSecret = process.env.CRON_SECRET || '';
+    if (expectedSecret) {
+      const a = Buffer.from(cronSecret);
+      const b = Buffer.from(expectedSecret);
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        sendJson(response, 401, { error: 'unauthorized_cron' });
+        return true;
+      }
     }
     const results = await processPendingAlerts(pool, { limit: 25 });
     const escalated = await processAlertEscalations(pool);
@@ -419,14 +379,27 @@ export async function handleNeonApi(request, response, url) {
   if (pathname === '/api/admin/alerts' && request.method === 'GET') {
     if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
     const result = await pool.query(
-      `select id, feedback_id, recipient_id, recipient_phone, recipient_name,
-              department_name, severity, reason, detected_language, status,
+      `select id, feedback_id, recipient_id, recipient_phone, coalesce(recipient_email, '') as recipient_email, recipient_name,
+              department_name, severity, coalesce(target_category, 'clinical') as target_category,
+              coalesce(channel, case when severity in ('critical', 'high') then 'sms' else 'email' end) as channel,
+              reason, detected_language, status,
               attempts, last_error, provider_message_id, created_at,
               sent_at, delivered_at, read_at, acknowledged_at, acknowledged_by, escalated_at
        from public.alert_outbox
        order by created_at desc
        limit 200`
-    ).catch(() => ({ rows: [] }));
+    ).catch(async () => {
+      return pool.query(
+        `select id, feedback_id, recipient_id, recipient_phone, '' as recipient_email, recipient_name,
+                department_name, severity, 'clinical' as target_category, 'sms' as channel,
+                reason, detected_language, status,
+                attempts, last_error, provider_message_id, created_at,
+                sent_at, delivered_at, read_at, acknowledged_at, acknowledged_by, escalated_at
+         from public.alert_outbox
+         order by created_at desc
+         limit 200`
+      ).catch(() => ({ rows: [] }));
+    });
     sendJson(response, 200, result.rows);
     return true;
   }
@@ -467,11 +440,32 @@ export async function handleNeonApi(request, response, url) {
     if (request.method === 'GET') {
       if (!await requireApprovedAccount(request, response, pool, getAuthSession)) return true;
       const result = await pool.query(
-        `select id, name, phone_e164, department_id, department_name, role,
-                is_duty_manager, alert_enabled, min_severity, whatsapp_opt_in_at, created_at
+        `select id, name, phone_e164, coalesce(email, '') as email, department_id, department_name, role,
+                is_duty_manager, alert_enabled, min_severity,
+                coalesce(target_category, 'clinical') as target_category,
+                coalesce(sms_enabled, true) as sms_enabled, coalesce(email_enabled, true) as email_enabled,
+                whatsapp_opt_in_at, sms_opt_in_at, email_opt_in_at, created_at
          from public.staff_alert_contacts
          order by is_duty_manager desc, department_name asc, name asc`
-      ).catch(() => ({ rows: [] }));
+      ).catch(async () => {
+        return pool.query(
+          `select id, name, phone_e164, coalesce(email, '') as email, department_id, department_name, role,
+                  is_duty_manager, alert_enabled, min_severity, 'clinical' as target_category,
+                  coalesce(sms_enabled, true) as sms_enabled, coalesce(email_enabled, true) as email_enabled,
+                  whatsapp_opt_in_at, sms_opt_in_at, email_opt_in_at, created_at
+           from public.staff_alert_contacts
+           order by is_duty_manager desc, department_name asc, name asc`
+        ).catch(async () => {
+          return pool.query(
+            `select id, name, phone_e164, '' as email, department_id, department_name, role,
+                    is_duty_manager, alert_enabled, min_severity, 'clinical' as target_category,
+                    true as sms_enabled, true as email_enabled,
+                    whatsapp_opt_in_at, null as sms_opt_in_at, null as email_opt_in_at, created_at
+             from public.staff_alert_contacts
+             order by is_duty_manager desc, department_name asc, name asc`
+          ).catch(() => ({ rows: [] }));
+        });
+      });
       sendJson(response, 200, result.rows);
       return true;
     }
@@ -483,19 +477,40 @@ export async function handleNeonApi(request, response, url) {
       if (!requireJson(request, response)) return true;
       const body = await readJson(request);
 
-      if (!body.name || typeof body.name !== 'string' || !body.phone_e164 || typeof body.phone_e164 !== 'string') {
-        sendJson(response, 400, { error: 'invalid_contact_payload', message: 'Name and phone are required.' });
+      if (!body.name || typeof body.name !== 'string') {
+        sendJson(response, 400, { error: 'invalid_contact_payload', message: 'Contact name is required.' });
         return true;
       }
 
-      const phone = sanitizeE164(body.phone_e164);
-      if (!isValidE164(phone)) {
-        sendJson(response, 400, { error: 'invalid_e164_phone', message: 'Must be in E.164 format (+250...).' });
+      let phone = sanitizeE164(body.phone_e164 || '');
+      if (phone.startsWith('07') && phone.length === 10) {
+        phone = '+250' + phone.slice(1);
+      } else if (phone.startsWith('2507') && phone.length === 12) {
+        phone = '+' + phone;
+      } else if (phone.startsWith('7') && phone.length === 9) {
+        phone = '+250' + phone;
+      }
+      const email = (body.email || '').trim();
+
+      if (!phone && !email) {
+        sendJson(response, 400, { error: 'invalid_contact_payload', message: 'At least a phone number (for SMS) or email address (for Email alerts) is required.' });
+        return true;
+      }
+
+      if (phone && !isValidE164(phone) && !isValidIntouchPhone(phone)) {
+        sendJson(response, 400, { error: 'invalid_e164_phone', message: 'Phone must be a valid Rwanda number (078...) or international E.164 format (+250...).' });
+        return true;
+      }
+
+      if (email && !isValidEmail(email)) {
+        sendJson(response, 400, { error: 'invalid_email', message: 'Please enter a valid email address.' });
         return true;
       }
 
       const optIn = body.opt_in !== false ? new Date().toISOString() : null;
       const minSeverity = ['normal', 'high', 'critical'].includes(body.min_severity) ? body.min_severity : 'normal';
+      const validCategories = ['clinical', 'public_relations', 'managing_director', 'all'];
+      const targetCategory = validCategories.includes(body.target_category) ? body.target_category : 'clinical';
 
       let deptName = null;
       if (body.department_id) {
@@ -503,48 +518,128 @@ export async function handleNeonApi(request, response, url) {
         deptName = dRes.rows[0]?.labels?.[0] || null;
       }
 
+      const smsEnabled = body.sms_enabled !== false;
+      const emailEnabled = body.email_enabled !== false;
+
       let contactId = body.id;
       if (contactId) {
         // Update existing contact
         await pool.query(
           `update public.staff_alert_contacts
-           set name = $1, phone_e164 = $2, department_id = $3, department_name = $4,
-               role = $5, is_duty_manager = $6, alert_enabled = $7, min_severity = $8,
-               whatsapp_opt_in_at = coalesce(whatsapp_opt_in_at, $9::timestamptz),
+           set name = $1, phone_e164 = $2, email = $3, department_id = $4, department_name = $5,
+               role = $6, is_duty_manager = $7, alert_enabled = $8, min_severity = $9,
+               sms_enabled = $10, email_enabled = $11, target_category = $12,
+               sms_opt_in_at = coalesce(sms_opt_in_at, $13::timestamptz),
+               email_opt_in_at = coalesce(email_opt_in_at, $13::timestamptz),
                updated_at = now()
-           where id = $10`,
+           where id = $14`,
           [
             body.name.trim(),
             phone,
+            email || null,
             body.department_id || null,
             deptName,
             (body.role || 'staff').trim(),
             Boolean(body.is_duty_manager),
             body.alert_enabled !== false,
             minSeverity,
+            smsEnabled,
+            emailEnabled,
+            targetCategory,
             optIn,
             contactId
           ]
-        );
+        ).catch(async () => {
+          // Fallback if target_category column not yet migrated
+          return pool.query(
+            `update public.staff_alert_contacts
+             set name = $1, phone_e164 = $2, email = $3, department_id = $4, department_name = $5,
+                 role = $6, is_duty_manager = $7, alert_enabled = $8, min_severity = $9,
+                 sms_enabled = $10, email_enabled = $11,
+                 sms_opt_in_at = coalesce(sms_opt_in_at, $12::timestamptz),
+                 email_opt_in_at = coalesce(email_opt_in_at, $12::timestamptz),
+                 updated_at = now()
+             where id = $13`,
+            [
+              body.name.trim(),
+              phone,
+              email || null,
+              body.department_id || null,
+              deptName,
+              (body.role || 'staff').trim(),
+              Boolean(body.is_duty_manager),
+              body.alert_enabled !== false,
+              minSeverity,
+              smsEnabled,
+              emailEnabled,
+              optIn,
+              contactId
+            ]
+          ).catch(async () => {
+            // Fallback if email columns not yet migrated
+            return pool.query(
+              `update public.staff_alert_contacts
+               set name = $1, phone_e164 = $2, department_id = $3, department_name = $4,
+                   role = $5, is_duty_manager = $6, alert_enabled = $7, min_severity = $8,
+                   updated_at = now()
+               where id = $9`,
+              [body.name.trim(), phone, body.department_id || null, deptName, (body.role || 'staff').trim(), Boolean(body.is_duty_manager), body.alert_enabled !== false, minSeverity, contactId]
+            );
+          });
+        });
       } else {
         // Insert new contact
         const inserted = await pool.query(
           `insert into public.staff_alert_contacts
-            (name, phone_e164, department_id, department_name, role, is_duty_manager, alert_enabled, min_severity, whatsapp_opt_in_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+            (name, phone_e164, email, department_id, department_name, role, is_duty_manager, alert_enabled, min_severity, sms_enabled, email_enabled, target_category, sms_opt_in_at, email_opt_in_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $13::timestamptz)
            returning id`,
           [
             body.name.trim(),
             phone,
+            email || null,
             body.department_id || null,
             deptName,
             (body.role || 'staff').trim(),
             Boolean(body.is_duty_manager),
             body.alert_enabled !== false,
             minSeverity,
+            smsEnabled,
+            emailEnabled,
+            targetCategory,
             optIn
           ]
-        );
+        ).catch(async () => {
+          // Fallback if target_category not yet migrated
+          return pool.query(
+            `insert into public.staff_alert_contacts
+              (name, phone_e164, email, department_id, department_name, role, is_duty_manager, alert_enabled, min_severity, sms_enabled, email_enabled, sms_opt_in_at, email_opt_in_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $12::timestamptz)
+             returning id`,
+            [
+              body.name.trim(),
+              phone,
+              email || null,
+              body.department_id || null,
+              deptName,
+              (body.role || 'staff').trim(),
+              Boolean(body.is_duty_manager),
+              body.alert_enabled !== false,
+              minSeverity,
+              smsEnabled,
+              emailEnabled,
+              optIn
+            ]
+          ).catch(async () => {
+            return pool.query(
+              `insert into public.staff_alert_contacts
+                (name, phone_e164, department_id, department_name, role, is_duty_manager, alert_enabled, min_severity, whatsapp_opt_in_at)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+               returning id`,
+              [body.name.trim(), phone, body.department_id || null, deptName, (body.role || 'staff').trim(), Boolean(body.is_duty_manager), body.alert_enabled !== false, minSeverity, optIn]
+            );
+          });
+        });
         contactId = inserted.rows[0]?.id;
       }
 
@@ -576,6 +671,7 @@ export async function handleNeonApi(request, response, url) {
     try {
       const testResult = await sendAlert(contact, {
         severity: 'normal',
+        targetCategory: contact.target_category || 'clinical',
         departmentName: contact.department_name || 'DMCH Testing',
         reason: 'Test verification alert dispatched from DMCH Admin Dashboard',
         language: 'en'

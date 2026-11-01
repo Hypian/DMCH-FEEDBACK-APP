@@ -407,7 +407,7 @@ test('logged-out direct access to the admin route redirects to the login page', 
   );
 });
 
-test('signup page collects full name, username, and passwords without collecting email or phone', () => {
+test('signup page collects full name, username, phone, category, and passwords without collecting email', () => {
   const signup = fs.readFileSync(frontendPath('signup.html'), 'utf8');
   const login = fs.readFileSync(frontendPath('login.html'), 'utf8');
   const auth = fs.readFileSync(frontendPath('auth.js'), 'utf8');
@@ -415,15 +415,17 @@ test('signup page collects full name, username, and passwords without collecting
   const authBackend = fs.readFileSync(backendPath('neon-auth.mjs'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8');
   const schema = fs.readFileSync(backendPath('neon', 'schema.sql'), 'utf8');
-  const phoneMigration = fs.readFileSync(backendPath('neon', 'phone-optional-migration.sql'), 'utf8');
-  const usernameMigration = fs.readFileSync(backendPath('neon', 'username-auth-migration.sql'), 'utf8');
+  const phoneMigration = fs.readFileSync(backendPath('neon', 'all-migrations.sql'), 'utf8');
+  const usernameMigration = phoneMigration;
   const backend = fs.readFileSync(backendPath('neon-backend.mjs'), 'utf8');
   assert.match(signup, /name="full_name"/);
   assert.match(signup, /name="username"/);
+  assert.match(signup, /name="phone"/);
+  assert.match(signup, /name="category"/);
   assert.match(signup, /name="password"/);
   assert.match(signup, /name="confirm_password"/);
   assert.match(signup, /<form data-auth-form method="post" novalidate>/);
-  assert.doesNotMatch(signup, /name="email"|name="phone"/);
+  assert.doesNotMatch(signup, /name="email"/);
   assert.match(login, /name="username"/);
   assert.match(login, /<form data-auth-form method="post" novalidate>/);
   assert.doesNotMatch(login, /name="email"|forgot-password\.html/);
