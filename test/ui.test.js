@@ -486,7 +486,7 @@ test('signup offers a themed approval dialog and supreme admins manage accounts 
   };
   const { app, context } = makeContext(undefined, new Map(), backendState);
   vm.runInContext(
-    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;admin()",
+    "adminSession={user:{id:'sandra-user',name:'Sandra',username:'sandra'},isAdmin:true,isSupremeAdmin:true};adminDataLoaded=true;tab='users';admin()",
     context
   );
   assert.equal(vm.runInContext('tab', context), 'users');
@@ -1088,6 +1088,26 @@ test('both feedback app and admin dashboard use logo.svg for the hospital logo',
   vm.runInContext('adminLoading = true; admin()', context);
   assert.match(app.innerHTML, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
   assert.equal(fs.existsSync(frontendPath('logo-reveal.mp4')), true);
+});
+
+test('admin lands on Analytics & Cohorts by default on login and contacts tab is named Contacts', () => {
+  const backendState = {
+    session: { user: { id: 'admin-user', name: 'Admin User', username: 'admin_user' } },
+    isAdmin: true,
+    isSupremeAdmin: false,
+    responses: []
+  };
+  const { app, context } = makeContext(undefined, new Map(), backendState);
+  vm.runInContext(
+    "adminSession={user:{id:'admin-user',name:'Admin User',username:'admin_user'},isAdmin:true,isSupremeAdmin:false};adminDataLoaded=true;admin()",
+    context
+  );
+
+  assert.equal(vm.runInContext('tab', context), 'stats');
+  assert.match(app.innerHTML, /<button class="tab on" onclick="tab='stats';admin\(\)"><i class='bx bx-bar-chart-alt-2'><\/i> Analytics & Cohorts<\/button>/);
+  assert.match(app.innerHTML, /Analytics & Cohorts/);
+  assert.match(app.innerHTML, /<button class="tab " onclick="tab='alerts';admin\(\)"><i class='bx bxs-contact'><\/i> Contacts<\/button>/);
+  assert.doesNotMatch(app.innerHTML, /WhatsApp Contacts/);
 });
 
 test('tabs wrap cleanly and Update Phone & Category modal uses themed custom dropdown, tag cards, and custom dialogs without native alert()', async () => {

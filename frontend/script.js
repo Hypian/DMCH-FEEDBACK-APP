@@ -18,7 +18,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 /* Languages: add ['sw','Kiswahili'] here, IX.sw=3, and a 4th entry in every translation below */
 const LG = [['rw', 'Kinyarwanda'], ['en', 'English'], ['fr', 'Français']];
 const IX = { en: 0, fr: 1, rw: 2 };
-let S = { lang: 'en', a: {} }, i = 0, tab = 'users';
+let S = { lang: 'en', a: {} }, i = 0, tab = 'stats';
 let answerTimer = null, submitting = false, progressTimer = null;
 let feedbackResponses = [];
 let dashboardFeedbackTimer = null;
@@ -1658,7 +1658,7 @@ function admin() {
   ];
   if (adminSession.isAdmin) {
     tabs.push(['users', `<i class='bx bx-user-check'></i> User Management`]);
-    tabs.push(['alerts', `<i class='bx bxl-whatsapp'></i> WhatsApp Contacts`]);
+    tabs.push(['alerts', `<i class='bx bxs-contact'></i> Contacts`]);
   }
   if (!adminSession.isAdmin && (tab === 'users' || tab === 'alerts')) tab = 'stats';
   if (tab === 'alerts' && !alertContactsLoading && !alertContactsLoaded && !alertContactsError) {
@@ -2586,6 +2586,7 @@ async function signOutAdmin() {
     await apiRequest('/api/auth/sign-out', 'POST', {});
     stopDashboardFeedbackRefresh();
     adminSession = null;
+    tab = 'stats';
     feedbackResponses = [];
     adminDataLoaded = false;
     adminError = '';
@@ -2719,7 +2720,7 @@ function feedbacksUI() {
         <button class="date-pill ${feedbackRatingFilter === 'diss' ? 'active' : ''}" onclick="feedbackRatingFilter='diss';feedbackPage=1;admin()">1-2★ Issues</button>
       </div>
       <div class="fb-alert-chips-row">
-        <span style="font-size:12px;font-weight:700;color:var(--ink-2);margin-right:4px"><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alerts:</span>
+        <span style="font-size:12px;font-weight:700;color:var(--ink-2);margin-right:4px"><i class='bx bx-bell' style="color:var(--red)"></i> Staff Alerts:</span>
         <button class="date-pill ${feedbackAlertFilter === 'all' ? 'active' : ''}" onclick="feedbackAlertFilter='all';feedbackPage=1;admin()">All Alerts</button>
         <button class="date-pill ${feedbackAlertFilter === 'flagged' ? 'active alert-pill-active' : ''}" onclick="feedbackAlertFilter=feedbackAlertFilter==='flagged'?'all':'flagged';feedbackPage=1;admin()"><i class='bx bx-bell'></i> Flagged Attention (${flaggedCount})</button>
         <button class="date-pill ${feedbackAlertFilter === 'unacknowledged' ? 'active unack-pill-active' : ''}" onclick="feedbackAlertFilter=feedbackAlertFilter==='unacknowledged'?'all':'unacknowledged';feedbackPage=1;admin()"><i class='bx bx-time'></i> Unacknowledged (${unackCount})</button>
@@ -2790,7 +2791,7 @@ function feedbacksUI() {
       const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       return `<div class="alert-timeline-card" onclick="event.stopPropagation()">
           <div class="alert-timeline-header">
-            <span class="alert-timeline-contact"><i class='bx bxl-whatsapp' style="color:#25d366;font-size:16px"></i> <b>${esc(a.recipient_name || 'Staff Contact')}</b> <small style="color:var(--ink-2)">(${esc(a.recipient_phone || '')})</small></span>
+            <span class="alert-timeline-contact"><i class='bx bx-broadcast' style="color:#2563eb;font-size:16px"></i> <b>${esc(a.recipient_name || 'Staff Contact')}</b> <small style="color:var(--ink-2)">(${esc(a.recipient_phone || '')})</small></span>
             <div style="display:flex;align-items:center;gap:6px">
               <span class="alert-timeline-status status-${esc(a.status)}">${esc(a.status)}</span>
               ${!isAck ? `<button class="adm-btn adm-btn-ack" onclick="event.stopPropagation();acknowledgeAlert('${a.id}')"><i class='bx bx-check-double'></i> Acknowledge</button>` : `<span class="badge-ack"><i class='bx bx-check-circle'></i> Ack</span>`}
@@ -2915,7 +2916,7 @@ function openFeedbackDetail(respIdx, displayNum) {
       const itemAlerts = feedbackAlerts.filter((a) => a.feedback_id === r.id);
       if (!itemAlerts.length) return '';
       return `<section class="fbd-section fbd-whatsapp-alert-section">
-        <h4><i class='bx bxl-whatsapp' style="color:#25d366"></i> WhatsApp Alert & Delivery Tracking</h4>
+        <h4><i class='bx bx-broadcast' style="color:#2563eb"></i> Staff Alert & Delivery Tracking</h4>
         ${itemAlerts.map((a) => {
         const isSent = a.sent_at || ['sent', 'delivered', 'read', 'acknowledged'].includes(a.status);
         const isDelivered = a.delivered_at || ['delivered', 'read', 'acknowledged'].includes(a.status);
@@ -2926,7 +2927,7 @@ function openFeedbackDetail(respIdx, displayNum) {
         return `<div class="alert-timeline-card" style="margin-bottom:12px">
             <div class="alert-timeline-header">
               <div>
-                <strong>${esc(a.recipient_name || 'Staff Contact')}</strong> (${esc(a.recipient_phone || 'WhatsApp')})
+                <strong>${esc(a.recipient_name || 'Staff Contact')}</strong> (${esc(a.recipient_phone || 'SMS / Email')})
                 <span class="badge-severity badge-severity-${esc(a.severity || 'normal')}" style="margin-left:6px">${esc((a.severity || 'normal').toUpperCase())}</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
@@ -4737,6 +4738,7 @@ addEventListener('focus', refreshDashboardFeedback);
 addEventListener('dmc-auth-state-change', (event) => {
   if (event.detail.event === 'SIGNED_OUT') {
     adminSession = null;
+    tab = 'stats';
     stopDashboardFeedbackRefresh();
     feedbackResponses = [];
     adminDataLoaded = false;
@@ -4746,7 +4748,7 @@ addEventListener('dmc-auth-state-change', (event) => {
 startApp();
 
 /* ==========================================================================
-   WhatsApp Alerts & Staff Contacts Management Client Logic
+   Staff Alerts & Contacts Management Client Logic
    ========================================================================== */
 
 async function acknowledgeAlert(alertOrFeedbackId) {
