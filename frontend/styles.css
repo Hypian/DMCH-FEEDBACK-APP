@@ -4113,15 +4113,10 @@ body[data-auth-page]::before {
   aspect-ratio: 760 / 221;
   overflow: hidden;
   background: transparent !important;
-  mix-blend-mode: multiply;
-}
-
-.splash-logo-stage {
-  width: min(82vw, 390px);
 }
 
 .auth-logo-stage {
-  width: min(100%, 290px);
+  width: min(100%, 280px);
   margin: 0 auto 18px;
 }
 
@@ -4142,7 +4137,7 @@ body[data-auth-page]::before {
 }
 
 .adm-loading-logo-stage {
-  width: min(78vw, 330px);
+  width: min(78vw, 320px);
   margin: 0 auto 18px;
 }
 
@@ -4153,52 +4148,57 @@ body[data-auth-page]::before {
   font-size: var(--fs-sm);
 }
 
-/* Hide the static fallback <img> whenever the video stage is active so they NEVER double-render */
-#splash .brand-reveal-stage > img,
-.auth-brand.brand-reveal-stage > img,
+/* Base static SVG logo is visible by default so mobile never sees a blank space or play button */
 .brand-reveal-stage > img {
-  display: none !important;
-  opacity: 0 !important;
-  animation: none !important;
-}
-
-/* Only show static <img> if video fails to load (.video-fallback) */
-#splash .brand-reveal-stage.video-fallback > img,
-.auth-brand.brand-reveal-stage.video-fallback > img,
-.brand-reveal-stage.video-fallback > img {
   display: block !important;
-  opacity: 1 !important;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 760 / 221;
+  object-fit: contain;
 }
 
-.brand-reveal-stage.video-fallback > .brand-reveal-video {
+/* Suppress all native browser media controls and play buttons on mobile (iOS WebKit & Android) */
+.brand-reveal-video::-webkit-media-controls,
+.brand-reveal-video::-webkit-media-controls-enclosure,
+.brand-reveal-video::-webkit-media-controls-panel,
+.brand-reveal-video::-webkit-media-controls-play-button,
+.brand-reveal-video::-webkit-media-controls-start-playback-button,
+.brand-reveal-video::-webkit-media-controls-overlay-play-button {
   display: none !important;
+  -webkit-appearance: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .brand-reveal-video {
-  display: block;
+  display: none;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 49%;
-  transform: scale(1.16);
+  object-fit: contain;
   pointer-events: none;
-  background: transparent !important;
+  background: #ffffff !important;
   border: 0;
   outline: none;
-  mix-blend-mode: multiply;
-  /* Clamps the video's ~80%-89% grey studio vignette to 100% pure #FFFFFF
-     so mix-blend-mode: multiply produces zero box/rectangle on any app background */
-  filter: brightness(1.26) contrast(1.38) saturate(1.16);
+}
+
+/* When the video is actively playing frames, show ONLY the video and hide the SVG logo completely.
+   This guarantees ZERO double-rendering, zero ghosting, and zero duplicate text! */
+.brand-reveal-stage.video-playing > img {
+  display: none !important;
+}
+
+.brand-reveal-stage.video-playing > .brand-reveal-video {
+  display: block !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .brand-reveal-video {
     display: none !important;
   }
-  #splash .brand-reveal-stage > img,
-  .auth-brand.brand-reveal-stage > img,
   .brand-reveal-stage > img {
     display: block !important;
-    opacity: 1 !important;
   }
 }

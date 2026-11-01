@@ -64,6 +64,47 @@
     });
   }
 
+  function initBrandVideos(container = document) {
+    const videos = container.querySelectorAll('.brand-reveal-video');
+    videos.forEach((video) => {
+      if (video.dataset.initDone) return;
+      video.dataset.initDone = '1';
+
+      const stage = video.closest('.brand-reveal-stage');
+      video.muted = true;
+      video.defaultMuted = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+
+      const onPlaying = () => {
+        if (stage) stage.classList.add('video-playing');
+      };
+      const onEnded = () => {
+        if (stage) stage.classList.remove('video-playing');
+        video.style.display = 'none';
+      };
+      const onError = () => {
+        if (stage) stage.classList.remove('video-playing');
+        video.style.display = 'none';
+      };
+
+      video.addEventListener('playing', onPlaying, { once: true });
+      video.addEventListener('ended', onEnded);
+      video.addEventListener('error', onError);
+
+      const p = video.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => {
+          // Autoplay blocked by mobile phone (e.g. Low Power Mode / Battery Saver)
+          // Keep static SVG logo visible; hide video completely so no play button appears
+          if (stage) stage.classList.remove('video-playing');
+          video.style.display = 'none';
+        });
+      }
+    });
+  }
+
   function setupMutationObserver() {
     const app = document.getElementById('app');
     if (!app || !('MutationObserver' in window)) return;
@@ -75,6 +116,7 @@
       requestAnimationFrame(() => {
         scheduled = false;
         enhanceElements(app);
+        initBrandVideos(app);
       });
     });
 
@@ -90,6 +132,7 @@
     document.documentElement.classList.add('reveal-ready');
     observer = initObserver();
     enhanceElements(document);
+    initBrandVideos(document);
     setupMutationObserver();
     setupActiveTouchFeedback();
   }

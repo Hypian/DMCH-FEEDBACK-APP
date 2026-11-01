@@ -1080,7 +1080,7 @@ test('both feedback app and admin dashboard use logo.svg for the hospital logo',
 
   vm.runInContext('renderComplete()', context);
   assert.doesNotMatch(app.innerHTML, /brand-reveal-video/);
-  assert.match(indexHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
+  assert.doesNotMatch(indexHtml, /brand-reveal-video/);
   assert.match(loginHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
   assert.match(signupHtml, /<video class="brand-reveal-video" src="logo-reveal\.mp4"/);
   vm.runInContext('adminLoading = true; admin()', context);

@@ -1626,7 +1626,7 @@ function admin() {
     </div>
   </div>`;
   if (adminLoading) {
-    $('app').innerHTML = `<div class="wrap adm adm-loading-wrap"><div class="card adm-loading-card" role="status" aria-live="polite"><div class="brand-reveal-stage adm-loading-logo-stage" aria-hidden="true"><img src="logo.svg" alt="DMC" width="760" height="221"><video class="brand-reveal-video" src="logo-reveal.mp4" autoplay muted playsinline preload="auto" onerror="this.parentElement.classList.add('video-fallback')"></video></div><p class="adm-loading-label">Loading secure dashboard data…</p></div></div>`;
+    $('app').innerHTML = `<div class="wrap adm adm-loading-wrap"><div class="card adm-loading-card" role="status" aria-live="polite"><div class="brand-reveal-stage adm-loading-logo-stage" aria-hidden="true"><img src="logo.svg" alt="DMC" width="760" height="221"><video class="brand-reveal-video" src="logo-reveal.mp4" autoplay muted playsinline webkit-playsinline disablepictureinpicture disableremoteplayback tabindex="-1" aria-hidden="true" onplaying="this.parentElement.classList.add('video-playing')" onended="this.parentElement.classList.remove('video-playing');this.style.display='none';" onerror="this.parentElement.classList.remove('video-playing');this.style.display='none';"></video></div><p class="adm-loading-label">Loading secure dashboard data…</p></div></div>`;
     return;
   }
   if (!adminSession) {
