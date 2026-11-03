@@ -77,10 +77,10 @@ export async function queueFeedbackAlerts(client, {
   };
 
   // Immediate attention ('critical' | 'high') -> INTOUCH SMS (Rwanda)
-  // Normal attention ('normal') -> NODEMAILER EMAIL
+  // Normal attention ('normal') -> NODEMAILER EMAIL (falls back to SMS when staff only have phone numbers configured)
   const isImmediateAttention = severity === 'critical' || severity === 'high';
-  const channel = isImmediateAttention ? 'sms' : 'email';
-  const provider = isImmediateAttention ? (process.env.SMS_PROVIDER || 'intouch') : 'nodemailer';
+  let channel = isImmediateAttention ? 'sms' : 'email';
+  let provider = isImmediateAttention ? (process.env.SMS_PROVIDER || 'intouch') : 'nodemailer';
 
   // 1. Fetch eligible staff contacts
   const contactsResult = await client.query(
@@ -127,19 +127,17 @@ export async function queueFeedbackAlerts(client, {
     });
   });
 
-  const eligibleContacts = contactsResult.rows.filter((contact) => {
-    // Check target category match
+  const filterContacts = (requireCategoryMatch, targetChannel) => contactsResult.rows.filter((contact) => {
     const contactCat = contact.target_category || 'clinical';
-    const categoryMatches =
-      contactCat === 'all' ||
-      contactCat === targetCategory ||
-      (targetCategory === 'managing_director' && contact.is_duty_manager);
+    if (requireCategoryMatch) {
+      const categoryMatches =
+        contactCat === 'all' ||
+        contactCat === targetCategory ||
+        (targetCategory === 'managing_director' && contact.is_duty_manager);
+      if (!categoryMatches) return false;
+    }
 
-    if (!categoryMatches) return false;
-
-    // Check department matching
     // Clinical contacts are department-specific unless they have no department assigned (hospital-wide) or are duty managers.
-    // Public relations and Managing Director are hospital-wide functions unless explicit department is specified.
     if (contactCat === 'clinical' && contact.department_id && contact.department_id !== departmentId && !contact.is_duty_manager) {
       return false;
     }
@@ -148,12 +146,37 @@ export async function queueFeedbackAlerts(client, {
     if (contact.min_severity === 'critical' && severity !== 'critical') return false;
     if (contact.min_severity === 'high' && severity === 'normal') return false;
 
-    if (channel === 'sms') {
+    if (targetChannel === 'sms') {
       return (contact.sms_enabled !== false) && (isValidIntouchPhone(contact.phone_e164) || isValidE164(contact.phone_e164));
     }
-    // channel === 'email'
+    // targetChannel === 'email'
     return (contact.email_enabled !== false) && isValidEmail(contact.email);
   });
+
+  let eligibleContacts = filterContacts(true, channel);
+
+  // If normal severity attempted email but matched contacts only have phone numbers (no email configured), fall back to SMS
+  if (eligibleContacts.length === 0 && channel === 'email') {
+    const smsMatches = filterContacts(true, 'sms');
+    if (smsMatches.length > 0) {
+      channel = 'sms';
+      provider = process.env.SMS_PROVIDER || 'intouch';
+      eligibleContacts = smsMatches;
+    }
+  }
+
+  // If no contacts exist for the specific category (e.g. only clinical staff registered), route to any active staff contact
+  if (eligibleContacts.length === 0) {
+    eligibleContacts = filterContacts(false, channel);
+    if (eligibleContacts.length === 0 && channel === 'email') {
+      const smsFallbackMatches = filterContacts(false, 'sms');
+      if (smsFallbackMatches.length > 0) {
+        channel = 'sms';
+        provider = process.env.SMS_PROVIDER || 'intouch';
+        eligibleContacts = smsFallbackMatches;
+      }
+    }
+  }
 
   // 2. Fallback routing if no configured staff member matched
   if (eligibleContacts.length === 0) {
@@ -316,6 +339,7 @@ export async function queueFeedbackAlerts(client, {
  */
 export async function processPendingAlerts(pool, options = {}) {
   const limit = options.limit || 15;
+  const defaultSmsProvider = process.env.SMS_PROVIDER || 'intouch';
   const client = await pool.connect();
   let processed = 0;
   let succeeded = 0;
@@ -330,7 +354,7 @@ export async function processPendingAlerts(pool, options = {}) {
               coalesce(recipient_email, '') as recipient_email, recipient_name,
               department_name, severity, coalesce(target_category, 'clinical') as target_category,
               coalesce(channel, case when severity in ('critical', 'high') then 'sms' else 'email' end) as channel,
-              coalesce(provider, case when severity in ('critical', 'high') then (process.env.SMS_PROVIDER || 'intouch') else 'nodemailer' end) as provider,
+              coalesce(provider, case when severity in ('critical', 'high') then $2 else 'nodemailer' end) as provider,
               reason, detected_language, attempts, max_attempts,
               coalesce(metadata, '{}'::jsonb) as metadata
        from public.alert_outbox
@@ -340,14 +364,16 @@ export async function processPendingAlerts(pool, options = {}) {
        order by created_at asc
        limit $1
        for update skip locked`,
-      [limit]
+      [limit, defaultSmsProvider]
     ).catch(async () => {
+      await client.query('rollback').catch(() => {});
+      await client.query('begin');
       return client.query(
         `select id, feedback_id, recipient_id, recipient_phone,
                 coalesce(recipient_email, '') as recipient_email, recipient_name,
                 department_name, severity, coalesce(target_category, 'clinical') as target_category,
                 coalesce(channel, case when severity in ('critical', 'high') then 'sms' else 'email' end) as channel,
-                coalesce(provider, case when severity in ('critical', 'high') then (process.env.SMS_PROVIDER || 'intouch') else 'nodemailer' end) as provider,
+                coalesce(provider, case when severity in ('critical', 'high') then $2 else 'nodemailer' end) as provider,
                 reason, detected_language, attempts, max_attempts,
                 '{}'::jsonb as metadata
          from public.alert_outbox
@@ -357,8 +383,10 @@ export async function processPendingAlerts(pool, options = {}) {
          order by created_at asc
          limit $1
          for update skip locked`,
-        [limit]
+        [limit, defaultSmsProvider]
       ).catch(async () => {
+        await client.query('rollback').catch(() => {});
+        await client.query('begin');
         return client.query(
           `select id, feedback_id, recipient_id, recipient_phone,
                   '' as recipient_email, recipient_name,
@@ -380,65 +408,68 @@ export async function processPendingAlerts(pool, options = {}) {
 
     await client.query('commit'); // release transaction lock
 
-    for (const row of outboxRows.rows) {
-      processed += 1;
-      const recipient = {
-        id: row.recipient_id,
-        name: row.recipient_name,
-        phone_e164: row.recipient_phone,
-        email: row.recipient_email
-      };
+    // Dispatch all locked alerts in parallel for minimal end-to-end SMS latency
+    await Promise.allSettled(
+      outboxRows.rows.map(async (row) => {
+        processed += 1;
+        const recipient = {
+          id: row.recipient_id,
+          name: row.recipient_name,
+          phone_e164: row.recipient_phone,
+          email: row.recipient_email
+        };
 
-      const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
-      const payload = {
-        feedbackId: row.feedback_id,
-        severity: row.severity,
-        targetCategory: row.target_category,
-        departmentName: row.department_name,
-        reason: row.reason,
-        complaint: row.reason,
-        waitTime: meta.waitTime || '',
-        patientType: meta.patientType || '',
-        visitTime: meta.visitTime || '',
-        answers: meta.answers || meta,
-        metadata: meta,
-        language: row.detected_language,
-        dashboardUrl: `${process.env.BETTER_AUTH_URL || 'https://dmc.rw'}#admin`,
-        channel: row.channel,
-        provider: row.provider
-      };
+        const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
+        const payload = {
+          feedbackId: row.feedback_id,
+          severity: row.severity,
+          targetCategory: row.target_category,
+          departmentName: row.department_name,
+          reason: row.reason,
+          complaint: row.reason,
+          waitTime: meta.waitTime || '',
+          patientType: meta.patientType || '',
+          visitTime: meta.visitTime || '',
+          answers: meta.answers || meta,
+          metadata: meta,
+          language: row.detected_language,
+          dashboardUrl: `${process.env.BETTER_AUTH_URL || 'https://dmc.rw'}#admin`,
+          channel: row.channel,
+          provider: row.provider
+        };
 
-      try {
-        const sendResult = await sendAlert(recipient, payload);
+        try {
+          const sendResult = await sendAlert(recipient, payload);
 
-        await pool.query(
-          `update public.alert_outbox
-           set status = 'sent',
-               sent_at = now(),
-               attempts = attempts + 1,
-               provider_message_id = $1,
-               last_error = null
-           where id = $2`,
-          [sendResult.messageId || 'sent_mock', row.id]
-        );
-        succeeded += 1;
-      } catch (err) {
-        failed += 1;
-        const nextAttempt = row.attempts + 1;
-        const backoffMinutes = BACKOFF_SCHEDULE_MINUTES[Math.min(nextAttempt - 1, BACKOFF_SCHEDULE_MINUTES.length - 1)];
-        const isFinalFailure = nextAttempt >= row.max_attempts;
+          await pool.query(
+            `update public.alert_outbox
+             set status = 'sent',
+                 sent_at = now(),
+                 attempts = attempts + 1,
+                 provider_message_id = $1,
+                 last_error = null
+             where id = $2`,
+            [sendResult.messageId || 'sent_mock', row.id]
+          );
+          succeeded += 1;
+        } catch (err) {
+          failed += 1;
+          const nextAttempt = row.attempts + 1;
+          const backoffMinutes = BACKOFF_SCHEDULE_MINUTES[Math.min(nextAttempt - 1, BACKOFF_SCHEDULE_MINUTES.length - 1)];
+          const isFinalFailure = nextAttempt >= row.max_attempts;
 
-        await pool.query(
-          `update public.alert_outbox
-           set attempts = $1,
-               status = case when $2 = true then 'failed' else 'pending' end,
-               next_retry_at = now() + ($3 || ' minutes')::interval,
-               last_error = $4
-           where id = $5`,
-          [nextAttempt, isFinalFailure, backoffMinutes, err.message.slice(0, 500), row.id]
-        );
-      }
-    }
+          await pool.query(
+            `update public.alert_outbox
+             set attempts = $1,
+                 status = case when $2 = true then 'failed' else 'pending' end,
+                 next_retry_at = now() + ($3 || ' minutes')::interval,
+                 last_error = $4
+             where id = $5`,
+            [nextAttempt, isFinalFailure, backoffMinutes, err.message.slice(0, 500), row.id]
+          );
+        }
+      })
+    );
   } catch (error) {
     await client.query('rollback').catch(() => {});
     console.error('[ALERT DISPATCHER ERROR]', error.message);
@@ -521,7 +552,7 @@ export async function processAlertEscalations(pool) {
 
 let workerInterval = null;
 
-export function startAlertWorker(pool, intervalMs = 10000) {
+export function startAlertWorker(pool, intervalMs = 5000) {
   if (workerInterval !== null) return;
   workerInterval = setInterval(async () => {
     try {

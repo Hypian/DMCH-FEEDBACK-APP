@@ -138,7 +138,18 @@ async function saveFeedback(body) {
     || !body.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) {
     return { status: 400, body: { error: 'invalid_feedback' } };
   }
-  const session = await getAuthSession(body.headers);
+
+  const feedbackText = [body.answers?.q10, body.answers?.q9, body.text, body.comment]
+    .filter((v) => typeof v === 'string' && v.trim().length > 0)
+    .join('\n');
+
+  // Run session check (only if cookies exist) and sentiment analysis in parallel BEFORE opening DB transaction
+  const hasCookie = Boolean(body.headers?.cookie);
+  const [session, analysis] = await Promise.all([
+    hasCookie ? getAuthSession(body.headers) : Promise.resolve(null),
+    analyzeFeedback(feedbackText, { language: body.language })
+  ]);
+
   if (session?.user && await getAccountApproval(pool, session.user.id) !== 'approved') {
     return { status: 403, body: { error: 'account_approval_pending' } };
   }
@@ -170,10 +181,6 @@ async function saveFeedback(body) {
       return { status: 400, body: { error: 'invalid_department' } };
     }
     const labels = department.rows[0].labels;
-    const feedbackText = [body.answers?.q10, body.answers?.q9, body.text, body.comment]
-      .filter((v) => typeof v === 'string' && v.trim().length > 0)
-      .join('\n');
-    const analysis = await analyzeFeedback(feedbackText, { language: body.language });
 
     const alertDecision = needsAttention(
       { answers: body.answers, text: feedbackText, language: body.language, departmentName: labels[0] },
@@ -257,10 +264,10 @@ async function saveFeedback(body) {
     await client.query('commit');
 
     if (alertDecision.flag) {
-      Promise.race([
-        processPendingAlerts(pool, { limit: 5 }),
-        new Promise((resolve) => setTimeout(resolve, 2000))
-      ]).catch((err) => console.warn('[IMMEDIATE ALERT DISPATCH WARN]', err.message));
+      // Fire immediate parallel dispatch without delaying the patient's HTTP response
+      processPendingAlerts(pool, { limit: 10 }).catch((err) =>
+        console.warn('[IMMEDIATE ALERT DISPATCH WARN]', err.message)
+      );
     }
 
     return { status: 201, body: { ok: true } };

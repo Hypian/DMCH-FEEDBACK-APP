@@ -129,9 +129,33 @@ export function extractFeedbackSummary(answers = {}) {
 }
 
 /**
+ * Sanitizes text for the standard single-byte GSM 03.38 7-bit alphabet.
+ * Characters in the GSM 03.38 extension table ([ ] { } | \ ^ ~ €) require a 0x1B
+ * escape byte, which InTouch/SMPP carrier gateways in Rwanda corrupt into "e<", "e>", "e@".
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function sanitizeGsmText(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/\[/g, '(')
+    .replace(/\]/g, ')')
+    .replace(/\{/g, '(')
+    .replace(/\}/g, ')')
+    .replace(/\s*\|\s*/g, ' - ')
+    .replace(/\\/g, '/')
+    .replace(/[\^~]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Builds the SMS message text enforcing strict patient privacy.
  * PRIVACY GUARANTEE:
  * NO patient name, ID, phone number, diagnosis, or raw feedback text is included.
+ * Uses pure single-byte GSM 03.38 characters (no [ ] | extension characters) to prevent
+ * SMPP carrier gateway corruption ("e@", "e<", "e>").
  *
  * @param {object} payload Alert details { feedbackId, severity, departmentName, reason, complaint, answers, metadata, waitTime, patientType, visitTime, language, dashboardUrl, isEscalation, targetCategory }
  * @returns {string} Clean SMS text
@@ -140,15 +164,15 @@ export function buildIntouchSmsText(payload = {}) {
   const severityLabel = (payload.severity || 'HIGH').toUpperCase();
   const departmentLabel = payload.departmentName || 'General';
   const categorySuffix = payload.targetCategory
-    ? ` | ${payload.targetCategory === 'managing_director' ? 'MD' : payload.targetCategory === 'public_relations' ? 'PR' : 'CLINICAL'}`
+    ? ` - ${payload.targetCategory === 'managing_director' ? 'MD' : payload.targetCategory === 'public_relations' ? 'PR' : 'CLINICAL'}`
     : '';
   const languageLabel = (payload.language || 'en').toUpperCase();
   const genericComplaint = payload.complaint || payload.reason || 'Immediate attention requested';
   const dashboardLink = payload.dashboardUrl || `${process.env.BETTER_AUTH_URL || 'https://dmc.rw'}#admin`;
 
   const header = payload.isEscalation
-    ? `[DMCH ESCALATION - ${severityLabel}${categorySuffix}]`
-    : `[DMCH ALERT - ${severityLabel}${categorySuffix}]`;
+    ? `DMCH ESCALATION (${severityLabel}${categorySuffix})`
+    : `DMCH ALERT (${severityLabel}${categorySuffix})`;
 
   const extracted = extractFeedbackSummary(payload.answers || payload.metadata || {});
   const waitTime = payload.waitTime || extracted.waitTime;
@@ -160,9 +184,11 @@ export function buildIntouchSmsText(payload = {}) {
   if (patientType) summaryParts.push(`Patient: ${patientType}`);
   if (visitTime) summaryParts.push(`Visit: ${visitTime}`);
 
-  const summarySuffix = summaryParts.length ? ` | ${summaryParts.join(' | ')}` : '';
+  const summarySuffix = summaryParts.length ? `. ${summaryParts.join(', ')}` : '';
 
-  return `${header} ${departmentLabel}: ${genericComplaint}${summarySuffix}. Lang: ${languageLabel}. Review securely: ${dashboardLink}`;
+  return sanitizeGsmText(
+    `${header} ${departmentLabel}: ${genericComplaint}${summarySuffix}. Lang: ${languageLabel}. Review securely: ${dashboardLink}`
+  );
 }
 
 /**

@@ -427,11 +427,11 @@ ${payloadText}
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(3500)
     });
     // Retry once on rate limiting or transient server errors.
     if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
   if (!response.ok) {

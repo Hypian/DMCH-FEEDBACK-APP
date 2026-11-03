@@ -102,10 +102,11 @@ test('InTouch SMS Privacy Guarantee: payload NEVER exposes patient PII or raw co
   assert.ok(!smsText.includes(patientPrivateInfo.patientId), 'SMS must NOT contain patient ID');
   assert.ok(!smsText.includes(patientPrivateInfo.rawComment), 'SMS must NOT contain raw patient text');
 
-  // Verify structural tags
-  assert.ok(smsText.includes('[DMCH ALERT - CRITICAL | CLINICAL]'));
+  // Verify structural tags and GSM-safe character set (no [ ] | { } \ ^ ~)
+  assert.ok(smsText.includes('DMCH ALERT (CRITICAL - CLINICAL)'));
   assert.ok(smsText.includes('Surgical ICU'));
   assert.ok(smsText.includes('Review securely: https://dmc.rw#admin'));
+  assert.equal(/[\[\]\{\}\|\\\^~]/.test(smsText), false, 'SMS must not contain GSM 03.38 extension table characters');
 });
 
 test('InTouch SMS Privacy Guarantee: Escalation alert formatting', () => {
@@ -119,7 +120,7 @@ test('InTouch SMS Privacy Guarantee: Escalation alert formatting', () => {
     isEscalation: true
   });
 
-  assert.ok(escalationText.includes('[DMCH ESCALATION - HIGH | MD]'));
+  assert.ok(escalationText.includes('DMCH ESCALATION (HIGH - MD)'));
   assert.ok(escalationText.includes('Finance & Administration'));
   assert.ok(escalationText.includes('Lang: FR'));
 });
@@ -147,13 +148,14 @@ test('InTouch SMS Summary: extracts department, complaint, wait time, patient co
     dashboardUrl: 'https://dmc.rw#admin'
   });
 
-  assert.ok(smsText.includes('[DMCH ALERT - HIGH | CLINICAL]'));
+  assert.ok(smsText.includes('DMCH ALERT (HIGH - CLINICAL)'));
   assert.ok(smsText.includes('Emergency & observation: Severe delay in triage and unaddressed pain'));
   assert.ok(smsText.includes('Wait: >2h'));
   assert.ok(smsText.includes('Patient: New'));
   assert.ok(smsText.includes('Visit: 8am-5pm'));
   assert.ok(smsText.includes('Lang: EN'));
   assert.ok(smsText.includes('Review securely: https://dmc.rw#admin'));
+  assert.equal(/[\[\]\{\}\|\\\^~]/.test(smsText), false, 'SMS must not contain GSM 03.38 extension table characters');
 });
 
 // ─── 4. InTouch API Dispatch Tests ────────────────────────────────────────────
@@ -237,7 +239,7 @@ test('sendIntouchSms: Live API POST uses Basic Auth, correct endpoint and URL en
   const parsedBody = new URLSearchParams(capturedBody);
   assert.equal(parsedBody.get('recipients'), '0782300441');
   assert.equal(parsedBody.get('sender'), 'InTouch');
-  assert.ok(parsedBody.get('message').includes('[DMCH ALERT - HIGH | PR]'));
+  assert.ok(parsedBody.get('message').includes('DMCH ALERT (HIGH - PR)'));
   assert.ok(parsedBody.get('dlrurl').includes('/webhooks/intouch'));
 
   // Verify returned result
@@ -424,6 +426,19 @@ test('E.164 validation, retry backoff, and category-based routing (Clinical, PR,
   });
   assert.equal(queued[2].recipientName, 'Dr. Gisa (MD)');
   assert.equal(queued[2].channel, 'sms');
+
+  // Verify satisfaction scale (q8: 0 = 5★ Very Satisfied, 4 = 1★ Very Dissatisfied, 3 = 2★ Dissatisfied)
+  const fiveStarDecision = needsAttention({ answers: { q8: 0 }, text: 'Great service' }, { sentiment: 'positive', urgent: false, language: 'en' });
+  assert.equal(fiveStarDecision.flag, false);
+
+  const oneStarDecision = needsAttention({ answers: { q8: 4 }, text: '' }, { sentiment: 'neutral', urgent: false });
+  assert.equal(oneStarDecision.flag, true);
+  assert.equal(oneStarDecision.severity, 'high');
+
+  const twoStarDecision = needsAttention({ answers: { q8: 3 }, text: '' }, { sentiment: 'neutral', urgent: false });
+  assert.equal(twoStarDecision.flag, true);
+  assert.equal(twoStarDecision.severity, 'high');
 });
+
 
 

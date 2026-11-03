@@ -100,13 +100,26 @@ export function needsAttention(feedback = {}, sentiment = null) {
     .join(' ');
   const normText = normalizeAlertText(rawText);
 
-  // 1. Check for lowest / 1-star rating in overall quality (q8 === 0 or lowest satisfaction rating)
+  // 1. Check for lowest / 1-star rating in overall quality
+  // Survey scale (q1, q2, q7, q8): 0 = Very Satisfied (5★), 1 = Satisfied (4★), 2 = Neutral (3★), 3 = Dissatisfied (2★), 4 = Very Dissatisfied (1★)
   const q8Answer = feedback.answers?.q8;
-  const isLowestRating = q8Answer === 0 || q8Answer === '0';
+  const isLowestRating = q8Answer === 4 || q8Answer === '4';
+  const isDissatisfiedRating = q8Answer === 3 || q8Answer === '3';
+  const q5Answer = feedback.answers?.q5;
+  const isDoctorNotListening = q5Answer === 2 || q5Answer === '2';
+
   if (isLowestRating) {
     flag = true;
     severity = 'high';
-    reasons.push('Lowest overall satisfaction rating submitted (1-star / Very Poor)');
+    reasons.push('Lowest overall satisfaction rating submitted (1-star / Very Dissatisfied)');
+  } else if (isDissatisfiedRating) {
+    flag = true;
+    severity = 'high';
+    reasons.push('Low overall satisfaction rating submitted (2-star / Dissatisfied)');
+  } else if (isDoctorNotListening) {
+    flag = true;
+    severity = 'high';
+    reasons.push('Patient reported clinician did not listen carefully');
   }
 
   // 2. Keyword check across all supported languages (EN, RW, FR)
