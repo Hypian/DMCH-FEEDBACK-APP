@@ -214,14 +214,15 @@ export async function queueFeedbackAlerts(client, {
     return 0;
   }
 
-  // 3. Rate limiting / deduplication for non-critical alerts
-  // CRITICAL ALERTS ARE NEVER BATCHED OR DELAYED.
-  if (severity !== 'critical') {
+  // 3. Rate limiting / deduplication for NORMAL (email) alerts only.
+  // Immediate-attention alerts ('critical' and 'high' -> SMS) are NEVER batched, delayed or suppressed:
+  // suppressing 'high' here previously dropped urgent SMS after 3 alerts per department in 30 minutes.
+  if (severity === 'normal') {
     const recentAlerts = await client.query(
       `select count(*)::int as count
        from public.alert_outbox
        where department_id = $1
-         and severity != 'critical'
+         and severity = 'normal'
          and created_at >= now() - ($2 || ' minutes')::interval`,
       [departmentId, RATE_LIMIT_WINDOW_MINUTES]
     ).catch(() => ({ rows: [] }));
@@ -406,6 +407,22 @@ export async function processPendingAlerts(pool, options = {}) {
       });
     });
 
+    // Claim the locked rows before releasing the lock so the background worker and the
+    // immediate post-submit dispatch cannot both pick up (and double-send) the same alert.
+    // A successful send overwrites the status; a failed send overwrites next_retry_at with its backoff.
+    const claimedIds = outboxRows.rows.map((row) => row.id);
+    if (claimedIds.length > 0) {
+      await client.query(
+        `update public.alert_outbox
+         set next_retry_at = now() + interval '2 minutes'
+         where id = any($1)`,
+        [claimedIds]
+      ).catch((claimErr) => {
+        // Non-fatal: never block delivery because the claim could not be recorded.
+        console.warn('[ALERT DISPATCHER] Could not claim outbox rows:', claimErr.message);
+      });
+    }
+
     await client.query('commit'); // release transaction lock
 
     // Dispatch all locked alerts in parallel for minimal end-to-end SMS latency
@@ -552,8 +569,20 @@ export async function processAlertEscalations(pool) {
 
 let workerInterval = null;
 
+export function isAlertDryRun() {
+  return process.env.ALERTS_DRY_RUN !== 'false' && process.env.ALERTS_DRY_RUN !== '0';
+}
+
 export function startAlertWorker(pool, intervalMs = 5000) {
   if (workerInterval !== null) return;
+  if (isAlertDryRun()) {
+    console.warn(
+      '[ALERT WORKER] ALERTS_DRY_RUN is not "false": SMS and email alerts are only LOGGED, never delivered. ' +
+      'Set ALERTS_DRY_RUN=false in the server environment to send real SMS via InTouch.'
+    );
+  } else if (!process.env.INTOUCH_SMS_USERNAME || !process.env.INTOUCH_SMS_PASSWORD) {
+    console.warn('[ALERT WORKER] Live mode, but INTOUCH_SMS_USERNAME / INTOUCH_SMS_PASSWORD are missing: SMS alerts will fail.');
+  }
   workerInterval = setInterval(async () => {
     try {
       await processPendingAlerts(pool, { limit: 10 });

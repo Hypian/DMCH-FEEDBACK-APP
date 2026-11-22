@@ -3,7 +3,7 @@ import { authNodeHandler, pool, getAuthSession } from './neon-auth.mjs';
 import { getAccountApproval, handleApprovalApi, requireApprovedAccount, validateSessionActivity } from './approval-api.mjs';
 import { recordAuditEvent } from './audit-log.mjs';
 import { analyzeFeedback } from './sentiment-analyzer.mjs';
-import { needsAttention } from './alertRules.js';
+import { needsAttention, isReviewEligible } from './alertRules.js';
 import { queueFeedbackAlerts, processPendingAlerts, processAlertEscalations, startAlertWorker, stopAlertWorker, sendAlert } from './alert-dispatcher.mjs';
 import { isValidEmail } from './services/mailer.js';
 import { formatIntouchRecipient, isValidIntouchPhone, isValidE164, sanitizeE164 } from './services/intouch.js';
@@ -270,7 +270,10 @@ async function saveFeedback(body) {
       );
     }
 
-    return { status: 201, body: { ok: true } };
+    return {
+      status: 201,
+      body: { ok: true, reviewEligible: isReviewEligible(body.answers, analysis, alertDecision) }
+    };
   } catch (error) {
     await client.query('rollback');
     throw error;
@@ -675,9 +678,11 @@ export async function handleNeonApi(request, response, url) {
       return true;
     }
     const contact = cRes.rows[0];
+    const targetChannel = (contact.phone_e164 && contact.sms_enabled !== false) ? 'sms' : 'email';
     try {
       const testResult = await sendAlert(contact, {
-        severity: 'normal',
+        severity: targetChannel === 'sms' ? 'high' : 'normal',
+        channel: targetChannel,
         targetCategory: contact.target_category || 'clinical',
         departmentName: contact.department_name || 'DMCH Testing',
         reason: 'Test verification alert dispatched from DMCH Admin Dashboard',
@@ -686,12 +691,12 @@ export async function handleNeonApi(request, response, url) {
       await recordAuditEvent(pool, {
         actorId: session.user.id,
         action: 'alert_contact.test_dispatched',
-        summary: `Sent test alert to ${contact.name} (${contact.phone_e164}).`,
+        summary: `Sent test ${targetChannel.toUpperCase()} alert to ${contact.name} (${targetChannel === 'sms' ? contact.phone_e164 : contact.email}).`,
         targetType: 'alert_contact',
         targetId: contactId,
-        metadata: { messageId: testResult.messageId, dryRun: testResult.dryRun }
+        metadata: { messageId: testResult.messageId, dryRun: testResult.dryRun, channel: targetChannel }
       });
-      sendJson(response, 200, { ok: true, test: true, result: testResult });
+      sendJson(response, 200, { ok: true, test: true, result: testResult, channel: targetChannel });
     } catch (sendErr) {
       sendJson(response, 502, { error: 'test_alert_failed', message: sendErr.message });
     }

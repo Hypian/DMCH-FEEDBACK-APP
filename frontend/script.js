@@ -132,6 +132,25 @@ const U = {
     'Twakiriye ibitekerezo byanyu.'
   ],
   completedBadge: ['Submitted', 'Envoyé', 'Byoherejwe'],
+  reviewEyebrow: ['A small favour', 'Une petite faveur', 'Ubusabe buto'],
+  reviewTitle: [
+    'We are so glad you had a good visit',
+    'Nous sommes très heureux que votre visite se soit bien passée',
+    'Twishimiye cyane ko mwanyuzwe na serivisi zacu'
+  ],
+  reviewBody: [
+    'If you have a moment, would you kindly share your experience on Google? A few words from you can help another family find care they can trust, and it truly encourages our team.',
+    'Si vous avez un instant, accepteriez-vous de partager votre expérience sur Google ? Quelques mots de votre part peuvent aider une autre famille à trouver des soins de confiance, et cela encourage sincèrement notre équipe.',
+    'Niba mufite akanya gato, mwatugirira neza mukadusigira igitekerezo kuri Google? Amagambo make yanyu yafasha undi muryango kubona aho bivuriza bizeye, kandi bitera imbaraga ikipe yacu.'
+  ],
+  reviewButton: ['Share my experience on Google', 'Partager mon avis sur Google', 'Dusigire igitekerezo kuri Google'],
+  reviewButtonHint: ['Takes less than a minute', 'Moins d’une minute', 'Bitwara munsi y’umunota umwe'],
+  reviewThanks: [
+    'Thank you so much for your kindness.',
+    'Merci infiniment pour votre gentillesse.',
+    'Murakoze cyane ku bugwaneza bwanyu.'
+  ],
+  reviewLater: ['Maybe another time', 'Peut-être une autre fois', 'Ahari ubutaha'],
   deviceStorageError: [
     'This browser could not save survey data. Enable site storage and try again.',
     'Ce navigateur n’a pas pu enregistrer les données du questionnaire. Autorisez le stockage du site et réessayez.',
@@ -448,10 +467,55 @@ function getDeviceId() {
   return deviceId;
 }
 
-function renderComplete() {
+function renderComplete(showReview = false) {
   clearInterval(progressTimer);
   progressTimer = null;
-  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy completion-body">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div></main>`;
+  $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy completion-body">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div>${showReview ? renderReviewInvite() : ''}</main>`;
+}
+
+/* Google review invitation: shown ONLY right after a submission that clearly expressed satisfaction. */
+const GOOGLE_REVIEW_URL = 'https://g.page/r/CX7eoOk8iyuSEBM/review?utm_source=gbp&utm_medium=reviews&utm_campaign=qr';
+const AREA_NONE_INDEX = 11; // "None" is the last q6 option, after the 11 OPD areas
+
+/* Mirrors isSatisfiedSurvey() in backend/alertRules.js */
+function isSatisfiedSurvey(answers) {
+  if (!answers || typeof answers !== 'object') return false;
+  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const overall = num(answers.q8);
+  if (overall !== 0 && overall !== 1) return false;
+  if (num(answers.q5) === 2) return false;
+  if (['q1', 'q2', 'q7'].some((key) => num(answers[key]) === 3 || num(answers[key]) === 4)) return false;
+  if (Array.isArray(answers.q6) && answers.q6.some((v) => num(v) !== AREA_NONE_INDEX)) return false;
+  return true;
+}
+
+function renderReviewInvite() {
+  const stars = '<i class="bx bxs-star"></i>'.repeat(5);
+  const googleG = '<svg class="review-g" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+  return `<section class="review-invite" id="review-invite" aria-labelledby="review-invite-title">
+    <div class="review-stars" aria-hidden="true">${stars}</div>
+    <p class="review-eyebrow">${esc(g(U.reviewEyebrow))}</p>
+    <h2 id="review-invite-title">${esc(g(U.reviewTitle))}</h2>
+    <p class="review-body">${esc(g(U.reviewBody))}</p>
+    <a class="review-cta" href="${esc(GOOGLE_REVIEW_URL)}" target="_blank" rel="noopener noreferrer" onclick="reviewOpened()">
+      <span class="review-cta-icon">${googleG}</span>
+      <span class="review-cta-text"><b>${esc(g(U.reviewButton))}</b><small>${esc(g(U.reviewButtonHint))}</small></span>
+      <i class='bx bx-right-arrow-alt review-cta-arrow' aria-hidden="true"></i>
+    </a>
+    <button type="button" class="review-later" onclick="dismissReviewInvite()">${esc(g(U.reviewLater))}</button>
+  </section>`;
+}
+
+function reviewOpened() {
+  setTimeout(() => {
+    const invite = $('review-invite');
+    if (invite) invite.innerHTML = `<p class="review-thanks"><i class='bx bxs-heart' aria-hidden="true"></i> ${esc(g(U.reviewThanks))}</p>`;
+  }, 400);
+}
+
+function dismissReviewInvite() {
+  const invite = $('review-invite');
+  if (invite) invite.remove();
 }
 
 function hideSplash(callback) {
@@ -584,16 +648,19 @@ async function submit() {
     renderSubmitting(progress, step);
   }, 120);
   try {
-    await apiRequest('/api/submit', 'POST', {
+    const result = await apiRequest('/api/submit', 'POST', {
       deviceId: getDeviceId(),
       language: S.lang,
       departmentId: S.dept,
       answers: S.a
     });
+    // Invite a Google review only when the answers show satisfaction AND the server
+    // (which also analyses the written comments) did not detect any negative signal.
+    const showReview = isSatisfiedSurvey(S.a) && result?.reviewEligible !== false;
     storeCompletion();
     renderSubmitting(100, g(U.completionTitle));
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, 900 - (Date.now() - startedAt))));
-    renderComplete();
+    renderComplete(showReview);
   } catch (error) {
     console.error('Feedback submission failed:', error);
     clearInterval(progressTimer);
@@ -2816,6 +2883,7 @@ function feedbacksUI() {
             </div>
           </div>
           ${a.last_error ? `<div class="alert-error-hint"><i class='bx bx-error-circle'></i> <b>Delivery issue:</b> ${esc(a.last_error)}</div>` : ''}
+          ${String(a.provider_message_id || '').startsWith('mock_') ? `<div class="alert-error-hint"><i class='bx bx-test-tube'></i> <b>Dry-run only:</b> this alert was logged but NOT delivered. Set ALERTS_DRY_RUN=false on the server to send real SMS/email.</div>` : ''}
           ${a.acknowledged_at ? `<div class="alert-ack-note"><i class='bx bx-check-shield'></i> Acknowledged by <b>${esc(a.acknowledged_by || 'Staff')}</b> on ${new Date(a.acknowledged_at).toLocaleString()}</div>` : ''}
         </div>`;
     }).join('')}
@@ -2954,6 +3022,7 @@ function openFeedbackDetail(respIdx, displayNum) {
               </div>
             </div>
             ${a.last_error ? `<div class="alert-error-hint"><i class='bx bx-error-circle'></i> <b>Error:</b> ${esc(a.last_error)}</div>` : ''}
+            ${String(a.provider_message_id || '').startsWith('mock_') ? `<div class="alert-error-hint"><i class='bx bx-test-tube'></i> <b>Dry-run only:</b> this alert was logged but NOT delivered. Set ALERTS_DRY_RUN=false on the server to send real SMS/email.</div>` : ''}
             ${a.acknowledged_at ? `<div class="alert-ack-note"><i class='bx bx-check-shield'></i> Acknowledged by ${esc(a.acknowledged_by || 'Staff')} at ${new Date(a.acknowledged_at).toLocaleString()}</div>` : ''}
           </div>`;
       }).join('')}

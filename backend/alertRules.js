@@ -74,6 +74,51 @@ export function findMatchingKeyword(normText, keywords = []) {
 }
 
 /**
+ * Decides, from the structured survey answers alone, whether a patient clearly
+ * expressed satisfaction. Mirrored by isSatisfiedSurvey() in frontend/script.js.
+ *
+ * Satisfied means ALL of:
+ * - q8 (overall satisfaction) is "Very satisfied" (0) or "Satisfied" (1)
+ * - q5 (doctor listened) is not "No" (2)
+ * - q1 / q2 / q7 (reception, cashier, cleanliness) are not "Poor" (3) or "Very poor" (4)
+ * - q6 (unpleasant experience areas) is empty or only "None"
+ *
+ * @param {object} answers Raw survey answers map
+ * @returns {boolean}
+ */
+export function isSatisfiedSurvey(answers = {}) {
+  if (!answers || typeof answers !== 'object') return false;
+  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const overall = num(answers.q8);
+  if (overall !== 0 && overall !== 1) return false;
+  if (num(answers.q5) === 2) return false;
+  for (const key of ['q1', 'q2', 'q7']) {
+    const rating = num(answers[key]);
+    if (rating === 3 || rating === 4) return false;
+  }
+  const NONE_INDEX = 11; // "None" is the last q6 option, after the 11 OPD areas
+  if (Array.isArray(answers.q6) && answers.q6.some((v) => num(v) !== NONE_INDEX)) return false;
+  return true;
+}
+
+/**
+ * Whether the patient should be invited to leave a public Google review.
+ * Requires a satisfied survey AND no negative/urgent signal from the written comments.
+ *
+ * @param {object} answers Raw survey answers map
+ * @param {object|null} sentiment Output of analyzeFeedback()
+ * @param {object|null} decision Output of needsAttention()
+ * @returns {boolean}
+ */
+export function isReviewEligible(answers = {}, sentiment = null, decision = null) {
+  if (!isSatisfiedSurvey(answers)) return false;
+  if (decision?.flag) return false;
+  if (sentiment?.urgent) return false;
+  if (sentiment?.sentiment === 'negative') return false;
+  return true;
+}
+
+/**
  * Primary attention rule function.
  * Evaluates feedback text, ratings, and sentiment outputs to determine:
  * 1. flag: boolean (whether staff alerting is required)
