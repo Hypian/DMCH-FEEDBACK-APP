@@ -2,7 +2,6 @@
 // and feedback may include sensitive personal details. Use REDACT_BEFORE_LLM=true to mask
 // phone numbers, emails, and long digit sequences before sending text to the LLM.
 
-import 'dotenv/config';
 import {
   RW_RULES,
   LANG_MARKERS,

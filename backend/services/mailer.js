@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer';
 import { extractFeedbackSummary } from './intouch.js';
 
 /**
@@ -160,9 +159,11 @@ Notice: To protect patient privacy, patient identification and verbatim clinical
   return { subject, text: plainText, html };
 }
 
+const isWorkersRuntime = typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
 let cachedTransporter = null;
 
-function getTransporter() {
+async function getTransporter() {
+  if (isWorkersRuntime) return null;
   if (cachedTransporter) return cachedTransporter;
 
   const host = process.env.SMTP_HOST;
@@ -175,6 +176,11 @@ function getTransporter() {
     return null;
   }
 
+  // Dynamic non-literal specifier keeps Nodemailer (Node TCP/child_process) out of Cloudflare Workers bundles.
+  const nodemailerModuleName = 'nodemailer';
+  const mod = await import(nodemailerModuleName);
+  const nodemailer = mod.default || mod;
+
   cachedTransporter = nodemailer.createTransport({
     host,
     port,
@@ -186,14 +192,15 @@ function getTransporter() {
 }
 
 /**
- * Dispatches an email alert using Nodemailer.
+ * Dispatches an email alert using Resend HTTP API (Cloudflare Workers compatible)
+ * or Nodemailer SMTP (Node.js runtime).
  *
  * @param {object} recipient Staff contact { id, name, email }
  * @param {object} payload Alert details { feedbackId, severity, departmentName, reason, language, dashboardUrl, isEscalation }
  * @returns {Promise<{ ok: boolean, messageId?: string, dryRun?: boolean, error?: string }>}
  */
 export async function sendAlertEmail(recipient, payload = {}, options = {}) {
-  const alertsEnabled = process.env.ALERTS_ENABLED === 'true' || process.env.ALERTS_ENABLED === '1';
+  const alertsDisabled = process.env.ALERTS_ENABLED === 'false' || process.env.ALERTS_ENABLED === '0';
   const isDryRun = options.dryRun !== undefined
     ? Boolean(options.dryRun)
     : (process.env.ALERTS_DRY_RUN !== 'false' && process.env.ALERTS_DRY_RUN !== '0');
@@ -205,8 +212,8 @@ export async function sendAlertEmail(recipient, payload = {}, options = {}) {
 
   const { subject, text, html } = buildAlertEmailContent(payload);
 
-  // DRY-RUN or DISABLED MODE: Do not make network calls to SMTP server
-  if (!alertsEnabled || isDryRun) {
+  // DRY-RUN or DISABLED MODE: Do not make external email network calls
+  if (alertsDisabled || isDryRun) {
     const mockMsgId = `mock_mail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@dmchospital.org`;
     console.log(
       `[NODEMAILER EMAIL DRY RUN] To: ${email} (${recipient.name || 'Staff'}) | Subject: "${subject}"`
@@ -218,13 +225,40 @@ export async function sendAlertEmail(recipient, payload = {}, options = {}) {
     };
   }
 
-  // PRODUCTION MODE: Send through SMTP transporter
-  const transporter = getTransporter();
-  if (!transporter) {
-    throw new Error('SMTP configuration missing (SMTP_HOST required in environment).');
+  const fromAddress = process.env.EMAIL_FROM || 'DMC Hospital Alerts <alerts@dmchospital.org>';
+
+  // 1. HTTP Email API (Resend) — works natively on Cloudflare Workers AND Node.js
+  const resendApiKey = options.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    const fetchFn = options.fetchImpl || fetch;
+    const res = await fetchFn('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ from: fromAddress, to: [email], subject, text, html }),
+      signal: AbortSignal.timeout(options.timeoutMs || 15000)
+    });
+    const resBody = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(`Resend API HTTP ${res.status}: ${resBody?.message || 'Email delivery failed'}`);
+    }
+    return {
+      ok: true,
+      messageId: resBody?.id || `resend_${Date.now()}`
+    };
   }
 
-  const fromAddress = process.env.EMAIL_FROM || '"DMCH Patient Alerts" <alerts@dmchospital.org>';
+  // 2. Nodemailer SMTP (Node.js runtime only — raw SMTP sockets are unavailable on Cloudflare Workers)
+  const transporter = await getTransporter();
+  if (!transporter) {
+    throw new Error(
+      isWorkersRuntime
+        ? 'Email delivery on Cloudflare Workers requires RESEND_API_KEY (or configure staff phone numbers for InTouch SMS).'
+        : 'SMTP configuration missing (SMTP_HOST or RESEND_API_KEY required in environment).'
+    );
+  }
 
   const info = await transporter.sendMail({
     from: fromAddress,

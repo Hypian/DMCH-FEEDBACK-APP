@@ -345,6 +345,13 @@ h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; color: var(--red-dee
 h4 { font-weight: 700; letter-spacing: -.01em; }
 .hint { font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-3); margin-bottom: 16px; }
 .error { color: #b42318; font-size: .875rem; margin: 0 0 10px; font-weight: 500; }
+.error.is-waking {
+  color: var(--navy);
+  background: rgba(23, 38, 60, .06);
+  border: 1px solid rgba(23, 38, 60, .14);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
 
 .eyebrow {
   font-size: var(--fs-2xs);

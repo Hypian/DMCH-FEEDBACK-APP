@@ -66,6 +66,12 @@ test('browser submissions are deduplicated for 24 hours, then accepted again', a
     const homepage = await fetch(address);
     assert.equal(homepage.status, 200);
     assert.match(await homepage.text(), /Patient Feedback/);
+    const healthGet = await fetch(`${address}/api/health`);
+    assert.equal(healthGet.status, 200);
+    const healthJson = await healthGet.json();
+    assert.equal(healthJson.ok, true);
+    const healthHead = await fetch(`${address}/api/health`, { method: 'HEAD' });
+    assert.equal(healthHead.status, 200);
     const stylesheet = await fetch(`${address}/styles.css`);
     assert.equal(stylesheet.status, 200);
     assert.match(stylesheet.headers.get('content-type'), /text\/css/);

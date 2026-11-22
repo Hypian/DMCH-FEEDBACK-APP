@@ -237,6 +237,12 @@ async function getStaticFile(filePath) {
 
 async function serveStatic(request, response, pathname) {
   const relativePath = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
+  const baseName = path.basename(relativePath);
+  if (baseName === '_headers' || baseName === '_redirects' || baseName.startsWith('.')) {
+    response.writeHead(404);
+    response.end('Not found');
+    return;
+  }
   const filePath = path.resolve(FRONTEND_DIR, relativePath);
   if (!filePath.startsWith(`${FRONTEND_DIR}${path.sep}`)) {
     response.writeHead(403);
@@ -327,6 +333,27 @@ async function handleRequest(request, response) {
     }
     response.writeHead(204);
     response.end();
+    return;
+  }
+  if (url.pathname === '/api/health') {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.setHeader('Allow', 'GET, HEAD');
+      sendJson(response, 405, { error: 'method_not_allowed' });
+      return;
+    }
+    if (request.method === 'HEAD') {
+      response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8'
+      });
+      response.end();
+      return;
+    }
+    sendJson(response, 200, {
+      ok: true,
+      service: 'dmch-feedback-app',
+      uptimeSeconds: Math.round(process.uptime())
+    });
     return;
   }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhooks/')) {

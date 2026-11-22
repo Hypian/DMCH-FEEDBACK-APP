@@ -10,8 +10,8 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-function requireTrustedOrigin(request, response) {
-  const trustedOrigins = [process.env.FRONTEND_ORIGIN, process.env.BETTER_AUTH_URL]
+function requireTrustedOrigin(request, response, env = process.env) {
+  const trustedOrigins = [env.FRONTEND_ORIGIN, env.BETTER_AUTH_URL]
     .filter(Boolean)
     .map((origin) => new URL(origin).origin);
   if (!request.headers.origin || !trustedOrigins.includes(request.headers.origin)) {
@@ -244,7 +244,7 @@ export async function getAccountApproval(pool, userId) {
   return result.rows[0]?.status || 'pending';
 }
 
-export async function handleApprovalApi(request, response, url, { pool, getAuthSession }) {
+export async function handleApprovalApi(request, response, url, { pool, getAuthSession, env = process.env }) {
   const { pathname } = url;
   if (pathname === '/api/session/activity') {
     if (request.method !== 'POST') {
@@ -412,7 +412,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
     }
     const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
     if (!adminSession) return true;
-    if (!requireTrustedOrigin(request, response)) return true;
+    if (!requireTrustedOrigin(request, response, env)) return true;
     const targetUserId = userDeleteMatch[1];
     if (targetUserId === adminSession.user.id) {
       sendJson(response, 400, { error: 'cannot_delete_own_account' });
@@ -528,7 +528,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
       sendJson(response, 403, { error: 'admin_access_required' });
       return true;
     }
-    if (!requireTrustedOrigin(request, response)) return true;
+    if (!requireTrustedOrigin(request, response, env)) return true;
 
     let body;
     try {
@@ -632,7 +632,7 @@ export async function handleApprovalApi(request, response, url, { pool, getAuthS
   }
   const adminSession = await requireSupremeAdmin(request, response, pool, getAuthSession);
   if (!adminSession) return true;
-  if (!requireTrustedOrigin(request, response)) return true;
+  if (!requireTrustedOrigin(request, response, env)) return true;
   if (!request.headers['content-type']?.startsWith('application/json')) {
     sendJson(response, 415, { error: 'content_type_must_be_json' });
     return true;

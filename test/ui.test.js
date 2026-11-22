@@ -1316,5 +1316,49 @@ test('inactivity scroll prompt appears only when Next button requires scrolling 
   assert.equal(vm.runInContext('scrollPromptVisible', context), false);
 });
 
+test('cold-start resilience pre-warms /api/health on load and retries transient 503 responses smoothly', async () => {
+  const calls = [];
+  let submitAttempt = 0;
+  const mockFetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || 'GET' });
+    const pathname = new URL(url, 'http://localhost').pathname;
+    if (pathname === '/api/health') {
+      return { ok: true, status: 200, async json() { return { ok: true }; } };
+    }
+    if (pathname === '/api/submit') {
+      submitAttempt += 1;
+      if (submitAttempt === 1) {
+        return { ok: false, status: 503, async json() { return { error: 'service_waking' }; } };
+      }
+      return { ok: true, status: 201, async json() { return { ok: true, reviewEligible: false }; } };
+    }
+    return { ok: true, status: 200, async json() { return []; } };
+  };
+
+  const mockWin = { innerHeight: 800, scrollY: 0, scrollBy() { } };
+  const { context, timers } = makeContext(mockFetch, new Map(), { window: mockWin, navigator: { onLine: true } });
+
+  // Warmup ping fires once on initial patient load
+  assert.equal(calls.filter((c) => c.url.endsWith('/api/health')).length, 1);
+
+  // apiRequest with coldStartRetry retries a transient 503 and succeeds on attempt 2
+  const pending = vm.runInContext(
+    "apiRequest('/api/submit', 'POST', { deviceId: '7ac62bf0-f9e4-4c87-9eb9-6bc5c840fd31' }, { coldStartRetry: true, retryDelays: [10], onWaking: (n) => { globalThis.__waking = n; } })",
+    context
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  for (const [id, t] of [...timers.entries()]) {
+    if (t.delay === 10) {
+      timers.delete(id);
+      t.callback();
+    }
+  }
+  const result = await pending;
+  assert.equal(result.ok, true);
+  assert.equal(submitAttempt, 2);
+  assert.equal(vm.runInContext('globalThis.__waking', context), 1);
+});
+
+
 
 

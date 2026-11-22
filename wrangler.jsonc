@@ -1,0 +1,39 @@
+{
+  "name": "dmch-feedback-app",
+  "main": "./worker/index.mjs",
+  "compatibility_date": "2026-11-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "assets": {
+    "directory": "./frontend",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/webhooks/*"]
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  },
+  "vars": {
+    "BETTER_AUTH_URL": "https://dmch-feedback-app.dmc-resto-mis.workers.dev",
+    "FRONTEND_ORIGIN": "https://dmch-feedback-app.dmc-resto-mis.workers.dev",
+    "SMS_PROVIDER": "intouch",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "REDACT_BEFORE_LLM": "true",
+    "ESCALATE_CRITICAL_MINUTES": "15",
+    "ESCALATE_HIGH_MINUTES": "60",
+    "ALERT_INCLUDE_EXCERPT": "false"
+  }
+}

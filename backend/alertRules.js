@@ -8,13 +8,8 @@
  * reasons must be generic category labels suitable for transmission without patient PII.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const keywordsPath = path.join(__dirname, 'severityKeywords.json');
-export const SEVERITY_KEYWORDS = JSON.parse(fs.readFileSync(keywordsPath, 'utf8'));
+import SEVERITY_KEYWORDS from './severityKeywords.json' with { type: 'json' };
+export { SEVERITY_KEYWORDS };
 
 /**
  * Sentiment score mapping & threshold:

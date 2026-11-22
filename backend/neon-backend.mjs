@@ -10,12 +10,25 @@ import { formatIntouchRecipient, isValidIntouchPhone, isValidE164, sanitizeE164 
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const hashSecret = process.env.DMC_DEVICE_HASH_SECRET;
 const responseFields = 'id, submitted_at, language, department_id, department_name, answers, is_demo, user_id, sentiment, urgent, urgent_reason, urgent_signals, analysis_source, detected_language';
+const isWorkersRuntime = typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
 
-if (!hashSecret || Buffer.byteLength(hashSecret, 'utf8') < 32) {
-  throw new Error('DMC_DEVICE_HASH_SECRET must be configured with at least 32 bytes.');
+function timingSafeSecretEqual(provided, expected) {
+  const a = crypto.createHash('sha256').update(String(provided)).digest();
+  const b = crypto.createHash('sha256').update(String(expected)).digest();
+  return crypto.timingSafeEqual(a, b);
 }
+
+/**
+ * Factory creating a request-isolated Neon API handler.
+ * On Cloudflare Workers, pass the per-request `pool`, `getAuthSession`, `env`, and `waitUntil`.
+ * On Node.js, the default `handleNeonApi` export wraps this with the shared server pool.
+ */
+export function createNeonApiHandler({ pool, getAuthSession, env = process.env, waitUntil = null }) {
+  const hashSecret = env.DMC_DEVICE_HASH_SECRET;
+  if (!hashSecret || Buffer.byteLength(hashSecret, 'utf8') < 32) {
+    throw new Error('DMC_DEVICE_HASH_SECRET must be configured with at least 32 bytes.');
+  }
 
 
 async function readRawBody(request) {
@@ -73,8 +86,8 @@ function requireJson(request, response) {
 function requireSameOrigin(request, response) {
   const origin = request.headers.origin;
   const trustedOrigins = [
-    process.env.FRONTEND_ORIGIN,
-    process.env.BETTER_AUTH_URL
+    env.FRONTEND_ORIGIN,
+    env.BETTER_AUTH_URL
   ].filter(Boolean).map((trustedOrigin) => new URL(trustedOrigin).origin);
   if (!origin || !trustedOrigins.includes(new URL(origin).origin)) {
     sendJson(response, 403, { error: 'invalid_origin' });
@@ -264,10 +277,12 @@ async function saveFeedback(body) {
     await client.query('commit');
 
     if (alertDecision.flag) {
-      // Fire immediate parallel dispatch without delaying the patient's HTTP response
-      processPendingAlerts(pool, { limit: 10 }).catch((err) =>
+      // Fire immediate parallel dispatch without delaying the patient's HTTP response.
+      // On Cloudflare Workers, attach to waitUntil so the alert finishes before the isolate closes.
+      const dispatchPromise = processPendingAlerts(pool, { limit: 10 }).catch((err) =>
         console.warn('[IMMEDIATE ALERT DISPATCH WARN]', err.message)
       );
+      if (typeof waitUntil === 'function') waitUntil(dispatchPromise);
     }
 
     return {
@@ -291,9 +306,9 @@ function validateAdminMethod(request, response) {
   return requireSameOrigin(request, response);
 }
 
-export async function handleNeonApi(request, response, url) {
+return async function handleNeonApi(request, response, url) {
   const pathname = url.pathname;
-  if (await handleApprovalApi(request, response, url, { pool, getAuthSession })) return true;
+  if (await handleApprovalApi(request, response, url, { pool, getAuthSession, env })) return true;
 
   // ─── InTouch SMS Webhook (Delivery Receipts & Inbound) ─────────────────────
   if (pathname === '/webhooks/intouch') {
@@ -370,14 +385,10 @@ export async function handleNeonApi(request, response, url) {
   // ─── Serverless / Cron Dispatcher ───────────────────────────────────────────
   if (pathname === '/api/cron/process-alerts') {
     const cronSecret = String(request.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
-    const expectedSecret = process.env.CRON_SECRET || '';
-    if (expectedSecret) {
-      const a = Buffer.from(cronSecret);
-      const b = Buffer.from(expectedSecret);
-      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-        sendJson(response, 401, { error: 'unauthorized_cron' });
-        return true;
-      }
+    const expectedSecret = env.CRON_SECRET || '';
+    if (expectedSecret && !timingSafeSecretEqual(cronSecret, expectedSecret)) {
+      sendJson(response, 401, { error: 'unauthorized_cron' });
+      return true;
     }
     const results = await processPendingAlerts(pool, { limit: 25 });
     const escalated = await processAlertEscalations(pool);
@@ -1113,6 +1124,18 @@ export async function handleNeonApi(request, response, url) {
 
   sendJson(response, 404, { error: 'not_found' });
   return pathname.startsWith('/api/');
+};
+}
+
+const defaultApiHandler = (!isWorkersRuntime && pool && process.env.DMC_DEVICE_HASH_SECRET)
+  ? createNeonApiHandler({ pool, getAuthSession, env: process.env })
+  : null;
+
+export async function handleNeonApi(request, response, url) {
+  if (!defaultApiHandler) {
+    throw new Error('Default Neon API handler is not initialized. Use createNeonApiHandler() on Cloudflare Workers.');
+  }
+  return defaultApiHandler(request, response, url);
 }
 
 export { authNodeHandler, pool, startAlertWorker, stopAlertWorker };

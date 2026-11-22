@@ -53,6 +53,29 @@ const API_ORIGIN = typeof window === 'undefined'
   ? ''
   : String(window.DMC_API_ORIGIN || '').replace(/\/+$/, '');
 
+const COLD_START_RETRY_STATUSES = new Set([502, 503, 504, 520, 522, 524]);
+const COLD_START_DELAYS_MS = [2000, 3000, 4000, 5000, 6000];
+let serverWarmupSent = false;
+
+function warmupServer() {
+  if (serverWarmupSent) return;
+  if (typeof window === 'undefined' || location.hash === '#admin' || isAppOffline() || loadCompletion()) return;
+  serverWarmupSent = true;
+  fetch(`${API_ORIGIN}/api/health`, {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'include'
+  }).catch(() => { });
+}
+
+function isColdStartRetryable(error) {
+  if (isAppOffline()) return false;
+  if (error && typeof error.status === 'number') {
+    return COLD_START_RETRY_STATUSES.has(error.status);
+  }
+  return true;
+}
+
 async function apiRequest(path, method = 'GET', body, options = {}) {
   const headers = {};
   if (body) {
@@ -64,41 +87,60 @@ async function apiRequest(path, method = 'GET', body, options = {}) {
   if (options.background) {
     headers['x-background-poll'] = '1';
   }
-  let response;
-  try {
-    response = await fetch(`${API_ORIGIN}${path}`, {
-      method,
-      credentials: 'include',
-      headers: Object.keys(headers).length > 0 ? headers : undefined,
-      body: body ? JSON.stringify(body) : undefined
-    });
-  } catch (networkError) {
-    if (isAppOffline()) handleNetworkOffline();
-    throw networkError;
-  }
-  if (networkState === 'offline') {
-    handleNetworkOnline(true);
-  }
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = new Error(data?.message || data?.error || 'The server request failed.');
-    error.status = response.status;
-    error.code = data?.error || '';
-    error.details = data;
-    if (response.status === 401) {
-      const isExpired = data?.error === 'session_expired_inactivity';
-      if (typeof window !== 'undefined' && window.DMC_SESSION_SYNC) {
-        window.DMC_SESSION_SYNC.broadcast(isExpired ? 'SESSION_EXPIRED' : 'SESSION_LOGOUT', { reason: isExpired ? 'inactivity' : 'unauthorized' });
+  const canColdStartRetry = Boolean(options.coldStartRetry) && typeof window !== 'undefined';
+  const retryDelays = Array.isArray(options.retryDelays) ? options.retryDelays : COLD_START_DELAYS_MS;
+  const maxAttempts = canColdStartRetry ? retryDelays.length + 1 : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(`${API_ORIGIN}${path}`, {
+        method,
+        credentials: 'include',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (networkError) {
+      if (isAppOffline()) {
+        handleNetworkOffline();
+        throw networkError;
       }
-      if (location.hash === '#admin' && isExpired) {
-        stopDashboardFeedbackRefresh();
-        adminSession = null;
-        location.assign(`login.html?reason=inactivity&next=${encodeURIComponent('index.html#admin')}`);
+      if (attempt < maxAttempts && isColdStartRetryable(networkError)) {
+        if (typeof options.onWaking === 'function') options.onWaking(attempt);
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt - 1]));
+        continue;
       }
+      throw networkError;
     }
-    throw error;
+    if (networkState === 'offline') {
+      handleNetworkOnline(true);
+    }
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(data?.message || data?.error || 'The server request failed.');
+      error.status = response.status;
+      error.code = data?.error || '';
+      error.details = data;
+      if (attempt < maxAttempts && isColdStartRetryable(error)) {
+        if (typeof options.onWaking === 'function') options.onWaking(attempt);
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt - 1]));
+        continue;
+      }
+      if (response.status === 401) {
+        const isExpired = data?.error === 'session_expired_inactivity';
+        if (typeof window !== 'undefined' && window.DMC_SESSION_SYNC) {
+          window.DMC_SESSION_SYNC.broadcast(isExpired ? 'SESSION_EXPIRED' : 'SESSION_LOGOUT', { reason: isExpired ? 'inactivity' : 'unauthorized' });
+        }
+        if (location.hash === '#admin' && isExpired) {
+          stopDashboardFeedbackRefresh();
+          adminSession = null;
+          location.assign(`login.html?reason=inactivity&next=${encodeURIComponent('index.html#admin')}`);
+        }
+      }
+      throw error;
+    }
+    return data;
   }
-  return data;
 }
 const U = {
   welcome: ['Welcome to DMC Hospital', 'Bienvenue à DMC Hospital', 'Murakaza neza kuri DMC Hospital'],
@@ -248,6 +290,16 @@ const U = {
     'Faites défiler pour plus d’options',
     'Manuka hasi urebe ibindi'
   ],
+  serverWaking: [
+    'Connecting to hospital server… This may take up to 30 seconds.',
+    'Connexion au serveur de l’hôpital… Cela peut prendre jusqu’à 30 secondes.',
+    'Turimo guhuza na seriveri y’ibitaro… Bishobora gufata amasegonda agera kuri 30.'
+  ],
+  connectingBtn: [
+    'Connecting…',
+    'Connexion…',
+    'Turimo guhuza…'
+  ],
   dept: ['Visited services', 'Services visités', 'Serivisi Yasuwe'],
   all: [
     'Please select all that apply',
@@ -345,8 +397,8 @@ if (!cfg || !cfg.v || cfg.v < 2) {
   sv('dmc_c', cfg);
 }
 
-async function loadDepartments(includeInactive = false) {
-  const departments = await apiRequest(`/api/departments${includeInactive ? '?all=1' : ''}`);
+async function loadDepartments(includeInactive = false, requestOptions = {}) {
+  const departments = await apiRequest(`/api/departments${includeInactive ? '?all=1' : ''}`, 'GET', undefined, requestOptions);
   cfg.depts = departments.map((department) => ({
     id: department.id,
     n: department.labels,
@@ -827,7 +879,21 @@ function renderSubmitting(progress, message) {
 
 async function startSurvey() {
   const button = $('start-survey');
+  const notice = $('intro-error');
   if (button) button.disabled = true;
+  if (notice) {
+    notice.textContent = '';
+    if (notice.classList) notice.classList.remove('is-waking');
+  }
+  const onWaking = () => {
+    if (notice) {
+      notice.textContent = g(U.serverWaking);
+      if (notice.classList) notice.classList.add('is-waking');
+    }
+    if (button) {
+      button.innerHTML = `${esc(g(U.connectingBtn))}`;
+    }
+  };
   try {
     if (loadCompletion()) {
       renderComplete(completedReviewEligible);
@@ -837,7 +903,7 @@ async function startSurvey() {
       handleNetworkOffline();
       throw new Error('offline');
     }
-    if (!departmentsLoaded) await loadDepartments();
+    if (!departmentsLoaded) await loadDepartments(false, { coldStartRetry: true, onWaking });
     const storageCheck = 'dmc_storage_check';
     localStorage.setItem(storageCheck, 'available');
     if (localStorage.getItem(storageCheck) !== 'available') {
@@ -845,7 +911,7 @@ async function startSurvey() {
     }
     localStorage.removeItem(storageCheck);
     try {
-      await apiRequest('/api/check', 'POST', { deviceId: getDeviceId() });
+      await apiRequest('/api/check', 'POST', { deviceId: getDeviceId() }, { coldStartRetry: true, onWaking });
     } catch (error) {
       if (error.status !== 409 || error.details?.error !== 'duplicate_submission') throw error;
       const retryAfterMs = Number(error.details.retryAfterSeconds) * 1000;
@@ -859,12 +925,14 @@ async function startSurvey() {
     scrollTo(0, 0);
   } catch (error) {
     console.error('Could not start the survey:', error);
-    const notice = $('intro-error');
-    if (notice) notice.textContent = String(error?.message || error).includes('Browser storage')
-      ? g(U.deviceStorageError)
-      : isAppOffline()
-        ? g(U.offlineStartError)
-        : g(U.connectionError);
+    if (notice) {
+      if (notice.classList) notice.classList.remove('is-waking');
+      notice.textContent = String(error?.message || error).includes('Browser storage')
+        ? g(U.deviceStorageError)
+        : isAppOffline()
+          ? g(U.offlineStartError)
+          : g(U.connectionError);
+    }
     if (button) {
       button.disabled = false;
       button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
@@ -941,9 +1009,12 @@ async function submit() {
   const startedAt = Date.now();
   let progress = 7;
   renderSubmitting(progress, g(U.submittingStep));
+  let wakingMessageActive = false;
   progressTimer = setInterval(() => {
     progress = Math.min(92, progress + Math.max(1, (92 - progress) * 0.045));
-    const step = progress < 38 ? g(U.submittingStep) : progress < 72 ? g(U.savingAnswers) : g(U.submittingTitle);
+    const step = wakingMessageActive
+      ? g(U.serverWaking)
+      : progress < 38 ? g(U.submittingStep) : progress < 72 ? g(U.savingAnswers) : g(U.submittingTitle);
     renderSubmitting(progress, step);
   }, 120);
   try {
@@ -952,6 +1023,12 @@ async function submit() {
       language: S.lang,
       departmentId: S.dept,
       answers: S.a
+    }, {
+      coldStartRetry: true,
+      onWaking: () => {
+        wakingMessageActive = true;
+        renderSubmitting(progress, g(U.serverWaking));
+      }
     });
     // Invite a Google review only when the answers show satisfaction AND the server
     // (which also analyses the written comments) did not detect any negative signal.
@@ -5368,7 +5445,7 @@ async function checkNetworkConnection() {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
     try {
-      const res = await fetch(`${API_ORIGIN}/api/departments`, {
+      const res = await fetch(`${API_ORIGIN}/api/health`, {
         method: 'GET',
         cache: 'no-store',
         credentials: 'include',
@@ -5532,6 +5609,7 @@ addEventListener('dmc-auth-state-change', (event) => {
   }
 });
 initNetworkStatus();
+warmupServer();
 startApp();
 
 /* ==========================================================================
