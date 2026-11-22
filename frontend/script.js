@@ -223,6 +223,31 @@ const U = {
     'Vos réponses sont enregistrées en toute sécurité sur cet appareil. Reconnectez-vous à Internet, puis réessayez.',
     'Ibisubizo byawe bibitswe neza kuri iki gikoresho. Ongera ufungure interineti, ubone kugerageza kubika.'
   ],
+  changeLangLabel: [
+    'Change language',
+    'Changer de langue',
+    'Hindura ururimi'
+  ],
+  scrollToNext: [
+    'Scroll down for Next',
+    'Faites défiler pour Suivant',
+    'Manuka hasi ukande Komeza'
+  ],
+  scrollToSubmit: [
+    'Scroll down to Submit',
+    'Faites défiler pour Envoyer',
+    'Manuka hasi ukande Ohereza'
+  ],
+  scrollToStart: [
+    'Scroll down to Start',
+    'Faites défiler pour Commencer',
+    'Manuka hasi utangire'
+  ],
+  scrollForMore: [
+    'Scroll for more options',
+    'Faites défiler pour plus d’options',
+    'Manuka hasi urebe ibindi'
+  ],
   dept: ['Visited services', 'Services visités', 'Serivisi Yasuwe'],
   all: [
     'Please select all that apply',
@@ -448,8 +473,85 @@ async function initializeAdmin() {
 }
 
 const flow = () => ['time', 'dept', 'cat', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'];
+let currentSurveyView = 'splash'; // 'splash' | 'intro' | 'survey' | 'submitting' | 'complete' | 'admin'
+let langMenuOpen = false;
+
+function renderHeaderLangPicker() {
+  const globeSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+  const chevSvg = '<svg class="lang-trigger-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+  const checkSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+  const currentCode = (S.lang || 'en').toUpperCase();
+  const items = LG.map(([code, label]) => {
+    const active = S.lang === code;
+    return `<button type="button" class="lang-menu-item${active ? ' on' : ''}" role="menuitemradio" aria-checked="${active}" data-lang="${code}" onclick="changeLanguage('${code}')"><span>${esc(label)}</span><span class="lang-menu-code">${active ? checkSvg : esc(code.toUpperCase())}</span></button>`;
+  }).join('');
+  return `<div class="lang-picker${langMenuOpen ? ' open' : ''}" id="lang-picker"><button type="button" class="lang-trigger" id="lang-trigger" aria-haspopup="menu" aria-expanded="${langMenuOpen}" aria-label="${esc(g(U.changeLangLabel))}" onclick="toggleLangMenu(event)">${globeSvg}<span>${esc(currentCode)}</span>${chevSvg}</button><div class="lang-menu" id="lang-menu" role="menu" aria-label="${esc(g(U.changeLangLabel))}"${langMenuOpen ? '' : ' hidden'}>${items}</div></div>`;
+}
+
+function renderIntroLangBar() {
+  const globeSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+  const pills = LG.map(([code, label]) => {
+    const active = S.lang === code;
+    return `<button type="button" class="intro-lang-pill${active ? ' on' : ''}" data-lang="${code}" aria-pressed="${active}" onclick="changeLanguage('${code}')">${esc(label)}</button>`;
+  }).join('');
+  return `<div class="intro-lang-wrap"><span class="intro-lang-icon" aria-hidden="true">${globeSvg}</span><div class="intro-lang-bar" role="group" aria-label="${esc(g(U.changeLangLabel))}">${pills}</div></div>`;
+}
+
+function closeLangMenu() {
+  if (!langMenuOpen) return;
+  langMenuOpen = false;
+  const picker = $('lang-picker');
+  const trigger = $('lang-trigger');
+  const menu = $('lang-menu');
+  if (picker) picker.classList.remove('open');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  if (menu) {
+    menu.setAttribute('hidden', '');
+    menu.hidden = true;
+  }
+}
+
+function toggleLangMenu(event) {
+  if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  langMenuOpen = !langMenuOpen;
+  const picker = $('lang-picker');
+  const trigger = $('lang-trigger');
+  const menu = $('lang-menu');
+  if (picker) picker.classList.toggle('open', langMenuOpen);
+  if (trigger) trigger.setAttribute('aria-expanded', String(langMenuOpen));
+  if (menu) {
+    menu.hidden = !langMenuOpen;
+    if (langMenuOpen) {
+      if (typeof menu.removeAttribute === 'function') menu.removeAttribute('hidden');
+    } else {
+      menu.setAttribute('hidden', '');
+    }
+  }
+}
+
+function changeLanguage(code) {
+  if (!IX.hasOwnProperty(code)) return;
+  langMenuOpen = false;
+  if (answerTimer !== null) {
+    clearTimeout(answerTimer);
+    answerTimer = null;
+  }
+  S.lang = code;
+  if (document && document.documentElement) {
+    document.documentElement.lang = code;
+  }
+  if (networkState !== 'online') renderNetworkBanner();
+  if (currentSurveyView === 'survey') {
+    saveSurveyProgress();
+    render(false);
+  } else if (currentSurveyView === 'intro') {
+    renderIntro(false);
+  }
+}
 
 function render(animate = true) {
+  currentSurveyView = 'survey';
+  langMenuOpen = false;
   const f = flow(), st = f[i], t = (k) => g(U[k]);
   let title = '', hint = '', b = '';
   if (st === 'dept') {
@@ -472,7 +574,8 @@ function render(animate = true) {
     }
   }
 
-  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class="top"><div class="top-row"><img src="logo.svg" alt="DMC" width="760" height="221" decoding="async">${i > 0 ? `<button class="ghost" onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div><div class="bar"><i style="width:${(i / f.length) * 100}%"></i></div><div class="top-title"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}</div></div>${b}</div>`;
+  $('app').innerHTML = `<div class="wrap screen${animate ? ' screen-enter' : ''}"><div class="top"><div class="top-row"><img src="logo.svg" alt="DMC" width="760" height="221" decoding="async"><div class="top-actions">${renderHeaderLangPicker()}${i > 0 ? `<button class="ghost" onclick="go(-1)"><i class='bx bx-chevron-left'></i> ${t('back')}</button>` : ''}</div></div><div class="bar"><i style="width:${(i / f.length) * 100}%"></i></div><div class="top-title"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}</div></div>${b}</div>`;
+  scheduleScrollPrompt('survey');
 }
 
 const up_ = () => {
@@ -483,7 +586,10 @@ const up_ = () => {
 };
 
 function renderIntro(animate = true) {
-  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
+  currentSurveyView = 'intro';
+  langMenuOpen = false;
+  $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}">${renderIntroLangBar()}<img class="intro-logo" src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
+  scheduleScrollPrompt('intro');
 }
 
 const PROGRESS_KEY = 'dmc_survey_progress';
@@ -563,6 +669,7 @@ function loadSurveyProgress() {
     }
     S = nextState;
     i = restoredIndex;
+    if (document && document.documentElement) document.documentElement.lang = restoredLang;
     return true;
   } catch (error) {
     console.error('Could not restore saved survey progress:', error);
@@ -574,6 +681,7 @@ function loadSurveyProgress() {
 function setTextAnswer(st, value) {
   S.a[st] = value;
   saveSurveyProgress();
+  scheduleScrollPrompt('survey', SCROLL_PROMPT_IDLE_MS);
 }
 
 function storeCompletion(submittedAt = Date.now(), reviewEligible = false) {
@@ -629,6 +737,9 @@ function getDeviceId() {
 }
 
 function renderComplete(showReview = false) {
+  currentSurveyView = 'complete';
+  langMenuOpen = false;
+  teardownScrollPrompt();
   clearInterval(progressTimer);
   progressTimer = null;
   $('app').innerHTML = `<main class="completion-card screen-enter" role="status" aria-live="polite"><div class="completion-orbit" aria-hidden="true"><i class='bx bx-check completion-check'></i></div><h1>${esc(g(U.completionTitle))}</h1><p class="intro-copy completion-body">${esc(g(U.completionBody))}</p><div class="completion-stamp"><i class='bx bx-check'></i> ${esc(g(U.completedBadge))}</div>${showReview ? renderReviewInvite() : ''}</main>`;
@@ -697,6 +808,9 @@ function hideSplash(callback) {
 }
 
 function renderSubmitting(progress, message) {
+  currentSurveyView = 'submitting';
+  langMenuOpen = false;
+  teardownScrollPrompt();
   const value = Math.min(100, Math.max(0, Math.round(progress)));
   const bar = $('submit-progress');
   const label = $('submit-step');
@@ -801,7 +915,11 @@ function tog(s, k) {
     option.setAttribute('aria-pressed', String(selected));
   });
   const next = document.querySelector('.btn');
-  if (next) next.disabled = a.length === 0;
+  if (next) {
+    next.disabled = a.length === 0;
+    if (next.classList) next.classList.toggle('disabled', a.length === 0);
+  }
+  scheduleScrollPrompt('survey', a.length > 0 ? SCROLL_PROMPT_SELECT_MS : SCROLL_PROMPT_IDLE_MS);
 }
 
 function nxt() {
@@ -812,6 +930,8 @@ function nxt() {
 async function submit() {
   if (submitting) return;
   if (isAppOffline()) {
+    currentSurveyView = 'submitting';
+    teardownScrollPrompt();
     handleNetworkOffline();
     saveSurveyProgress();
     $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div><h1>${esc(g(U.offlineSubmitTitle))}</h1><p class="intro-copy">${esc(g(U.offlineSubmitHint))}</p><button class="btn intro-start" onclick="submit()"><i class='bx bx-refresh'></i> ${esc(g(U.retrySubmit))}</button></main>`;
@@ -1870,6 +1990,9 @@ function chartsUI() {
 }
 
 function admin() {
+  currentSurveyView = 'admin';
+  langMenuOpen = false;
+  teardownScrollPrompt();
   const h = `<div class="wrap adm"><div class="adm-header">
     <div class="adm-brand">
       <img src="logo.svg" alt="DMC" width="760" height="221" decoding="async">
@@ -4884,6 +5007,9 @@ function renderPresentationMode() {
 }
 
 addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && langMenuOpen) {
+    closeLangMenu();
+  }
   if (!presentationModeActive) return;
   if (event.key === 'ArrowRight') {
     event.preventDefault();
@@ -4895,6 +5021,198 @@ addEventListener('keydown', (event) => {
     closePresentationMode();
   }
 });
+
+addEventListener('click', (event) => {
+  if (!langMenuOpen) return;
+  const target = event && event.target;
+  if (target && typeof target.closest === 'function' && target.closest('#lang-picker')) return;
+  closeLangMenu();
+});
+
+/* ---------- Inactivity Scroll Prompt / Scroll Chevron ---------- */
+const SCROLL_PROMPT_IDLE_MS = 3500;
+const SCROLL_PROMPT_SELECT_MS = 2200;
+let scrollPromptTimer = null;
+let scrollPromptEl = null;
+let scrollPromptMode = null; // null | 'intro' | 'survey'
+let scrollPromptVisible = false;
+let scrollPromptListenersBound = false;
+
+function getScrollViewportHeight() {
+  if (typeof window !== 'undefined' && typeof window.innerHeight === 'number' && window.innerHeight > 0) {
+    return window.innerHeight;
+  }
+  if (document && document.documentElement && typeof document.documentElement.clientHeight === 'number') {
+    return document.documentElement.clientHeight;
+  }
+  return 0;
+}
+
+function getScrollTop() {
+  if (typeof window !== 'undefined' && typeof window.scrollY === 'number') return window.scrollY;
+  if (document && document.documentElement && typeof document.documentElement.scrollTop === 'number') {
+    return document.documentElement.scrollTop;
+  }
+  return 0;
+}
+
+function getScrollTargetEl() {
+  const app = $('app');
+  if (!app || typeof app.querySelector !== 'function') return null;
+  if (scrollPromptMode === 'intro') {
+    return $('start-survey') || app.querySelector('.btn');
+  }
+  if (scrollPromptMode === 'survey') {
+    return app.querySelector('.btn');
+  }
+  return null;
+}
+
+function needsScrollForAction() {
+  if (!scrollPromptMode || location.hash === '#admin') return false;
+  const vh = getScrollViewportHeight();
+  if (!vh) return false;
+  const target = getScrollTargetEl();
+  if (target && typeof target.getBoundingClientRect === 'function') {
+    const rect = target.getBoundingClientRect();
+    return rect.bottom > vh - 8;
+  }
+  const docEl = document && document.documentElement;
+  if (docEl && typeof docEl.scrollHeight === 'number') {
+    return docEl.scrollHeight - (getScrollTop() + vh) > 48;
+  }
+  return false;
+}
+
+function getScrollPromptText() {
+  if (scrollPromptMode === 'intro') return g(U.scrollToStart);
+  const f = flow();
+  const st = f[i];
+  const target = getScrollTargetEl();
+  if (target) {
+    const q = Q[st];
+    if (q && q.t === 'm' && !(S.a[st] || []).length) {
+      return g(U.scrollForMore);
+    }
+    return i === f.length - 1 ? g(U.scrollToSubmit) : g(U.scrollToNext);
+  }
+  return g(U.scrollForMore);
+}
+
+function getScrollPromptEl() {
+  if (scrollPromptEl) return scrollPromptEl;
+  const existing = $('scroll-prompt');
+  if (existing) {
+    scrollPromptEl = existing;
+    return scrollPromptEl;
+  }
+  if (!document || typeof document.createElement !== 'function' || !document.body) return null;
+  const btn = document.createElement('button');
+  btn.id = 'scroll-prompt';
+  btn.type = 'button';
+  btn.classList.add('scroll-prompt');
+  btn.setAttribute('hidden', '');
+  btn.hidden = true;
+  if (typeof btn.addEventListener === 'function') {
+    btn.addEventListener('click', scrollToNextAction);
+  } else {
+    btn.setAttribute('onclick', 'scrollToNextAction()');
+  }
+  document.body.appendChild(btn);
+  scrollPromptEl = btn;
+  return scrollPromptEl;
+}
+
+function hideScrollPrompt() {
+  scrollPromptVisible = false;
+  if (!scrollPromptEl) return;
+  scrollPromptEl.classList.remove('is-visible');
+  scrollPromptEl.setAttribute('hidden', '');
+  scrollPromptEl.hidden = true;
+}
+
+function showScrollPrompt() {
+  if (!needsScrollForAction()) {
+    hideScrollPrompt();
+    return;
+  }
+  const el = getScrollPromptEl();
+  if (!el) return;
+  const label = getScrollPromptText();
+  const chevronsSvg = '<svg class="scroll-prompt-chevrons" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="7 6 12 11 17 6"/><polyline points="7 13 12 18 17 13"/></svg>';
+  el.innerHTML = `<span class="scroll-prompt-label">${esc(label)}</span><span class="scroll-prompt-badge" aria-hidden="true">${chevronsSvg}</span>`;
+  el.setAttribute('aria-label', label);
+  el.hidden = false;
+  if (typeof el.removeAttribute === 'function') el.removeAttribute('hidden');
+  el.classList.add('is-visible');
+  scrollPromptVisible = true;
+}
+
+function scrollToNextAction() {
+  hideScrollPrompt();
+  if (scrollPromptTimer !== null) {
+    clearTimeout(scrollPromptTimer);
+    scrollPromptTimer = null;
+  }
+  const target = getScrollTargetEl();
+  if (target && typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  const vh = getScrollViewportHeight();
+  const step = Math.max(240, Math.round(vh * 0.72));
+  if (typeof window !== 'undefined' && typeof window.scrollBy === 'function') {
+    window.scrollBy({ top: step, behavior: 'smooth' });
+  } else if (typeof scrollTo === 'function') {
+    scrollTo(0, getScrollTop() + step);
+  }
+}
+
+function bindScrollPromptListeners() {
+  if (scrollPromptListenersBound) return;
+  scrollPromptListenersBound = true;
+  const onScrollOrResize = () => {
+    if (!scrollPromptMode) return;
+    if (scrollPromptVisible) hideScrollPrompt();
+    if (scrollPromptTimer !== null) {
+      clearTimeout(scrollPromptTimer);
+      scrollPromptTimer = null;
+    }
+    if (needsScrollForAction()) {
+      scrollPromptTimer = setTimeout(() => {
+        scrollPromptTimer = null;
+        showScrollPrompt();
+      }, SCROLL_PROMPT_IDLE_MS);
+    }
+  };
+  addEventListener('scroll', onScrollOrResize, { passive: true });
+  addEventListener('resize', onScrollOrResize, { passive: true });
+}
+
+function scheduleScrollPrompt(mode, delayMs = SCROLL_PROMPT_IDLE_MS) {
+  if (scrollPromptTimer !== null) {
+    clearTimeout(scrollPromptTimer);
+    scrollPromptTimer = null;
+  }
+  hideScrollPrompt();
+  scrollPromptMode = mode;
+  if (!getScrollViewportHeight()) return;
+  bindScrollPromptListeners();
+  if (!needsScrollForAction()) return;
+  scrollPromptTimer = setTimeout(() => {
+    scrollPromptTimer = null;
+    showScrollPrompt();
+  }, delayMs);
+}
+
+function teardownScrollPrompt() {
+  scrollPromptMode = null;
+  if (scrollPromptTimer !== null) {
+    clearTimeout(scrollPromptTimer);
+    scrollPromptTimer = null;
+  }
+  hideScrollPrompt();
+}
 
 /* ---------- Network Connectivity (No Internet / Back Online Alerts) ---------- */
 let networkState = 'online'; // 'online' | 'offline' | 'restored'
@@ -5101,7 +5419,10 @@ function selectSplashLang(code) {
   }
   splashAnimTimers.forEach(clearTimeout);
   splashAnimTimers = [];
-  if (IX.hasOwnProperty(code)) S.lang = code;
+  if (IX.hasOwnProperty(code)) {
+    S.lang = code;
+    if (document && document.documentElement) document.documentElement.lang = code;
+  }
   if (networkState !== 'online') renderNetworkBanner();
   hideSplash(() => renderIntro());
 }
@@ -5179,6 +5500,8 @@ async function boot() {
     return;
   }
   if (s) {
+    currentSurveyView = 'splash';
+    teardownScrollPrompt();
     startSplashSequence();
     return;
   }

@@ -264,6 +264,7 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
   feedbackDeleteDialog.close = function () { this.open = false; };
   const document = {
     baseURI: 'https://dmc.example/',
+    documentElement: backendState.documentElement,
     body: { appendChild(node) { app.append(node); } },
     getElementById(id) {
       if (id === 'app') return app;
@@ -293,6 +294,7 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
   const listeners = new Map();
   const context = vm.createContext({
     document,
+    window: backendState.window,
     navigator: backendState.navigator,
     localStorage: {
       getItem(key) { return storage.has(key) ? storage.get(key) : null; },
@@ -1237,5 +1239,82 @@ test('offline and back-online connectivity alerts display, localize, and auto-hi
   assert.equal(vm.runInContext('networkState', context), 'online');
   assert.equal(banner.hidden, true);
 });
+
+test('patients can re-pick language on the intro screen and mid-survey without losing answers', async () => {
+  const storage = new Map();
+  const { app, context } = makeContext(undefined, storage);
+
+  // Pick English on splash, then switch to Kinyarwanda on intro
+  vm.runInContext("selectSplashLang('en')", context);
+  assert.match(app.innerHTML, /class="intro-lang-bar"/);
+  assert.match(app.innerHTML, /OUTPATIENT DEPARTMENT FEEDBACK QUESTIONNAIRE/);
+
+  vm.runInContext("changeLanguage('rw')", context);
+  assert.equal(vm.runInContext('S.lang', context), 'rw');
+  assert.match(app.innerHTML, /GUKUSANYA IBITEKEREZO/);
+
+  // Start survey, answer step 0, advance to q4 (index 6) with selections, then switch to French
+  await vm.runInContext('startSurvey()', context);
+  vm.runInContext("S.a.time=0; S.dept='o0'; S.a.q4=[0,2]; i=6; render(false);", context);
+  assert.match(app.innerHTML, /id="lang-picker"/);
+  assert.match(app.innerHTML, /Ni hehe wagize ubukererwe/);
+
+  vm.runInContext("changeLanguage('fr')", context);
+  assert.equal(vm.runInContext('S.lang', context), 'fr');
+  assert.equal(vm.runInContext('i', context), 6);
+  assert.deepEqual(vm.runInContext('S.a.q4', context), [0, 2]);
+  assert.match(app.innerHTML, /À quel endroit avez-vous rencontré un retard/);
+  assert.equal(JSON.parse(storage.get('dmc_survey_progress')).lang, 'fr');
+});
+
+test('inactivity scroll prompt appears only when Next button requires scrolling and hides once scrolled into view', () => {
+  let btnBottom = 980;
+  let scrolledIntoView = false;
+  const mockWin = { innerHeight: 700, scrollY: 0, scrollBy() { } };
+  const mockDocEl = { clientHeight: 700, scrollHeight: 1100, scrollTop: 0 };
+  const { app, context, timers, listeners } = makeContext(undefined, new Map(), {
+    window: mockWin,
+    documentElement: mockDocEl
+  });
+
+  // Patch app.querySelector so .btn exposes a live bounding rect & scrollIntoView
+  const origQuerySelector = app.querySelector.bind(app);
+  app.querySelector = (selector) => {
+    const el = origQuerySelector(selector);
+    if (el && selector === '.btn') {
+      el.getBoundingClientRect = () => ({ bottom: btnBottom });
+      el.scrollIntoView = () => { scrolledIntoView = true; };
+    }
+    return el;
+  };
+
+  // Render q4 (multi-choice with Next button off-screen below viewport)
+  vm.runInContext("S={lang:'en',dept:'o0',a:{q4:[0]}}; i=6; render(false);", context);
+
+  // Must NOT appear immediately before inactivity window elapses
+  assert.equal(vm.runInContext('scrollPromptVisible', context), false);
+  const idleTimerId = vm.runInContext('scrollPromptTimer', context);
+  assert.ok(idleTimerId, 'inactivity timer should be scheduled when Next button is below viewport');
+
+  // After inactivity period, prompt appears with chevron and Next guidance
+  timers.get(idleTimerId).callback();
+  assert.equal(vm.runInContext('scrollPromptVisible', context), true);
+  const promptEl = vm.runInContext('scrollPromptEl', context);
+  assert.equal(promptEl.hidden, false);
+  assert.match(promptEl.innerHTML, /Scroll down for Next/);
+  assert.match(promptEl.innerHTML, /scroll-prompt-chevrons/);
+
+  // Tapping the scroll prompt glides to the Next button and hides the prompt
+  vm.runInContext('scrollToNextAction()', context);
+  assert.equal(scrolledIntoView, true);
+  assert.equal(vm.runInContext('scrollPromptVisible', context), false);
+
+  // When Next button is already inside the viewport, no prompt or timer is scheduled
+  btnBottom = 620;
+  for (const fn of listeners.get('scroll') || []) fn();
+  assert.equal(vm.runInContext('scrollPromptTimer', context), null);
+  assert.equal(vm.runInContext('scrollPromptVisible', context), false);
+});
+
 
 
