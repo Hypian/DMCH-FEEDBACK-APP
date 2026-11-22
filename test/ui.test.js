@@ -290,8 +290,10 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
     replace(value) { this.href = value; },
     assign(value) { this.href = value; }
   };
+  const listeners = new Map();
   const context = vm.createContext({
     document,
+    navigator: backendState.navigator,
     localStorage: {
       getItem(key) { return storage.has(key) ? storage.get(key) : null; },
       setItem(key, value) {
@@ -321,7 +323,10 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
       return id;
     },
     clearInterval(id) { timers.delete(id); },
-    addEventListener() { },
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(fn);
+    },
     scrollTo() { },
     location,
     console: { error() { }, log() { } },
@@ -343,7 +348,7 @@ function makeContext(fetchImplementation, storage = new Map(), backendState = {}
   });
   vm.runInContext(script, context);
 
-  return { app, context, options, storage, timers, backendState, feedbackDeleteDialog, feedbackDeleteDialogElements };
+  return { app, context, options, storage, timers, listeners, backendState, feedbackDeleteDialog, feedbackDeleteDialogElements };
 }
 
 test('single-choice selection updates in place and advances only once', () => {
@@ -1154,4 +1159,83 @@ test('tabs wrap cleanly and Update Phone & Category modal uses themed custom dro
   assert.match(app.innerHTML, /class="pm-category-cards"/);
   assert.match(app.innerHTML, /Save Phone & Tag/);
 });
+
+test('survey progress persists in localStorage and resumes at the exact step after refresh', async () => {
+  const storage = new Map();
+  const backendState = {};
+  const first = makeContext(undefined, storage, backendState);
+
+  vm.runInContext("selectSplashLang('fr')", first.context);
+  await vm.runInContext('startSurvey()', first.context);
+  vm.runInContext("ans('time', 1)", first.context);
+  const t1 = vm.runInContext('answerTimer', first.context);
+  first.timers.get(t1).callback();
+  vm.runInContext("pick('dept', 'o0')", first.context);
+  vm.runInContext("ans('cat', 0)", first.context);
+  const t2 = vm.runInContext('answerTimer', first.context);
+  first.timers.get(t2).callback();
+  vm.runInContext("tog('q4', 0); tog('q4', 2); setTextAnswer('q9', 'Pharmacie 24h');", first.context);
+
+  assert.equal(storage.has('dmc_survey_progress'), true);
+  assert.equal(vm.runInContext('i', first.context), 3);
+
+  // Simulate full browser refresh with the same localStorage
+  const refreshed = makeContext(undefined, storage, backendState);
+  assert.equal(vm.runInContext('S.lang', refreshed.context), 'fr');
+  assert.equal(vm.runInContext('S.dept', refreshed.context), 'o0');
+  assert.equal(vm.runInContext('i', refreshed.context), 3);
+  assert.equal(vm.runInContext('S.a.time', refreshed.context), 1);
+  assert.equal(vm.runInContext('S.a.cat', refreshed.context), 0);
+  assert.deepEqual(vm.runInContext('S.a.q4', refreshed.context), [0, 2]);
+  assert.equal(vm.runInContext('S.a.q9', refreshed.context), 'Pharmacie 24h');
+  assert.match(refreshed.app.innerHTML, /Comment évaluez-vous votre expérience à l’accueil/);
+
+  // Submitting clears saved draft progress
+  await vm.runInContext('submit()', refreshed.context);
+  assert.equal(storage.has('dmc_survey_progress'), false);
+  assert.equal(storage.has('dmc_completed'), true);
+});
+
+test('offline and back-online connectivity alerts display, localize, and auto-hide cleanly', async () => {
+  const nav = { onLine: true };
+  const { app, context, listeners, timers } = makeContext(undefined, new Map(), { navigator: nav });
+
+  // Normal online boot shows no network banner and schedules no online toast timer
+  assert.equal(vm.runInContext('networkState', context), 'online');
+  assert.equal(vm.runInContext('networkBannerEl', context), null);
+
+  // Going offline displays the persistent offline banner
+  nav.onLine = false;
+  for (const fn of listeners.get('offline') || []) fn();
+  assert.equal(vm.runInContext('networkState', context), 'offline');
+  const banner = vm.runInContext('networkBannerEl', context);
+  assert.ok(banner, 'offline banner element should be created');
+  assert.equal(banner.hidden, false);
+  assert.equal(banner.classList.contains('is-offline'), true);
+  assert.match(banner.innerHTML, /No internet connection/);
+
+  // Switching language updates offline banner text immediately
+  vm.runInContext("selectSplashLang('fr')", context);
+  assert.match(banner.innerHTML, /Pas de connexion Internet/);
+
+  // Submitting while offline preserves answers and shows offline retry screen
+  vm.runInContext("S.dept='o0'; S.a={q8:0};", context);
+  await vm.runInContext('submit()', context);
+  assert.match(app.innerHTML, /Pas de connexion Internet/);
+  assert.equal(vm.runInContext('S.a.q8', context), 0);
+
+  // Coming back online switches banner to "You're back online" and auto-hides after timer
+  nav.onLine = true;
+  for (const fn of listeners.get('online') || []) fn();
+  assert.equal(vm.runInContext('networkState', context), 'restored');
+  assert.equal(banner.classList.contains('is-online'), true);
+  assert.match(banner.innerHTML, /Vous êtes de nouveau en ligne/);
+
+  const hideTimerId = vm.runInContext('networkOnlineTimer', context);
+  assert.ok(hideTimerId, 'back-online banner should schedule an auto-hide timer');
+  timers.get(hideTimerId).callback();
+  assert.equal(vm.runInContext('networkState', context), 'online');
+  assert.equal(banner.hidden, true);
+});
+
 

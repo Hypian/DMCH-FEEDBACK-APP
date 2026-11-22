@@ -4845,3 +4845,191 @@ select:focus,
   text-align: right;
 }
 
+/* ─── Network Connectivity Banner (Offline / Back Online) ───────────────── */
+.net-banner {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top, 14px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 24px), 520px);
+  z-index: 10000;
+  pointer-events: auto;
+  animation: net-banner-in .32s var(--ease-smooth, cubic-bezier(.22,.68,0,1.2)) both;
+}
+
+.net-banner[hidden] {
+  display: none !important;
+}
+
+.net-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  box-shadow: 0 14px 36px -10px rgba(15, 26, 42, .35), 0 4px 12px rgba(15, 26, 42, .16);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  color: #fff;
+}
+
+.net-banner.is-offline .net-banner-inner {
+  background: rgba(28, 20, 16, .94);
+  border-color: rgba(229, 75, 43, .55);
+}
+
+.net-banner.is-online .net-banner-inner {
+  background: rgba(6, 78, 59, .95);
+  border-color: rgba(52, 211, 153, .55);
+}
+
+.net-banner-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  font-size: 20px;
+}
+
+.net-banner.is-offline .net-banner-icon {
+  background: rgba(229, 75, 43, .22);
+  color: #FF8A70;
+  box-shadow: 0 0 0 1px rgba(229, 75, 43, .38);
+  animation: net-pulse 1.8s ease-in-out infinite;
+}
+
+.net-banner.is-online .net-banner-icon {
+  background: rgba(16, 185, 129, .24);
+  color: #6EE7B7;
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, .42);
+}
+
+.net-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.net-banner-copy strong {
+  font-family: var(--font-display);
+  font-size: .92rem;
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: -.01em;
+  color: #fff;
+}
+
+.net-banner-copy span {
+  font-size: .79rem;
+  line-height: 1.38;
+  color: rgba(255, 255, 255, .82);
+}
+
+.net-banner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font-family: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .15s ease;
+}
+
+.net-banner-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .22);
+  border-color: rgba(255, 255, 255, .42);
+}
+
+.net-banner-btn:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+.net-banner-btn:disabled {
+  opacity: .72;
+  cursor: wait;
+}
+
+.net-banner-btn.is-checking .net-retry-svg {
+  animation: net-spin .8s linear infinite;
+}
+
+@keyframes net-spin {
+  to { transform: rotate(360deg); }
+}
+
+.net-banner-close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background .18s ease;
+}
+
+.net-banner-close:hover {
+  background: rgba(255, 255, 255, .26);
+}
+
+@keyframes net-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -18px) scale(.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes net-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(229, 75, 43, .4), 0 0 0 0 rgba(229, 75, 43, .38); }
+  50% { box-shadow: 0 0 0 1px rgba(229, 75, 43, .6), 0 0 0 6px rgba(229, 75, 43, 0); }
+}
+
+@media (max-width: 480px) {
+  .net-banner {
+    top: max(10px, env(safe-area-inset-top, 10px));
+    width: calc(100% - 16px);
+  }
+  .net-banner-inner {
+    padding: 10px 12px;
+    gap: 10px;
+    border-radius: 14px;
+  }
+  .net-banner-icon {
+    width: 34px;
+    height: 34px;
+    font-size: 18px;
+  }
+  .net-banner-copy strong { font-size: .86rem; }
+  .net-banner-copy span { font-size: .75rem; }
+  .net-banner-btn { padding: 7px 10px; font-size: .74rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .net-banner,
+  .net-banner.is-offline .net-banner-icon {
+    animation: none;
+  }
+}
+
+

@@ -7,6 +7,109 @@
 (() => {
   'use strict';
 
+  // Fallback offline / back-online connectivity alert for auth pages (login.html, signup.html)
+  // where script.js is not loaded. On index.html, script.js owns the multilingual network banner.
+  function initFallbackNetworkStatus() {
+    if (window.__dmcNetworkManaged) return;
+    window.__dmcNetworkManaged = true;
+
+    let state = 'online';
+    let wasOffline = false;
+    let hideTimer = null;
+    let banner = null;
+
+    function getBanner() {
+      if (banner) return banner;
+      banner = document.getElementById('network-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'network-banner';
+        banner.className = 'net-banner';
+        banner.hidden = true;
+        document.body.appendChild(banner);
+      }
+      return banner;
+    }
+
+    function render() {
+      if (state === 'online') {
+        if (!banner) return;
+        banner.classList.remove('is-visible', 'is-offline', 'is-online');
+        banner.hidden = true;
+        banner.innerHTML = '';
+        return;
+      }
+      const el = getBanner();
+      const isOffline = state === 'offline';
+      el.hidden = false;
+      el.setAttribute('role', isOffline ? 'alert' : 'status');
+      el.setAttribute('aria-live', isOffline ? 'assertive' : 'polite');
+      el.classList.remove(isOffline ? 'is-online' : 'is-offline');
+      el.classList.add(isOffline ? 'is-offline' : 'is-online', 'is-visible');
+      const iconOffline = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+      const iconOnline = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+      const iconClose = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      el.innerHTML = isOffline
+        ? `<div class="net-banner-inner">
+            <span class="net-banner-icon" aria-hidden="true">${iconOffline}</span>
+            <div class="net-banner-copy">
+              <strong>No internet connection</strong>
+              <span>Reconnect to sign in or continue.</span>
+            </div>
+          </div>`
+        : `<div class="net-banner-inner">
+            <span class="net-banner-icon" aria-hidden="true">${iconOnline}</span>
+            <div class="net-banner-copy">
+              <strong>You’re back online</strong>
+              <span>Internet connection restored.</span>
+            </div>
+            <button type="button" class="net-banner-close" aria-label="Close">${iconClose}</button>
+          </div>`;
+      const closeBtn = el.querySelector('.net-banner-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+          clearTimeout(hideTimer);
+          hideTimer = null;
+          state = 'online';
+          render();
+        }, { once: true });
+      }
+    }
+
+    function onOffline() {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+      wasOffline = true;
+      state = 'offline';
+      render();
+    }
+
+    function onOnline() {
+      if (!wasOffline) return;
+      clearTimeout(hideTimer);
+      wasOffline = false;
+      state = 'restored';
+      render();
+      hideTimer = setTimeout(() => {
+        hideTimer = null;
+        if (state === 'restored') {
+          state = 'online';
+          render();
+        }
+      }, 4200);
+    }
+
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    if (navigator.onLine === false) onOffline();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFallbackNetworkStatus, { once: true });
+  } else {
+    initFallbackNetworkStatus();
+  }
+
   // Respect user preference for reduced motion
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (motionQuery.matches) return;

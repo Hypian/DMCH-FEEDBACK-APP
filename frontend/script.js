@@ -64,12 +64,21 @@ async function apiRequest(path, method = 'GET', body, options = {}) {
   if (options.background) {
     headers['x-background-poll'] = '1';
   }
-  const response = await fetch(`${API_ORIGIN}${path}`, {
-    method,
-    credentials: 'include',
-    headers: Object.keys(headers).length > 0 ? headers : undefined,
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let response;
+  try {
+    response = await fetch(`${API_ORIGIN}${path}`, {
+      method,
+      credentials: 'include',
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (networkError) {
+    if (isAppOffline()) handleNetworkOffline();
+    throw networkError;
+  }
+  if (networkState === 'offline') {
+    handleNetworkOnline(true);
+  }
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || 'The server request failed.');
@@ -172,6 +181,48 @@ const U = {
     'Ibisubizo byawe biracyahari. Reba umurongo wa interineti wongere ugerageze.'
   ],
   retrySubmit: ['Try saving again', 'Réessayer l’enregistrement', 'Ongera ugerageze kubika'],
+  offlineTitle: [
+    'No internet connection',
+    'Pas de connexion Internet',
+    'Nta murongo wa interineti uhari'
+  ],
+  offlineBody: [
+    'Your progress is saved. Reconnect to continue or submit.',
+    'Votre progression est enregistrée. Reconnectez-vous pour continuer ou envoyer.',
+    'Ibisubizo byawe bibitswe. Ongera ufungure interineti kugira ngo ukomeze cyangwa wohereze.'
+  ],
+  offlineAdminBody: [
+    'Waiting for internet connection to return…',
+    'En attente du rétablissement de la connexion Internet…',
+    'Turategereje ko umurongo wa interineti ugaruka…'
+  ],
+  offlineRetry: ['Retry', 'Réessayer', 'Gerageza'],
+  offlineChecking: ['Checking…', 'Vérification…', 'Turimo kureba…'],
+  onlineTitle: [
+    'You’re back online',
+    'Vous êtes de nouveau en ligne',
+    'Wasubiye kuri interineti'
+  ],
+  onlineBody: [
+    'Internet connection restored.',
+    'Connexion Internet rétablie.',
+    'Umurongo wa interineti wongeye gukora.'
+  ],
+  offlineStartError: [
+    'No internet connection. Please reconnect to start the survey.',
+    'Pas de connexion Internet. Veuillez vous reconnecter pour commencer le questionnaire.',
+    'Nta murongo wa interineti uhari. Ongera ufungure interineti kugira ngo utangire.'
+  ],
+  offlineSubmitTitle: [
+    'No internet connection',
+    'Pas de connexion Internet',
+    'Nta murongo wa interineti uhari'
+  ],
+  offlineSubmitHint: [
+    'Your answers are safely saved on this device. Reconnect to the internet, then tap Try saving again.',
+    'Vos réponses sont enregistrées en toute sécurité sur cet appareil. Reconnectez-vous à Internet, puis réessayez.',
+    'Ibisubizo byawe bibitswe neza kuri iki gikoresho. Ongera ufungure interineti, ubone kugerageza kubika.'
+  ],
   dept: ['Visited services', 'Services visités', 'Serivisi Yasuwe'],
   all: [
     'Please select all that apply',
@@ -276,6 +327,7 @@ async function loadDepartments(includeInactive = false) {
     n: department.labels,
     active: department.is_active
   }));
+  if (!includeInactive) sv('dmc_c', cfg);
   departmentsLoaded = true;
 }
 
@@ -330,7 +382,7 @@ async function loadAdminData() {
 }
 
 async function refreshDashboardFeedback() {
-  if (!adminSession || location.hash !== '#admin' || !adminDataLoaded || adminLoading || dashboardFeedbackRefreshInProgress) return;
+  if (!adminSession || location.hash !== '#admin' || !adminDataLoaded || adminLoading || dashboardFeedbackRefreshInProgress || isAppOffline()) return;
   dashboardFeedbackRefreshInProgress = true;
   try {
     const [responses, alerts] = await Promise.all([
@@ -408,7 +460,7 @@ function render(animate = true) {
     title = g(q.q);
     if (m && !title.toLowerCase().includes(t('all').toLowerCase())) hint = t('all');
     if (q.t === 'x') {
-      b += `<textarea placeholder="${t('ph')}" oninput="S.a['${st}']=this.value">${esc(S.a[st] || '')}</textarea>`;
+      b += `<textarea placeholder="${t('ph')}" oninput="setTextAnswer('${st}',this.value)">${esc(S.a[st] || '')}</textarea>`;
     } else {
       b += q.o.map((o, k) => {
         const on = m ? (S.a[st] || []).includes(k) : S.a[st] === k;
@@ -425,6 +477,7 @@ function render(animate = true) {
 
 const up_ = () => {
   i += 1;
+  saveSurveyProgress();
   render();
   scrollTo(0, 0);
 };
@@ -433,12 +486,117 @@ function renderIntro(animate = true) {
   $('app').innerHTML = `<main class="intro-card${animate ? ' screen-enter' : ''}"><img class="intro-logo" src="logo.svg" alt="Dream Medical Center Hospital" width="760" height="221" loading="lazy" decoding="async"><p class="eyebrow">${esc(g(U.welcome))}</p><h1 id="intro-title">${esc(g(U.introTitle))}</h1><p class="intro-copy" id="intro-body">${esc(g(U.introBody))}</p><div class="intro-notice" id="intro-notice" role="note"><i class='bx bx-error-circle intro-notice-icon' aria-hidden="true"></i><span class="intro-notice-text"><strong>${esc(g(U.introNoticePrefix))}</strong> ${esc(g(U.introNoticeBody))}</span></div><p class="error" id="intro-error" role="alert"></p><button class="btn intro-start" id="start-survey" onclick="startSurvey()">${esc(g(U.startSurvey))} <i class='bx bx-right-arrow-alt'></i></button></main>`;
 }
 
-function storeCompletion(submittedAt = Date.now()) {
-  const completion = JSON.stringify({ submittedAt, lang: S.lang });
+const PROGRESS_KEY = 'dmc_survey_progress';
+let completedReviewEligible = false;
+
+function sanitizeSurveyAnswers(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const clean = {};
+  for (const [key, spec] of Object.entries(Q)) {
+    if (key === 'dept' || !Object.prototype.hasOwnProperty.call(raw, key)) continue;
+    const val = raw[key];
+    if (spec.t === 's') {
+      if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val < spec.o.length) {
+        clean[key] = val;
+      }
+    } else if (spec.t === 'm') {
+      if (Array.isArray(val)) {
+        const valid = [...new Set(val.filter((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < spec.o.length))];
+        if (valid.length > 0) clean[key] = valid;
+      }
+    } else if (spec.t === 'x') {
+      if (typeof val === 'string') {
+        clean[key] = val;
+      }
+    }
+  }
+  return clean;
+}
+
+function saveSurveyProgress() {
+  try {
+    const steps = flow();
+    const clampedIndex = Math.max(0, Math.min(steps.length - 1, Number.isInteger(i) ? i : 0));
+    const payload = {
+      v: 1,
+      stage: 'survey',
+      lang: IX.hasOwnProperty(S.lang) ? S.lang : 'en',
+      dept: typeof S.dept === 'string' && S.dept ? S.dept : null,
+      a: sanitizeSurveyAnswers(S.a),
+      i: clampedIndex,
+      savedAt: Date.now()
+    };
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    // Non-fatal: private browsing or storage limits must never interrupt the survey.
+  }
+}
+
+function clearSurveyProgress() {
+  try {
+    localStorage.removeItem(PROGRESS_KEY);
+  } catch (error) { }
+}
+
+function loadSurveyProgress() {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object' || saved.stage !== 'survey') {
+      clearSurveyProgress();
+      return false;
+    }
+    if (!Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt >= COOLDOWN_MS) {
+      clearSurveyProgress();
+      return false;
+    }
+    const steps = flow();
+    const restoredIndex = Number.isInteger(saved.i)
+      ? Math.max(0, Math.min(steps.length - 1, saved.i))
+      : 0;
+    const restoredLang = IX.hasOwnProperty(saved.lang) ? saved.lang : 'en';
+    const restoredAnswers = sanitizeSurveyAnswers(saved.a);
+    const nextState = { lang: restoredLang, a: restoredAnswers };
+    if (typeof saved.dept === 'string' && saved.dept) {
+      nextState.dept = saved.dept;
+    }
+    S = nextState;
+    i = restoredIndex;
+    return true;
+  } catch (error) {
+    console.error('Could not restore saved survey progress:', error);
+    clearSurveyProgress();
+    return false;
+  }
+}
+
+function setTextAnswer(st, value) {
+  S.a[st] = value;
+  saveSurveyProgress();
+}
+
+function storeCompletion(submittedAt = Date.now(), reviewEligible = false) {
+  completedReviewEligible = Boolean(reviewEligible);
+  const payload = { submittedAt, lang: S.lang };
+  if (completedReviewEligible) payload.reviewEligible = true;
+  const completion = JSON.stringify(payload);
   localStorage.setItem('dmc_completed', completion);
   if (localStorage.getItem('dmc_completed') !== completion) {
     throw new Error('Browser storage did not retain the survey completion status.');
   }
+  clearSurveyProgress();
+}
+
+function clearStoredReviewInvite() {
+  completedReviewEligible = false;
+  try {
+    const completed = JSON.parse(localStorage.getItem('dmc_completed') || 'null');
+    if (completed && completed.reviewEligible) {
+      delete completed.reviewEligible;
+      localStorage.setItem('dmc_completed', JSON.stringify(completed));
+    }
+  } catch (error) { }
 }
 
 function loadCompletion() {
@@ -447,9 +605,12 @@ function loadCompletion() {
     if (!Number.isFinite(completed?.submittedAt)) return false;
     if (Date.now() - completed.submittedAt >= COOLDOWN_MS) {
       localStorage.removeItem('dmc_completed');
+      completedReviewEligible = false;
       return false;
     }
     if (IX.hasOwnProperty(completed.lang)) S.lang = completed.lang;
+    completedReviewEligible = Boolean(completed.reviewEligible);
+    clearSurveyProgress();
     return true;
   } catch (error) {
     console.error('Could not restore the saved survey status:', error);
@@ -507,6 +668,7 @@ function renderReviewInvite() {
 }
 
 function reviewOpened() {
+  clearStoredReviewInvite();
   setTimeout(() => {
     const invite = $('review-invite');
     if (invite) invite.innerHTML = `<p class="review-thanks"><i class='bx bxs-heart' aria-hidden="true"></i> ${esc(g(U.reviewThanks))}</p>`;
@@ -514,6 +676,7 @@ function reviewOpened() {
 }
 
 function dismissReviewInvite() {
+  clearStoredReviewInvite();
   const invite = $('review-invite');
   if (invite) invite.remove();
 }
@@ -553,8 +716,12 @@ async function startSurvey() {
   if (button) button.disabled = true;
   try {
     if (loadCompletion()) {
-      renderComplete();
+      renderComplete(completedReviewEligible);
       return;
+    }
+    if (isAppOffline()) {
+      handleNetworkOffline();
+      throw new Error('offline');
     }
     if (!departmentsLoaded) await loadDepartments();
     const storageCheck = 'dmc_storage_check';
@@ -573,6 +740,7 @@ async function startSurvey() {
       return;
     }
     i = 0;
+    saveSurveyProgress();
     render();
     scrollTo(0, 0);
   } catch (error) {
@@ -580,7 +748,9 @@ async function startSurvey() {
     const notice = $('intro-error');
     if (notice) notice.textContent = String(error?.message || error).includes('Browser storage')
       ? g(U.deviceStorageError)
-      : g(U.connectionError);
+      : isAppOffline()
+        ? g(U.offlineStartError)
+        : g(U.connectionError);
     if (button) {
       button.disabled = false;
       button.innerHTML = `${esc(g(U.startSurvey))}<span aria-hidden="true"> →</span>`;
@@ -599,6 +769,7 @@ function go(d) {
     answerTimer = null;
   }
   i = Math.max(0, i + d);
+  saveSurveyProgress();
   render();
   scrollTo(0, 0);
 }
@@ -606,6 +777,7 @@ function go(d) {
 function ans(s, k) {
   if (answerTimer !== null) return;
   S.a[s] = k;
+  saveSurveyProgress();
   document.querySelectorAll(`.opt[data-question="${s}"]`).forEach((option) => {
     const selected = Number(option.dataset.option) === k;
     option.classList.toggle('on', selected);
@@ -622,6 +794,7 @@ function tog(s, k) {
   let a = S.a[s] || [];
   a = a.includes(k) ? a.filter((x) => x !== k) : k === ex ? [k] : a.filter((x) => x !== ex).concat(k);
   S.a[s] = a;
+  saveSurveyProgress();
   document.querySelectorAll(`.opt[data-question="${s}"]`).forEach((option) => {
     const selected = a.includes(Number(option.dataset.option));
     option.classList.toggle('on', selected);
@@ -638,6 +811,12 @@ function nxt() {
 
 async function submit() {
   if (submitting) return;
+  if (isAppOffline()) {
+    handleNetworkOffline();
+    saveSurveyProgress();
+    $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div><h1>${esc(g(U.offlineSubmitTitle))}</h1><p class="intro-copy">${esc(g(U.offlineSubmitHint))}</p><button class="btn intro-start" onclick="submit()"><i class='bx bx-refresh'></i> ${esc(g(U.retrySubmit))}</button></main>`;
+    return;
+  }
   submitting = true;
   const startedAt = Date.now();
   let progress = 7;
@@ -657,7 +836,7 @@ async function submit() {
     // Invite a Google review only when the answers show satisfaction AND the server
     // (which also analyses the written comments) did not detect any negative signal.
     const showReview = isSatisfiedSurvey(S.a) && result?.reviewEligible !== false;
-    storeCompletion();
+    storeCompletion(Date.now(), showReview);
     renderSubmitting(100, g(U.completionTitle));
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, 900 - (Date.now() - startedAt))));
     renderComplete(showReview);
@@ -666,7 +845,19 @@ async function submit() {
     clearInterval(progressTimer);
     progressTimer = null;
     submitting = false;
-    $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true"><i class='bx bx-error-circle'></i></div><h1>${esc(g(U.submitError))}</h1><p class="intro-copy">${esc(g(U.retryHint))}</p><button class="btn intro-start" onclick="submit()"><i class='bx bx-refresh'></i> ${esc(g(U.retrySubmit))}</button></main>`;
+    if (error.status === 409 && error.details?.error === 'duplicate_submission') {
+      const retryAfterMs = Number(error.details.retryAfterSeconds) * 1000;
+      storeCompletion(Date.now() - (COOLDOWN_MS - retryAfterMs));
+      renderComplete();
+      return;
+    }
+    saveSurveyProgress();
+    const offline = isAppOffline();
+    if (offline) handleNetworkOffline();
+    const errMark = offline
+      ? '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>'
+      : `<i class='bx bx-error-circle'></i>`;
+    $('app').innerHTML = `<main class="submit-card screen-enter" role="alert" aria-live="assertive"><div class="submit-error-mark" aria-hidden="true">${errMark}</div><h1>${esc(g(offline ? U.offlineSubmitTitle : U.submitError))}</h1><p class="intro-copy">${esc(g(offline ? U.offlineSubmitHint : U.retryHint))}</p><button class="btn intro-start" onclick="submit()"><i class='bx bx-refresh'></i> ${esc(g(U.retrySubmit))}</button></main>`;
     return;
   } finally {
     submitting = false;
@@ -4705,6 +4896,193 @@ addEventListener('keydown', (event) => {
   }
 });
 
+/* ---------- Network Connectivity (No Internet / Back Online Alerts) ---------- */
+let networkState = 'online'; // 'online' | 'offline' | 'restored'
+let networkWasOffline = false;
+let networkOnlineTimer = null;
+let networkBannerEl = null;
+let networkChecking = false;
+
+function isAppOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+function getNetworkBannerEl() {
+  if (networkBannerEl) return networkBannerEl;
+  const existing = $('network-banner');
+  if (existing) {
+    networkBannerEl = existing;
+    return networkBannerEl;
+  }
+  if (!document || typeof document.createElement !== 'function' || !document.body) return null;
+  const el = document.createElement('div');
+  el.id = 'network-banner';
+  el.classList.add('net-banner');
+  el.setAttribute('hidden', '');
+  el.hidden = true;
+  document.body.appendChild(el);
+  networkBannerEl = el;
+  return networkBannerEl;
+}
+
+function renderNetworkBanner() {
+  if (networkState === 'online') {
+    if (!networkBannerEl) return;
+    networkBannerEl.classList.remove('is-visible');
+    networkBannerEl.classList.remove('is-offline');
+    networkBannerEl.classList.remove('is-online');
+    networkBannerEl.setAttribute('hidden', '');
+    networkBannerEl.hidden = true;
+    networkBannerEl.innerHTML = '';
+    return;
+  }
+  const el = getNetworkBannerEl();
+  if (!el) return;
+  const isOffline = networkState === 'offline';
+  const isAdminRoute = location.hash === '#admin';
+  const title = isOffline ? g(U.offlineTitle) : g(U.onlineTitle);
+  const body = isOffline
+    ? (isAdminRoute ? g(U.offlineAdminBody) : g(U.offlineBody))
+    : g(U.onlineBody);
+
+  el.hidden = false;
+  if (typeof el.removeAttribute === 'function') el.removeAttribute('hidden');
+  el.setAttribute('role', isOffline ? 'alert' : 'status');
+  el.setAttribute('aria-live', isOffline ? 'assertive' : 'polite');
+  el.classList.remove(isOffline ? 'is-online' : 'is-offline');
+  el.classList.add(isOffline ? 'is-offline' : 'is-online');
+  el.classList.add('is-visible');
+
+  const iconOffline = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+  const iconOnline = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+  const iconRetry = '<svg class="net-retry-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
+  const iconClose = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+  el.innerHTML = isOffline
+    ? `<div class="net-banner-inner">
+        <span class="net-banner-icon" aria-hidden="true">${iconOffline}</span>
+        <div class="net-banner-copy">
+          <strong>${esc(title)}</strong>
+          <span>${esc(body)}</span>
+        </div>
+        <button type="button" class="net-banner-btn${networkChecking ? ' is-checking' : ''}" onclick="checkNetworkConnection()" ${networkChecking ? 'disabled' : ''}>
+          ${iconRetry}
+          <span>${esc(networkChecking ? g(U.offlineChecking) : g(U.offlineRetry))}</span>
+        </button>
+      </div>`
+    : `<div class="net-banner-inner">
+        <span class="net-banner-icon" aria-hidden="true">${iconOnline}</span>
+        <div class="net-banner-copy">
+          <strong>${esc(title)}</strong>
+          <span>${esc(body)}</span>
+        </div>
+        <button type="button" class="net-banner-close" onclick="dismissNetworkBanner()" aria-label="Close">
+          ${iconClose}
+        </button>
+      </div>`;
+}
+
+function dismissNetworkBanner() {
+  if (networkOnlineTimer !== null) {
+    clearTimeout(networkOnlineTimer);
+    networkOnlineTimer = null;
+  }
+  networkState = 'online';
+  renderNetworkBanner();
+}
+
+function handleNetworkOffline() {
+  if (networkOnlineTimer !== null) {
+    clearTimeout(networkOnlineTimer);
+    networkOnlineTimer = null;
+  }
+  networkWasOffline = true;
+  networkChecking = false;
+  networkState = 'offline';
+  renderNetworkBanner();
+}
+
+function handleNetworkOnline(force = false) {
+  if (!networkWasOffline && !force) return;
+  if (networkOnlineTimer !== null) {
+    clearTimeout(networkOnlineTimer);
+    networkOnlineTimer = null;
+  }
+  networkWasOffline = false;
+  networkChecking = false;
+  networkState = 'restored';
+  renderNetworkBanner();
+
+  const introError = $('intro-error');
+  if (introError && introError.textContent === g(U.offlineStartError)) {
+    introError.textContent = '';
+  }
+
+  if (location.hash === '#admin' && adminSession && adminDataLoaded) {
+    refreshDashboardFeedback();
+  } else if (location.hash !== '#admin' && !departmentsLoaded && !loadCompletion()) {
+    loadDepartments().then(() => {
+      if (location.hash !== '#admin' && !loadCompletion() && flow()[i] === 'dept') {
+        render(false);
+      }
+    }).catch(() => { });
+  }
+
+  networkOnlineTimer = setTimeout(() => {
+    networkOnlineTimer = null;
+    if (networkState === 'restored') {
+      networkState = 'online';
+      renderNetworkBanner();
+    }
+  }, 4200);
+}
+
+async function checkNetworkConnection() {
+  if (networkChecking) return;
+  networkChecking = true;
+  renderNetworkBanner();
+  try {
+    if (isAppOffline()) {
+      networkChecking = false;
+      renderNetworkBanner();
+      return;
+    }
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+    try {
+      const res = await fetch(`${API_ORIGIN}/api/departments`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
+        signal: controller ? controller.signal : undefined
+      });
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      if (res) {
+        handleNetworkOnline(true);
+        return;
+      }
+    } catch (err) {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+  } finally {
+    if (networkState === 'offline') {
+      networkChecking = false;
+      renderNetworkBanner();
+    }
+  }
+}
+
+function initNetworkStatus() {
+  if (typeof window !== 'undefined') {
+    window.__dmcNetworkManaged = true;
+  }
+  addEventListener('offline', handleNetworkOffline);
+  addEventListener('online', () => handleNetworkOnline(false));
+  if (isAppOffline()) {
+    handleNetworkOffline();
+  }
+}
+
 /* ---------- Splash & Welcome Animation ---------- */
 let splashAnimTimers = [];
 
@@ -4724,6 +5102,7 @@ function selectSplashLang(code) {
   splashAnimTimers.forEach(clearTimeout);
   splashAnimTimers = [];
   if (IX.hasOwnProperty(code)) S.lang = code;
+  if (networkState !== 'online') renderNetworkBanner();
   hideSplash(() => renderIntro());
 }
 
@@ -4774,6 +5153,7 @@ async function boot() {
 
   if (adm) {
     if (s) s.remove();
+    if (networkState !== 'online') renderNetworkBanner();
     adminLoading = true;
     admin();
     await initializeAdmin();
@@ -4781,7 +5161,21 @@ async function boot() {
   }
   if (loadCompletion()) {
     if (s) s.remove();
-    renderComplete();
+    if (networkState !== 'online') renderNetworkBanner();
+    renderComplete(completedReviewEligible);
+    return;
+  }
+  if (loadSurveyProgress()) {
+    if (s) s.remove();
+    if (networkState !== 'online') renderNetworkBanner();
+    render(false);
+    if (!departmentsLoaded && !isAppOffline()) {
+      loadDepartments().then(() => {
+        if (location.hash !== '#admin' && !loadCompletion() && flow()[i] === 'dept') {
+          render(false);
+        }
+      }).catch(() => { });
+    }
     return;
   }
   if (s) {
@@ -4814,6 +5208,7 @@ addEventListener('dmc-auth-state-change', (event) => {
     if (location.hash === '#admin') location.assign('login.html');
   }
 });
+initNetworkStatus();
 startApp();
 
 /* ==========================================================================
