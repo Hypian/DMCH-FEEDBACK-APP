@@ -87,6 +87,7 @@ test('Cloudflare Worker delegates static asset requests to env.ASSETS and wrangl
   assert.equal(wranglerConfig.name, 'dmch-feedback-app');
   assert.equal(wranglerConfig.main, './worker/index.mjs');
   assert.ok(wranglerConfig.compatibility_flags.includes('nodejs_compat'));
+  assert.equal(wranglerConfig.workers_dev, true);
   assert.equal(wranglerConfig.keep_vars, true);
   assert.equal(wranglerConfig.placement.mode, 'smart');
   assert.equal(wranglerConfig.observability.enabled, true);

@@ -30,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Configure API origin
         env:
           API_ORIGIN: ${{ vars.DMC_API_ORIGIN }}
@@ -47,7 +47,7 @@ jobs:
             printf 'window.DMC_API_ORIGIN = "%s";\n' "$API_ORIGIN" > frontend/api-config.js
           fi
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: './frontend'
       - name: Deploy to GitHub Pages
