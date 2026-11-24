@@ -11,9 +11,20 @@ function sendJson(response, status, body) {
 }
 
 function requireTrustedOrigin(request, response, env = process.env) {
-  const trustedOrigins = [env.FRONTEND_ORIGIN, env.BETTER_AUTH_URL]
+  const trustedOrigins = [
+    env.FRONTEND_ORIGIN,
+    env.BETTER_AUTH_URL,
+    ...(typeof env.TRUSTED_ORIGINS === 'string' ? env.TRUSTED_ORIGINS.split(',') : [])
+  ]
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter(Boolean)
-    .map((origin) => new URL(origin).origin);
+    .flatMap((origin) => {
+      try {
+        return [new URL(origin).origin];
+      } catch {
+        return [];
+      }
+    });
   if (!request.headers.origin || !trustedOrigins.includes(request.headers.origin)) {
     sendJson(response, 403, { error: 'invalid_origin' });
     return false;

@@ -48,6 +48,22 @@ export function createAuthRuntime(env = process.env) {
     && frontendOrigin
     && new URL(frontendOrigin).origin !== baseOrigin
   );
+  const trustedOrigins = [...new Set(
+    [
+      baseURL,
+      frontendOrigin,
+      ...(typeof env.TRUSTED_ORIGINS === 'string' ? env.TRUSTED_ORIGINS.split(',') : [])
+    ]
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter(Boolean)
+      .flatMap((entry) => {
+        try {
+          return [new URL(entry).origin];
+        } catch {
+          return [];
+        }
+      })
+  )];
 
   const pool = new Pool({ connectionString: databaseUrl });
 
@@ -56,7 +72,7 @@ export function createAuthRuntime(env = process.env) {
     baseURL,
     secret: authSecret,
     database: pool,
-    trustedOrigins: [baseURL, frontendOrigin].filter(Boolean),
+    trustedOrigins,
     session: {
       expiresIn: 3600,
       updateAge: 300

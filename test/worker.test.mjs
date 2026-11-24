@@ -87,12 +87,19 @@ test('Cloudflare Worker delegates static asset requests to env.ASSETS and wrangl
   assert.equal(wranglerConfig.name, 'dmch-feedback-app');
   assert.equal(wranglerConfig.main, './worker/index.mjs');
   assert.ok(wranglerConfig.compatibility_flags.includes('nodejs_compat'));
+  assert.equal(wranglerConfig.keep_vars, true);
   assert.equal(wranglerConfig.placement.mode, 'smart');
   assert.equal(wranglerConfig.observability.enabled, true);
   assert.equal(wranglerConfig.observability.traces.enabled, true);
   assert.ok(wranglerConfig.triggers.crons.includes('*/5 * * * *'));
   assert.equal(wranglerConfig.assets.directory, './frontend');
   assert.deepEqual(wranglerConfig.assets.run_worker_first, ['/api/*', '/webhooks/*']);
+  assert.ok(
+    wranglerConfig.routes.some((r) => r.pattern === 'feedback.dreammedicalcenter.rw' && r.custom_domain === true)
+  );
+  assert.equal(wranglerConfig.vars.BETTER_AUTH_URL, 'https://feedback.dreammedicalcenter.rw');
+  assert.ok(wranglerConfig.vars.TRUSTED_ORIGINS.includes('https://feedback.dreammedicalcenter.rw'));
+  assert.ok(wranglerConfig.vars.TRUSTED_ORIGINS.includes('https://dmch-feedback-app.dmc-resto-mis.workers.dev'));
 });
 
 test('Cloudflare Worker scheduled handler skips cleanly when NEON_DATABASE_URL is unset', async () => {

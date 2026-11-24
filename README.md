@@ -52,7 +52,7 @@ Set all sensitive values as encrypted Worker secrets (via the Cloudflare Dashboa
 
 1. Copy [`.dev.vars.example`](./.dev.vars.example) to `.dev.vars` (gitignored) and fill in your development secrets. `.dev.vars` overrides `BETTER_AUTH_URL` and `FRONTEND_ORIGIN` to `http://localhost:8787` so local cookies work over HTTP.
 2. Start the local Worker with `npm run dev`.
-3. After deploying, verify `https://dmch-feedback-app.dmc-resto-mis.workers.dev/api/health` returns `{"ok":true,"service":"dmch-feedback-app","runtime":"cloudflare-workers"}` and `/api/departments` returns JSON. Stream live production logs anytime with `npm run cf:tail`.
+3. After deploying, verify `https://feedback.dreammedicalcenter.rw/api/health` (or `https://dmch-feedback-app.dmc-resto-mis.workers.dev/api/health`) returns `{"ok":true,"service":"dmch-feedback-app","runtime":"cloudflare-workers"}` and `/api/departments` returns JSON. Stream live production logs anytime with `npm run cf:tail`.
 
 Do not copy local `.env` or `.dev.vars` files into GitHub, commit them, or expose database credentials in `frontend/` static files. GitHub Pages remains a separate static deployment and will not reach the Cloudflare Worker API until `DMC_API_ORIGIN` is configured for its Pages workflow.
 

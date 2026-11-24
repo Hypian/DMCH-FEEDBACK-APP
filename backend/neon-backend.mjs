@@ -87,8 +87,18 @@ function requireSameOrigin(request, response) {
   const origin = request.headers.origin;
   const trustedOrigins = [
     env.FRONTEND_ORIGIN,
-    env.BETTER_AUTH_URL
-  ].filter(Boolean).map((trustedOrigin) => new URL(trustedOrigin).origin);
+    env.BETTER_AUTH_URL,
+    ...(typeof env.TRUSTED_ORIGINS === 'string' ? env.TRUSTED_ORIGINS.split(',') : [])
+  ]
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean)
+    .flatMap((trustedOrigin) => {
+      try {
+        return [new URL(trustedOrigin).origin];
+      } catch {
+        return [];
+      }
+    });
   if (!origin || !trustedOrigins.includes(new URL(origin).origin)) {
     sendJson(response, 403, { error: 'invalid_origin' });
     return false;

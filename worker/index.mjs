@@ -21,16 +21,28 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY'
 };
 
-function getTrustedOrigins(env, requestUrl) {
-  const origins = new Set([requestUrl.origin]);
-  for (const raw of [env.FRONTEND_ORIGIN, env.BETTER_AUTH_URL]) {
-    if (!raw) continue;
+function getConfiguredOrigins(env) {
+  const origins = new Set();
+  const candidates = [
+    env.FRONTEND_ORIGIN,
+    env.BETTER_AUTH_URL,
+    ...(typeof env.TRUSTED_ORIGINS === 'string' ? env.TRUSTED_ORIGINS.split(',') : [])
+  ];
+  for (const raw of candidates) {
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    if (!trimmed) continue;
     try {
-      origins.add(new URL(raw).origin);
+      origins.add(new URL(trimmed).origin);
     } catch {
       // Ignore malformed origin values
     }
   }
+  return origins;
+}
+
+function getTrustedOrigins(env, requestUrl) {
+  const origins = getConfiguredOrigins(env);
+  origins.add(requestUrl.origin);
   return origins;
 }
 
@@ -157,10 +169,12 @@ export default {
         return jsonResponse(404, { error: 'not_found' }, requestOrigin, trustedOrigins);
       }
 
+      const configuredOrigins = getConfiguredOrigins(env);
+      const activeOrigin = configuredOrigins.has(url.origin) ? url.origin : null;
       const runtimeEnv = {
         ...env,
-        BETTER_AUTH_URL: env.BETTER_AUTH_URL || url.origin,
-        FRONTEND_ORIGIN: env.FRONTEND_ORIGIN || url.origin
+        BETTER_AUTH_URL: activeOrigin || env.BETTER_AUTH_URL || url.origin,
+        FRONTEND_ORIGIN: activeOrigin || env.FRONTEND_ORIGIN || url.origin
       };
 
       const backgroundTasks = [];

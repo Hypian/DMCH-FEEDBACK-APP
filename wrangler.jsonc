@@ -13,6 +13,12 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  "routes": [
+    {
+      "pattern": "feedback.dreammedicalcenter.rw",
+      "custom_domain": true
+    }
+  ],
   "placement": {
     "mode": "smart"
   },
@@ -28,8 +34,9 @@
     }
   },
   "vars": {
-    "BETTER_AUTH_URL": "https://dmch-feedback-app.dmc-resto-mis.workers.dev",
-    "FRONTEND_ORIGIN": "https://dmch-feedback-app.dmc-resto-mis.workers.dev",
+    "BETTER_AUTH_URL": "https://feedback.dreammedicalcenter.rw",
+    "FRONTEND_ORIGIN": "https://feedback.dreammedicalcenter.rw",
+    "TRUSTED_ORIGINS": "https://feedback.dreammedicalcenter.rw,https://dmch-feedback-app.dmc-resto-mis.workers.dev",
     "SMS_PROVIDER": "intouch",
     "GEMINI_MODEL": "gemini-2.5-flash",
     "REDACT_BEFORE_LLM": "true",
