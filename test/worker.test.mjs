@@ -85,9 +85,50 @@ test('Cloudflare Worker delegates static asset requests to env.ASSETS and wrangl
     fs.readFileSync(path.join(import.meta.dirname, '..', 'wrangler.jsonc'), 'utf8')
   );
   assert.equal(wranglerConfig.name, 'dmch-feedback-app');
+  assert.equal(wranglerConfig.main, './worker/index.mjs');
   assert.ok(wranglerConfig.compatibility_flags.includes('nodejs_compat'));
+  assert.equal(wranglerConfig.placement.mode, 'smart');
   assert.equal(wranglerConfig.observability.enabled, true);
   assert.equal(wranglerConfig.observability.traces.enabled, true);
   assert.ok(wranglerConfig.triggers.crons.includes('*/5 * * * *'));
   assert.equal(wranglerConfig.assets.directory, './frontend');
+  assert.deepEqual(wranglerConfig.assets.run_worker_first, ['/api/*', '/webhooks/*']);
+});
+
+test('Cloudflare Worker scheduled handler skips cleanly when NEON_DATABASE_URL is unset', async () => {
+  const logged = [];
+  const origError = console.error;
+  console.error = (msg) => logged.push(String(msg));
+  try {
+    await worker.scheduled({ cron: '*/5 * * * *' }, {}, { waitUntil() {} });
+  } finally {
+    console.error = origError;
+  }
+  assert.equal(logged.length, 1);
+  const parsed = JSON.parse(logged[0]);
+  assert.equal(parsed.event, 'cron.skipped');
+  assert.equal(parsed.cron, '*/5 * * * *');
+});
+
+test('Cloudflare deployment scripts, headers, templates, and legacy cleanup are configured', () => {
+  const rootDir = path.join(import.meta.dirname, '..');
+  const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts.dev, 'npx wrangler dev');
+  assert.equal(pkg.scripts.deploy, 'npx wrangler deploy');
+  assert.equal(pkg.scripts['cf:dry-run'], 'npx wrangler deploy --dry-run');
+  assert.equal(pkg.scripts['cf:tail'], 'npx wrangler tail');
+
+  const headersFile = fs.readFileSync(path.join(rootDir, 'frontend', '_headers'), 'utf8');
+  assert.match(headersFile, /Content-Security-Policy:/);
+  assert.match(headersFile, /X-Frame-Options:\s*DENY/);
+  assert.match(headersFile, /X-Content-Type-Options:\s*nosniff/);
+  assert.match(headersFile, /Strict-Transport-Security:/);
+
+  const gitignore = fs.readFileSync(path.join(rootDir, '.gitignore'), 'utf8');
+  assert.match(gitignore, /\.wrangler\//);
+  assert.match(gitignore, /\.dev\.vars/);
+
+  assert.equal(fs.existsSync(path.join(rootDir, '.dev.vars.example')), true);
+  assert.equal(fs.existsSync(path.join(rootDir, '.github', 'workflows', 'deploy-worker.yml')), true);
+  assert.equal(fs.existsSync(path.join(rootDir, 'railway.json')), false);
 });

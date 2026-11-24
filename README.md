@@ -4,36 +4,57 @@
 
 1. Create a Neon PostgreSQL project and copy its pooled connection string into a local `.env` file based on [`.env.example`](./.env.example). Replace both secret placeholders with independent random values of at least 32 characters. Keep the connection string and secrets server-only; never put them in browser JavaScript.
 2. Set `BETTER_AUTH_URL` to the origin that serves this app. Locally, with the default port, use `http://localhost:5173`. Configure the production URL before deployment.
-3. Install dependencies with `npm install`. If the existing Better Auth `user` table has the legacy required `phone` column, run [`backend/neon/phone-optional-migration.sql`](./backend/neon/phone-optional-migration.sql) in the Neon SQL editor first. It preserves existing phone values while allowing new accounts that no longer collect phone numbers.
+3. Install dependencies with `npm install`.
 4. Create/update Better Auth's tables with `npm run auth:migrate`. The username plugin adds the username field.
-5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, device-lock, and audit tables.
-6. If you already have Better Auth accounts, run [`backend/neon/username-auth-migration.sql`](./backend/neon/username-auth-migration.sql). It safely ensures the username column and unique index exist, then assigns stable usernames without changing account IDs or password hashes. Query `select id, name, username from public."user";` and securely tell each existing user their assigned username. Review the migration before running it.
-7. Run `npm run db:migrate` (or execute [`backend/neon/all-migrations.sql`](./backend/neon/all-migrations.sql) in the Neon SQL editor). This automatically and safely applies all role tables, audit log tables, and account deactivation constraint updates.
-8. From the project root, start with `npm start`; open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
+5. Run [`backend/neon/schema.sql`](./backend/neon/schema.sql) in the Neon SQL editor after the Better Auth migration and before signup. It creates feedback, department, admin-allowlist, account-approval, device-lock, alerting, and audit tables.
+6. Run `npm run db:migrate` (or execute [`backend/neon/all-migrations.sql`](./backend/neon/all-migrations.sql) in the Neon SQL editor). This idempotently applies all schema updates — including optional `phone`, stable `username` backfills for legacy accounts, role tables, audit logs, alerting tables, and account deactivation constraints. If upgrading legacy Better Auth accounts, query `select id, name, username from public."user";` and securely share assigned usernames.
+7. From the project root, start the local Node server with `npm start` (or run the local Cloudflare Worker runtime with `npm run dev` after copying [`.dev.vars.example`](./.dev.vars.example) to `.dev.vars`), and open the printed local URL over HTTP. Do not open the HTML files directly or use Live Server, since those methods do not run the backend API.
 
 ## Project layout
 
-- `frontend/` contains the static HTML pages, browser JavaScript, CSS, and image assets.
-- `backend/` contains the Neon database API, Better Auth setup, and SQL schema.
-- `server/` contains the Node HTTP server that serves `frontend/` and routes API requests to `backend/`.
-- `.env.example` and `package.json` stay at the project root; run npm commands from there.
+- `frontend/` contains the static HTML pages, browser JavaScript, CSS, image assets, and Cloudflare static asset security headers (`frontend/_headers`).
+- `worker/` contains the Cloudflare Workers entrypoint (`worker/index.mjs`) handling `/api/*`, `/webhooks/*`, static asset fallback (`ASSETS`), and the 5-minute alert/escalation cron trigger.
+- `backend/` contains the Neon database API, Better Auth setup, sentiment/alerting services, and SQL schema/migrations.
+- `server/` contains the Node HTTP server used for local development (`npm start`) and automated tests.
+- `wrangler.jsonc`, `.env.example`, `.dev.vars.example`, and `package.json` stay at the project root; run npm commands from there.
 
-## Deploy the app on Railway
+## Deploy the app on Cloudflare Workers
 
-Railway runs the Node server and serves the frontend from the same HTTPS origin; Neon remains the database. The repository includes [`railway.json`](./railway.json), which selects `npm ci`, starts the app with `npm start`, and checks `/api/departments` for readiness. Railway supplies `PORT`; the server listens on it.
+Cloudflare Workers runs the backend API, scheduled alert cron (`*/5 * * * *`), and serves the static `frontend/` assets from the same HTTPS origin; Neon remains the PostgreSQL database. The repository includes [`wrangler.jsonc`](./wrangler.jsonc), which configures `worker/index.mjs`, `nodejs_compat`, Smart Placement, logs/traces observability, and the `ASSETS` binding for `./frontend`.
 
-1. Sign in at [Railway](https://railway.com/), create a project, and choose **Deploy from GitHub repo**. Connect `Hypian/DMCH-FEEDBACK-APP` and deploy the `main` branch from the repository root.
-2. In the Railway service's **Settings → Networking**, generate a public domain. Copy its HTTPS origin, for example `https://your-service.up.railway.app`.
-3. In the service's **Variables**, set:
-   - `NEON_DATABASE_URL` — the Neon connection string (keep it private).
-   - `BETTER_AUTH_SECRET` — a random secret of at least 32 characters.
-   - `DMC_DEVICE_HASH_SECRET` — a separate random secret of at least 32 characters.
-   - `BETTER_AUTH_URL` — the Railway HTTPS origin from step 2.
-   - `FRONTEND_ORIGIN` — the same Railway HTTPS origin from step 2.
-4. Save the variables and redeploy. Do not set `HOST` or `PORT`; Railway supplies the port, and the app listens on all interfaces by default.
-5. Open the Railway HTTPS URL. Confirm the homepage loads, then check `https://your-service.up.railway.app/api/departments` returns JSON. Use that same Railway URL for signup and survey access.
+### 1. Connect & deploy
 
-Do not copy local `.env` files into GitHub, commit them, or put database credentials in Railway frontend/static files. GitHub Pages remains a separate static deployment and will not reach this Railway backend until `DMC_API_ORIGIN` is configured for its Pages workflow.
+Choose any of these deployment paths:
+
+- **Cloudflare Workers Git integration (recommended):** In the [Cloudflare Dashboard](https://dash.cloudflare.com/), open **Workers & Pages**, connect `Hypian/DMCH-FEEDBACK-APP` (`main` branch), and use `npx wrangler deploy` as the deploy command.
+- **Wrangler CLI:** Authenticate once (`npx wrangler login`), validate the bundle with `npm run cf:dry-run`, and deploy with `npm run deploy`.
+- **GitHub Actions (manual trigger):** Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to repository **Settings → Secrets and variables → Actions**, then run the **Deploy Cloudflare Worker** workflow from the **Actions** tab.
+
+### 2. Configure variables and secrets
+
+Non-secret production defaults (`BETTER_AUTH_URL`, `FRONTEND_ORIGIN`, `SMS_PROVIDER`, `GEMINI_MODEL`, `REDACT_BEFORE_LLM`, escalation intervals, and `ALERT_INCLUDE_EXCERPT`) are committed in [`wrangler.jsonc`](./wrangler.jsonc). Update `BETTER_AUTH_URL` and `FRONTEND_ORIGIN` there if you attach a custom domain.
+
+Set all sensitive values as encrypted Worker secrets (via the Cloudflare Dashboard under **Settings → Variables and Secrets**, or with `npx wrangler secret put <NAME>`):
+
+- **Required:**
+  - `NEON_DATABASE_URL` — pooled Neon PostgreSQL connection string.
+  - `BETTER_AUTH_SECRET` — random secret of at least 32 characters.
+  - `DMC_DEVICE_HASH_SECRET` — independent random secret of at least 32 characters.
+- **AI & Alerting (production):**
+  - `GEMINI_API_KEY` — Google Gemini API key for sentiment/urgency analysis.
+  - `ALERTS_DRY_RUN` — set to `false` in production to send live SMS/email alerts (defaults to dry-run if unset).
+  - `INTOUCH_SMS_USERNAME`, `INTOUCH_SMS_PASSWORD`, `INTOUCH_SMS_SENDER` — InTouch SMS Rwanda credentials.
+  - `RESEND_API_KEY` & `EMAIL_FROM` — HTTPS email delivery via Resend (raw SMTP sockets used by Nodemailer are unavailable on Cloudflare Workers).
+  - `ALERT_FALLBACK_PHONE`, `ALERT_FALLBACK_EMAIL` — fallback duty-manager routing.
+  - `CRON_SECRET` — shared secret for manual `/api/cron/process-alerts` triggers.
+
+### 3. Local Worker development & verification
+
+1. Copy [`.dev.vars.example`](./.dev.vars.example) to `.dev.vars` (gitignored) and fill in your development secrets. `.dev.vars` overrides `BETTER_AUTH_URL` and `FRONTEND_ORIGIN` to `http://localhost:8787` so local cookies work over HTTP.
+2. Start the local Worker with `npm run dev`.
+3. After deploying, verify `https://dmch-feedback-app.dmc-resto-mis.workers.dev/api/health` returns `{"ok":true,"service":"dmch-feedback-app","runtime":"cloudflare-workers"}` and `/api/departments` returns JSON. Stream live production logs anytime with `npm run cf:tail`.
+
+Do not copy local `.env` or `.dev.vars` files into GitHub, commit them, or expose database credentials in `frontend/` static files. GitHub Pages remains a separate static deployment and will not reach the Cloudflare Worker API until `DMC_API_ORIGIN` is configured for its Pages workflow.
 
 ## Account approval and first administrator
 
@@ -62,7 +83,7 @@ Better Auth's underlying user model requires an email-shaped identifier. The app
 
 ## GitHub Pages
 
-The Pages workflow publishes the contents of `frontend/` as the site root, so `/DMCH-FEEDBACK-APP/` has an `index.html` instead of a 404. In repository **Settings → Pages**, choose **GitHub Actions** as the source. GitHub Pages only hosts static files; it does not run the Node server. Deploy the Node API separately, then add the repository Actions variable `DMC_API_ORIGIN` with its HTTPS origin (scheme and host only, no path). Configure the API host's `.env` with `BETTER_AUTH_URL` set to that API origin and `FRONTEND_ORIGIN=https://hypian.github.io`, then redeploy Pages.
+The Pages workflow publishes the contents of `frontend/` as the site root, so `/DMCH-FEEDBACK-APP/` has an `index.html` instead of a 404. In repository **Settings → Pages**, choose **GitHub Actions** as the source. GitHub Pages only hosts static files; it does not run the backend API. Deploy the Cloudflare Worker (which already serves `frontend/` and `/api/*` together from one origin), or if using GitHub Pages separately, add the repository Actions variable `DMC_API_ORIGIN` with the Worker's HTTPS origin (scheme and host only, no path), configure `FRONTEND_ORIGIN=https://hypian.github.io` on the Worker, and redeploy Pages.
 
 The frontend and API are cross-site on the default GitHub Pages domain. The app configures credentialed CORS and partitioned secure cookies for this deployment, but browser privacy settings can still block cross-site authentication. For reliable sessions, use a custom domain with frontend and API on the same site (for example, `feedback.example.com` and `api.example.com`) or host both together. Until the API is deployed and `DMC_API_ORIGIN` is configured, Pages will show the static site but database, signup, and login requests cannot work.
 
@@ -84,7 +105,7 @@ where user_id = 'BETTER_AUTH_USER_ID';
 commit;
 ```
 
-All approved users can view the dashboard; admin allowlisting is required for User Management and write operations. Supreme-admin membership is separate from dashboard access, and only an existing supreme admin can approve accounts or change roles in the app. The database connection remains on the Node server; browser requests do not contain Neon credentials.
+All approved users can view the dashboard; admin allowlisting is required for User Management and write operations. Supreme-admin membership is separate from dashboard access, and only an existing supreme admin can approve accounts or change roles in the app. The database connection remains server-side (Cloudflare Worker / local Node server); browser requests do not contain Neon credentials.
 
 ## Behavior and data notes
 

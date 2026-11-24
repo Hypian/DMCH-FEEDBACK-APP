@@ -38,7 +38,7 @@ jobs:
           API_ORIGIN: ${{ vars.DMC_API_ORIGIN }}
         run: |
           if [ -z "$API_ORIGIN" ]; then
-            echo "::warning::DMC_API_ORIGIN is unset. The static pages will deploy, but API/auth features need a deployed Node API."
+            echo "::warning::DMC_API_ORIGIN is unset. The static pages will deploy, but API/auth features need a deployed backend API (such as Cloudflare Workers)."
             printf 'window.DMC_API_ORIGIN = "";\n' > frontend/api-config.js
           elif [[ ! "$API_ORIGIN" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
             echo "::error::DMC_API_ORIGIN must be an HTTPS origin without a path."

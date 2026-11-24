@@ -1,0 +1,40 @@
+# Local Cloudflare Workers development secrets for `npm run dev` (`npx wrangler dev`).
+# Copy this file to `.dev.vars` (gitignored) and replace placeholder values.
+# For production, upload these as Worker secrets via `npx wrangler secret put <NAME>`
+# or in the Cloudflare Dashboard (Workers & Pages -> dmch-feedback-app -> Settings -> Variables and Secrets).
+#
+# Non-secret production defaults (SMS_PROVIDER, GEMINI_MODEL, REDACT_BEFORE_LLM,
+# ESCALATE_*_MINUTES, ALERT_INCLUDE_EXCERPT, and production origins) live in wrangler.jsonc.
+
+# Override wrangler.jsonc origins for local `wrangler dev` (HTTP localhost)
+BETTER_AUTH_URL=http://localhost:8787
+FRONTEND_ORIGIN=http://localhost:8787
+
+# ─── Required Core Secrets ────────────────────────────────────────────
+NEON_DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require
+BETTER_AUTH_SECRET=generate-a-random-secret-at-least-32-characters-long
+DMC_DEVICE_HASH_SECRET=generate-an-independent-random-secret-at-least-32-characters-long
+
+# ─── AI Sentiment & Urgency Analysis ──────────────────────────────────
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# ─── Alerting Engine (InTouch SMS & Resend Email) ─────────────────────
+# Keep true locally so no real SMS/emails are dispatched during testing.
+# Set to false in production Worker secrets to enable live SMS & email delivery.
+ALERTS_DRY_RUN=true
+
+# InTouch SMS (Rwanda) Credentials (https://portal.intouchsms.co.rw)
+INTOUCH_SMS_USERNAME=your-intouch-username
+INTOUCH_SMS_PASSWORD=your-intouch-password
+INTOUCH_SMS_SENDER=DMCHOSPITAL
+
+# Resend HTTPS Email API (required for email alerts on Cloudflare Workers; raw SMTP is unavailable)
+RESEND_API_KEY=
+EMAIL_FROM="DMC Hospital Feedback Alerts" <alerts@dmchospital.org>
+
+# Fallback Routing if no department contact matches
+ALERT_FALLBACK_PHONE=+250788000000
+ALERT_FALLBACK_EMAIL=duty-manager@dmchospital.org
+
+# Secret token required to invoke /api/cron/process-alerts via HTTP
+CRON_SECRET=generate-a-secure-random-token-for-cron-triggers
